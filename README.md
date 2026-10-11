@@ -713,6 +713,7 @@ Real runs found real problems. Each fix is in the code with a test or a comment.
 | A fork that timed out was bounced, costing the agent an attempt for Hive's failure | Timeouts and dropped connections requeue the change; only a missing fork is the agent's problem |
 | Parallel per-change checks rewrote `.git/config` at once and failed whole batches on its lock | Box setup runs once per container start; concurrent callers share it |
 | A bounce sent during a deploy never reached its agent, which then waited forever | The coordinator's heartbeat re-delivers bounces older than two minutes; agents ignore duplicates |
+| Hundreds of agents cloning trunk at once overloaded that one repository (500s for every clone, merge-box fetches hanging) | Only merge boxes read trunk. Agents clone their own fork, and on a retry a random fork mirror (each batch refreshes them) |
 | Git hosting returns the odd 5xx under load | The egress gateway retries reads once; simulated agents back off and redo the work |
 | Forcing git protocol v1 corrupted fetches through the egress proxy ("bad pack header") | Default protocol; the gateway asks for identity encoding and buffers bodies |
 | A container's egress policy is fixed at first interception | One static, pattern-based policy per box (`repo.*` read, own fork write); a changed policy restarts the box |

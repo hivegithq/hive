@@ -121,18 +121,27 @@ export class SimAgent extends Agent<Env, SimState> {
 		await coordinator.declareIntent(changeId, { summary: `${kind} edit by a simulated agent`, paths: [path], symbols: symbol ? [{ path, name: symbol }] : [] });
 		coordinator.recordMetric("intent_ms", Date.now() - t0);
 
-		await fs.promises.writeFile(`${DIR}/${path}`, content);
-		await git.add({ fs, dir: DIR, filepath: path });
+		// A retry can start from a fork that already has this work (it pushed, then failing to submit
+		// is what's being retried): commit only if something actually changes.
+		const current = await fs.promises.readFile(`${DIR}/${path}`, "utf8").catch(() => null);
+		if (current !== content) {
+			await fs.promises.writeFile(`${DIR}/${path}`, content);
+			await git.add({ fs, dir: DIR, filepath: path });
+			await this.commit(detail, kind, changeId, fs);
+		}
+		await step("push fork", () => git.push({ fs, http, dir: DIR, url: fork.remote, ref: "main", remoteRef: "main", force: true, onAuth: () => forkAuth }));
+
+		this.setState({ ...this.state, attempts: this.state.attempts + 1, phase: "submitted", since: Date.now() });
+		await coordinator.submit(changeId);
+	}
+
+	private async commit(detail: { change: { goalId: string; agentId: string } }, kind: SimKind, changeId: string, fs: MemoryFS) {
 		await git.commit({
 			fs,
 			dir: DIR,
 			author: AUTHOR,
 			message: `${kind}: ${changeId}\n\nHive-Change-Id: ${changeId}\nHive-Goal: ${detail.change.goalId}\nHive-Agent: ${detail.change.agentId}\nHive-Model: sim\n`,
 		});
-		await step("push fork", () => git.push({ fs, http, dir: DIR, url: fork.remote, ref: "main", remoteRef: "main", force: true, onAuth: () => forkAuth }));
-
-		this.setState({ ...this.state, attempts: this.state.attempts + 1, phase: "submitted", since: Date.now() });
-		await coordinator.submit(changeId);
 	}
 
 	// disjoint: a new module of its own. shared: one more line in a file many agents touch (textual
@@ -142,7 +151,7 @@ export class SimAgent extends Agent<Env, SimState> {
 		const name = changeId.replace(/[^a-z0-9]/gi, "_");
 		if (kind === "shared") {
 			const line = `export const ${name} = ${JSON.stringify(changeId)};\n`;
-			return { path: "shared/notes.ts", content: shared + line, symbol: name };
+			return { path: "shared/notes.ts", content: shared.includes(line) ? shared : shared + line, symbol: name };
 		}
 		const ok = kind === "broken" ? "false" : "true";
 		return { path: `agents/${changeId}.ts`, content: `export function ok(): boolean {\n\treturn ${ok};\n}\n`, symbol: "ok" };
