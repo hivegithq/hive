@@ -33,7 +33,7 @@ Hive replaces branches and pull requests with primitives designed for many concu
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.1.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/karanbalaji/hive/releases).
+**Version 1.1.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 
 ---
 

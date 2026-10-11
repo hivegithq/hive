@@ -87,5 +87,5 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
-[1.1.0]: https://github.com/karanbalaji/hive/releases/tag/v1.1.0
-[1.0.0]: https://github.com/karanbalaji/hive/releases/tag/v1.0.0
+[1.1.0]: https://github.com/hivegithq/hive/releases/tag/v1.1.0
+[1.0.0]: https://github.com/hivegithq/hive/releases/tag/v1.0.0

@@ -11,7 +11,7 @@ import { BatchDemo } from "./BatchDemo.tsx";
 import { AnyCodebase, SecurityAndPlans } from "./codebase.tsx";
 import { Join, Lifecycle, Overlaps, Problem, Race, Record, Stack } from "./sections.tsx";
 
-export const GITHUB = "https://github.com/karanbalaji/hive";
+export const GITHUB = "https://github.com/hivegithq/hive";
 export const LIVE_REPO = "scale2k";
 
 // The 2,000-agent run, as verified with a stock git clone (README, "What's been verified").
