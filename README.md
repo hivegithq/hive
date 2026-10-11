@@ -707,7 +707,13 @@ Real runs found real problems. Each fix is in the code with a test or a comment.
 | A trunk broken from outside made every change look guilty | Trunk is tested alone before blaming anyone; a red trunk requeues the batch and backs off |
 | 1,000 forks of one repo queue behind Artifacts' one-fork-at-a-time limit | A pool of up to 32 mirror repos, grown on demand and refreshed after each batch |
 | Agents appending to one file conflicted pairwise; one landed per batch, the rest escalated | Purely additive hunks (empty diff3 base) keep both sides; evidence still gates the result |
-| Each batch looked up every fork through the API before fetching | Fork URLs are derived from trunk's remote; 32 fetches run in parallel |
+| Each batch looked up every fork through the API before fetching | Fork URLs are derived from trunk's remote, no lookups |
+| Fetching 128 forks took minutes; more parallelism made it *worse* (connections dropped) | Measured in the box: fetches are CPU-bound (TLS + git, ~1 s each on half a vCPU at any parallelism). Merge boxes run on `standard-4`: 32 forks in 2–10 s, depending on load |
+| One long "prepare" call that dropped mid-way refetched every fork | Forks arrive in short, retried workflow steps; the box re-fetches refs it lost to a restart before stacking |
+| A fork that timed out was bounced, costing the agent an attempt for Hive's failure | Timeouts and dropped connections requeue the change; only a missing fork is the agent's problem |
+| Parallel per-change checks rewrote `.git/config` at once and failed whole batches on its lock | Box setup runs once per container start; concurrent callers share it |
+| A bounce sent during a deploy never reached its agent, which then waited forever | The coordinator's heartbeat re-delivers bounces older than two minutes; agents ignore duplicates |
+| Git hosting returns the odd 5xx under load | The egress gateway retries reads once; simulated agents back off and redo the work |
 | Forcing git protocol v1 corrupted fetches through the egress proxy ("bad pack header") | Default protocol; the gateway asks for identity encoding and buffers bodies |
 | A container's egress policy is fixed at first interception | One static, pattern-based policy per box (`repo.*` read, own fork write); a changed policy restarts the box |
 | Hundreds of agents on one model hit rate limits together | `ModelGate`: a per-model AIMD limiter every agent acquires before a model step |

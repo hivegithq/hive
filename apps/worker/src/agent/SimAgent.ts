@@ -28,6 +28,17 @@ const MAX_RETRIES = 5;
 const STALE_MS = 3 * 60 * 1000;
 
 const DIR = "/work";
+
+// Label errors with the step that failed, so a load test says where git hosting pushed back.
+async function step<T>(name: string, fn: () => Promise<T>): Promise<T> {
+	try {
+		return await fn();
+	} catch (err) {
+		// isomorphic-git keeps the server's response body on HttpError: that's where the reason is.
+		const body = (err as { data?: { response?: unknown } }).data?.response;
+		throw new Error(`${name}: ${err instanceof Error ? err.message : String(err)}${body ? ` (${String(body).slice(0, 300)})` : ""}`);
+	}
+}
 const AUTHOR = { name: "hive sim", email: "sim@agents.hive" };
 
 export class SimAgent extends Agent<Env, SimState> {
@@ -47,10 +58,14 @@ export class SimAgent extends Agent<Env, SimState> {
 		await this.schedule(1, "work");
 	}
 
-	// Heartbeat for a change still drafting: redo work that was lost.
+	// Heartbeat for a change still drafting: redo work that was lost, or that gave up on errors
+	// (the change is still waiting, so it's worth another round of retries).
 	async ping() {
-		if (this.state.phase !== "working" || Date.now() - this.state.since < STALE_MS) return;
-		this.setState({ ...this.state, since: Date.now() });
+		const { phase, since } = this.state;
+		if (phase === "working" && Date.now() - since < STALE_MS) return;
+		if (phase !== "working" && phase !== "failed") return;
+		if (phase === "failed" && Date.now() - since < STALE_MS) return;
+		this.setState({ ...this.state, phase: "working", since: Date.now(), retries: 0 });
 		await this.schedule(0, "work");
 	}
 
@@ -77,7 +92,7 @@ export class SimAgent extends Agent<Env, SimState> {
 			await this.schedule(Math.round(5 * 2 ** retries * (0.5 + Math.random())), "work");
 			return;
 		}
-		this.setState({ ...this.state, phase: "failed", error: String(err) });
+		this.setState({ ...this.state, phase: "failed", error: String(err), since: Date.now() });
 	}
 
 	private async run() {
@@ -87,13 +102,19 @@ export class SimAgent extends Agent<Env, SimState> {
 		if (!detail) throw new Error(`unknown change ${changeId}`);
 		const host = repoHost(this.env);
 		const fs = new MemoryFS();
-		const [fork, trunk] = await Promise.all([host.get(detail.change.fork), host.get(repo)]);
-		if (!fork || !trunk) throw new Error("fork or trunk missing");
+		// Never read trunk itself: a repository is served from one place, and a thousand agents cloning
+		// it at once is the hottest spot there is. The first attempt starts from the agent's own fork
+		// (just forked from a fresh mirror); a retry after a bounce starts from a random mirror, which
+		// every landed batch brings up to trunk.
+		const mirrors = this.state.attempts > 0 ? await coordinator.mirrors() : [];
+		const base = mirrors.length ? mirrors[Math.floor(Math.random() * mirrors.length)] : detail.change.fork;
+		const [fork, source] = await Promise.all([host.get(detail.change.fork), host.get(base)]);
+		if (!fork || !source) throw new Error(`fork or ${base} missing`);
 		const forkAuth = { username: "x", password: tokenSecret(await host.token(detail.change.fork, "write", 600)) };
-
-		// Always build the edit on current trunk (a retry after a bounce is a fresh rebase).
-		const trunkAuth = { username: "x", password: tokenSecret(await host.token(repo, "read", 600)) };
-		await git.clone({ fs, http, dir: DIR, url: trunk.remote, ref: "main", singleBranch: true, onAuth: () => trunkAuth });
+		const sourceAuth = base === fork.name ? forkAuth : { username: "x", password: tokenSecret(await host.token(base, "read", 600)) };
+		await step(`clone ${base === fork.name ? "fork" : "mirror"}`, () =>
+			git.clone({ fs, http, dir: DIR, url: source.remote, ref: "main", singleBranch: true, onAuth: () => sourceAuth }),
+		);
 
 		const { path, content, symbol } = this.edit(kind, changeId, String(await fs.promises.readFile(`${DIR}/shared/notes.ts`, "utf8").catch(() => "")));
 		const t0 = Date.now();
@@ -108,7 +129,7 @@ export class SimAgent extends Agent<Env, SimState> {
 			author: AUTHOR,
 			message: `${kind}: ${changeId}\n\nHive-Change-Id: ${changeId}\nHive-Goal: ${detail.change.goalId}\nHive-Agent: ${detail.change.agentId}\nHive-Model: sim\n`,
 		});
-		await git.push({ fs, http, dir: DIR, url: fork.remote, ref: "main", remoteRef: "main", force: true, onAuth: () => forkAuth });
+		await step("push fork", () => git.push({ fs, http, dir: DIR, url: fork.remote, ref: "main", remoteRef: "main", force: true, onAuth: () => forkAuth }));
 
 		this.setState({ ...this.state, attempts: this.state.attempts + 1, phase: "submitted", since: Date.now() });
 		await coordinator.submit(changeId);

@@ -218,7 +218,7 @@ export class RepoCoordinator extends Agent<Env> {
 		const sims = this.db
 			.exec(
 				`SELECT c.id, c.agent_id, c.status FROM changes c JOIN agents a ON a.id = c.agent_id
-				 WHERE c.status IN ('drafting','bounced') AND a.kind = 'sim' AND c.updated_at < ? LIMIT 500`,
+				 WHERE c.status IN ('drafting','bounced') AND a.kind = 'sim' AND c.updated_at < ? ORDER BY RANDOM() LIMIT 100`,
 				now() - 120_000,
 			)
 			.toArray();
