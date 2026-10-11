@@ -38,10 +38,10 @@ const describeConflicts = (refs: ReferentialConflict[]) =>
 // single race candidate through the same checks without touching trunk.
 export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 	async run(event: WorkflowEvent<LandingParams>, step: WorkflowStep) {
-		const { repo, changeIds, mode } = event.payload;
+		const { repo, changeIds, mode, slot = 0 } = event.payload;
 		const coordinator = coordinatorOf(this.ctx.exports, repo);
 		// Landings share one merge box per repo (it holds the trunk checkout); race evaluations get their own.
-		const box = mergeBoxOf(this.ctx.exports, mode === "land" ? repo : `${repo}:${changeIds[0]}`);
+		const box = mergeBoxOf(this.ctx.exports, mode === "land" ? (slot ? `${repo}#${slot}` : repo) : `${repo}:${changeIds[0]}`);
 
 		const { settings, mirrors, items } = await step.do("load batch", async () => {
 			const details = await Promise.all(changeIds.map((id) => coordinator.changeDetail(id)));
@@ -79,6 +79,16 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			});
 		}
 
+		// Fetching is done; now wait for the trunk lease. Only the holder stacks, verifies and pushes,
+		// so a pipelined batch always builds on what the batch before it landed.
+		if (mode === "land") {
+			for (let i = 0; ; i++) {
+				const held = await step.do(`acquire trunk lease ${i}`, () => coordinator.acquireLease(event.instanceId));
+				if (held) break;
+				await step.sleep(`wait for trunk ${i}`, "3 seconds");
+			}
+		}
+
 		const attempt: AttemptFn = (label, ids) =>
 			step.do(`stack and verify: ${label}`, RETRY, async () => {
 				const stack: StackResult = await box.stack(entries(ids));
@@ -96,7 +106,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 				await coordinator.requeue(items.map((i) => i.change.id));
 				await coordinator.markTrunkRed({ commit: red.commit, output: red.evidence.filter((e) => !e.ok).map((e) => e.output.slice(-1500)).join("\n\n") });
 			});
-			await step.do("finish batch", () => coordinator.batchFinished());
+			await step.do("finish batch", () => coordinator.batchFinished(event.instanceId));
 			return { landed: 0, trunkRed: red.commit };
 		}
 
@@ -146,7 +156,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 
 		if (!outcome.attempt || outcome.land.length === 0) {
 			// Nothing passed. Rejected race candidates went back to their agents to fix, like any change.
-			await step.do("finish batch", () => coordinator.batchFinished());
+			await step.do("finish batch", () => coordinator.batchFinished(event.instanceId));
 			return { landed: 0, rejected: changeIds.length - outcome.requeue.length, requeued: outcome.requeue.length };
 		}
 
@@ -219,14 +229,17 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 				const landed = approved.map((id) => ({ changeId: id, commit: pushed.tips[id], decision: verdicts[outcome.land.indexOf(id)] }));
 				const tip = pushed.push.commit;
 				await step.do("mark landed", () => coordinator.landedBatch(landed, tip));
+				// Start the next batch first: mirrors only affect new forks, so their refresh needn't block the queue.
+				await step.do("finish batch", () => coordinator.batchFinished(event.instanceId));
 				if (mirrors.length) await step.do("refresh fork mirrors", () => box.refreshMirrors());
+				return { landed: approved.length, considered: changeIds.length };
 			} else {
 				const retry = approved;
 				await step.do("requeue after failed push", () => coordinator.requeue(retry));
 			}
 		}
 
-		await step.do("finish batch", () => coordinator.batchFinished());
+		await step.do("finish batch", () => coordinator.batchFinished(event.instanceId));
 		return { landed: approved.length, considered: changeIds.length };
 	}
 

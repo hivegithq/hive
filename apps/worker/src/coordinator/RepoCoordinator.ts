@@ -30,6 +30,7 @@ export interface IntentResult {
 export interface LandingParams {
 	repo: string;
 	changeIds: string[]; // a batch for "land"; exactly one race candidate for "evaluate"
+	slot?: number; // which of the repo's pipelined merge boxes a landing batch uses
 	mode: "land" | "evaluate"; // evaluate = race candidate: gather evidence + review, don't touch trunk
 }
 
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16 };
 
 const LANDING_TIMEOUT_MS = 20 * 60 * 1000;
 const MAX_LANDING_RESTARTS = 3;
+const PIPELINE_DEPTH = 2;
 type AgentKind = "builtin" | "mcp" | "cli" | "sim";
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
 const now = () => Date.now();
@@ -90,10 +92,11 @@ export class RepoCoordinator extends Agent<Env> {
 		await this.scheduleEvery(90, "wakeAgents");
 	}
 
-	private async startLanding(changeIds: string[], mode: LandingParams["mode"]) {
+	private async startLanding(changeIds: string[], mode: LandingParams["mode"], slot = 0) {
 		// Workflow instance ids are global, so they carry the repo name.
 		const id = `${this.repo}-${mode === "land" ? "batch" : changeIds[0]}-${now()}`;
-		await landing(this.env).create({ id, params: { repo: this.repo, changeIds, mode } satisfies LandingParams });
+		if (mode === "land") this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", `slot:${id}`, String(slot));
+		await landing(this.env).create({ id, params: { repo: this.repo, changeIds, mode, slot } satisfies LandingParams });
 		const t = now();
 		for (const changeId of changeIds) {
 			this.db.exec("UPDATE changes SET landing_instance = ?, landing_mode = ?, landing_started = ? WHERE id = ?", id, mode, t, changeId);
@@ -116,7 +119,8 @@ export class RepoCoordinator extends Agent<Env> {
 			if (!stalled) {
 				try {
 					const { status } = await landing(this.env).get(instance).then((i) => i.status());
-					stalled = ["errored", "terminated", "unknown"].includes(status);
+					// "complete" with changes still converging means the batch stranded them.
+					stalled = ["errored", "terminated", "unknown", "complete"].includes(status);
 				} catch {
 					stalled = true;
 				}
@@ -132,9 +136,11 @@ export class RepoCoordinator extends Agent<Env> {
 					await this.escalated(changeId, { confidence: 1, probabilities: { escalate: 1 }, rationale: `Landing failed ${restarts - 1} times; a person should look.`, decidedBy: "hive:watchdog" }, { pump: false });
 				} else retry.push(changeId);
 			}
+			const slotRow = this.db.exec("SELECT value FROM meta WHERE key = ?", `slot:${instance}`).toArray()[0];
+			this.releaseLease(instance);
 			if (retry.length === 0) continue;
 			this.log("hive", `restarting stalled landing for ${retry.length} change(s)`);
-			await this.startLanding(retry, mode);
+			await this.startLanding(retry, mode, slotRow ? Number(slotRow.value) : 0);
 		}
 	}
 
@@ -527,15 +533,59 @@ export class RepoCoordinator extends Agent<Env> {
 
 	// Start the next batch if nothing is landing. One batch lands at a time, which keeps the
 	// coordinator the single writer to trunk; batching is what makes that single writer fast.
+	private pumping = false;
+
+	// Up to PIPELINE_DEPTH landing batches run at once, each in its own merge box: while one holds the
+	// trunk lease (stack, verify, push), the next is already fetching its forks. Only the lease holder
+	// touches trunk, so the coordinator is still trunk's single writer.
 	async pump() {
-		const landing = this.db.exec("SELECT 1 FROM changes WHERE status = 'converging' AND landing_mode = 'land' LIMIT 1").toArray();
-		if (landing.length > 0) return;
-		const { batchMax } = this.settings();
-		const batch = selectBatch(this.queued(batchMax * 4), batchMax);
-		if (batch.length === 0) return;
-		for (const id of batch) this.setStatus(id, "converging");
-		this.recordMetric("batch_size", batch.length);
-		await this.startLanding(batch, "land");
+		if (this.pumping) return;
+		this.pumping = true;
+		try {
+			for (;;) {
+				const slots = this.activeSlots();
+				if (slots.size >= PIPELINE_DEPTH) return;
+				const { batchMax } = this.settings();
+				const batch = selectBatch(this.queued(batchMax * 4), batchMax);
+				if (batch.length === 0) return;
+				const slot = [...Array(PIPELINE_DEPTH).keys()].find((s) => !slots.has(s))!;
+				for (const id of batch) this.setStatus(id, "converging");
+				this.recordMetric("batch_size", batch.length);
+				await this.startLanding(batch, "land", slot);
+			}
+		} finally {
+			this.pumping = false;
+		}
+	}
+
+	// Merge-box slots in use by landing batches that still have changes in flight.
+	private activeSlots(): Set<number> {
+		const instances = this.db
+			.exec("SELECT DISTINCT landing_instance AS i FROM changes WHERE status = 'converging' AND landing_mode = 'land' AND landing_instance IS NOT NULL")
+			.toArray()
+			.map((r) => String(r.i));
+		const slots = new Set<number>();
+		for (const i of instances) {
+			const row = this.db.exec("SELECT value FROM meta WHERE key = ?", `slot:${i}`).toArray()[0];
+			slots.add(row ? Number(row.value) : 0);
+		}
+		return slots;
+	}
+
+	// The trunk lease: whoever holds it may stack, verify and push. A holder whose batch is gone
+	// (finished, crashed) loses it to the next asker.
+	acquireLease(instanceId: string): boolean {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'trunk_lease'").toArray()[0];
+		const holder = row ? String(row.value) : null;
+		const alive = holder && this.db.exec("SELECT 1 FROM changes WHERE status = 'converging' AND landing_instance = ? LIMIT 1", holder).toArray().length > 0;
+		if (holder && holder !== instanceId && alive) return false;
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('trunk_lease', ?)", instanceId);
+		return true;
+	}
+
+	private releaseLease(instanceId: string) {
+		this.db.exec("DELETE FROM meta WHERE key = 'trunk_lease' AND value = ?", instanceId);
+		this.db.exec("DELETE FROM meta WHERE key = ?", `slot:${instanceId}`);
 	}
 
 	// The oldest queued changes, with the files their intents touch.
@@ -578,7 +628,15 @@ export class RepoCoordinator extends Agent<Env> {
 		this.db.exec("DELETE FROM meta WHERE key = 'trunk_red'");
 	}
 
-	async batchFinished() {
+	async batchFinished(instanceId?: string) {
+		// Anything this batch left converging (it shouldn't, but a crash or bug must not strand a
+		// change forever) goes back in line.
+		if (instanceId) {
+			this.releaseLease(instanceId);
+			const stranded = this.db.exec("SELECT id FROM changes WHERE status = 'converging' AND landing_instance = ?", instanceId).toArray();
+			for (const r of stranded) this.setStatus(String(r.id), "submitted");
+			if (stranded.length) this.log("hive", `${stranded.length} change(s) returned to the queue after batch ${instanceId}`);
+		}
 		// While trunk is red, re-check every two minutes instead of spinning through batches.
 		if (this.trunkRed()) await this.schedule(120, "pump");
 		else await this.pump();

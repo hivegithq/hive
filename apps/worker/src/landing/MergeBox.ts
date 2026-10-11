@@ -3,6 +3,8 @@ import { containerRemote, repoHost } from "../repo/index.ts";
 import { Box, sh } from "../sandbox/box.ts";
 
 const DIR = "/workspace/trunk";
+// Fork fetches are mostly round trips, not bandwidth, so they parallelize well.
+const FETCH_PARALLELISM = 32;
 
 // Fetch one fork's main into refs/remotes/<fork>/main (two tries); prints FAIL<tab>fork<tab>base64(err).
 const FETCH_ONE = `cd ${"$"}{DIR:-/workspace/trunk}
@@ -21,6 +23,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const STACK_SCRIPT = `set -u
 cd ${"$"}{DIR:-/workspace/trunk}
 git cherry-pick --abort >/dev/null 2>&1
+git fetch -q origin main
 git checkout -q -f -B land origin/main && git clean -qfd
 tip=$(git rev-parse HEAD)
 printf 'TRUNK\\t%s\\n' "$tip"
@@ -124,11 +127,11 @@ export class MergeBox extends DurableObject<Env> {
 		if (r.exitCode !== 0) throw new Error(`merge box setup failed: ${r.stderr || r.stdout}`);
 		if (input.forks.length === 0) return { unavailable: [] };
 
-		// Each fork is fetched on its own (8 at a time, two tries), straight into refs/remotes/<fork>/main,
+		// Each fork is fetched on its own (32 at a time, two tries), straight into refs/remotes/<fork>/main,
 		// so one bad fork can't sink the batch. Failures come back with git's error for the bounce reason.
 		await this.box.files().writeFile("/tmp/hive-forks", input.forks.map((name) => `${name} ${sibling(name)}`).join("\n") + "\n");
 		await this.box.files().writeFile("/tmp/hive-fetch-one.sh", FETCH_ONE);
-		const f = await this.run("xargs -P 8 -L 1 bash /tmp/hive-fetch-one.sh < /tmp/hive-forks", 10 * 60 * 1000);
+		const f = await this.run(`xargs -P ${FETCH_PARALLELISM} -L 1 bash /tmp/hive-fetch-one.sh < /tmp/hive-forks`, 10 * 60 * 1000);
 		const unavailable = f.stdout
 			.split("\n")
 			.filter((l) => l.startsWith("FAIL\t"))
