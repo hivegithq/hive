@@ -587,20 +587,51 @@ detection).
 
 ## What's been verified
 
-These all ran for real: Workers AI models, containers, git, Artifacts.
+All of this ran for real on Cloudflare: Workers AI models, Cloudflare Containers, Artifacts and Workflows.
 
-- **Autonomous landing in production.** Kimi K2.7 Code ran in a Cloudflare Container, forked
-  `shop` on Artifacts, declared intent on `checkout`, edited, and tested. mergiraf rebased it,
-  typecheck and tests passed, DeepSeek reviewed it, and **Clef landed it at 0.92**. Trunk advanced
-  and the semantic index refreshed.
-- **A six-agent swarm** on one repo (Kimi, locally). Four changes landed autonomously. Structural
-  overlaps were flagged before any code was written (two agents in `checkout()`). One docs change
-  was escalated because the reviewer caught a duplicate README. One change worked through a genuine
-  merge conflict over several attempts and then rebased cleanly.
+**Production swarm.** Six agents on one repo at once, across three models. Every change was
+rebased with mergiraf, typechecked, tested, reviewed, and landed by Clef with no person involved:
+
+| Goal | Model | Result |
+|---|---|---|
+| Free shipping on orders over $50 | Kimi K2.7 Code | landed, attempt 1 |
+| Cart quantities | DeepSeek V4 Pro | landed, attempt 1 |
+| Document the public API | DeepSeek V4 Pro | landed, attempt 1 |
+| Format prices with thousands separators | Kimi K2.7 Code | landed, attempt 1 |
+| Accept euro-style decimals in `parsePrice` | GLM 5.3 | landed, attempt 1 |
+| Percentage discount codes | GLM 5.3 | bounced once on a real merge conflict, agent resolved it, landed on attempt 2 |
+
+Afterwards, a stock `git clone` of the production trunk shows six commits by three models (each with
+`Hive-*` trailers). **All 24 tests pass** (the seed shipped 8; the agents added 16), and typecheck is clean.
+
+```text
+050ce57 Support percentage discount codes (e.g. SAVE10 = 10% off)   @cf/zai-org/glm-5.3
+53b1e84 parsePrice: accept euro-style decimal commas                @cf/zai-org/glm-5.3
+57fc3a3 Format large prices with thousands separators               @cf/moonshotai/kimi-k2.7-code
+39df432 Add README documenting the public API                       @cf/deepseek-ai/deepseek-v4-pro-0813
+48d95b3 Add optional quantity to cart line management               @cf/deepseek-ai/deepseek-v4-pro-0813
+6aa2a88 Free shipping on orders over $50                            @cf/moonshotai/kimi-k2.7-code
+e82a495 Shop: cart, pricing, discounts, checkout                    (seed)
+```
+
+**Production race.** Three models built *buy two, get one free* in parallel forks:
+
+| Candidate | Evidence | Review | Clef's judgment |
+|---|---|---|---|
+| GLM 5.3 | rebase ✓ typecheck ✓ tests ✓ | 0.85 | **won (p = 0.93)**, landed on trunk |
+| Kimi K2.7 Code | rebase ✓ typecheck ✓ tests ✓ | 0.81 | lost (p = 0.02), archived |
+| DeepSeek V4 Pro | rebase ✓ typecheck ✓ tests ✓ | 0.79 | lost (p = 0.04), archived |
+
+**Also verified:**
+
 - **External agents.** A CLI user claimed a goal; `hive intent --from-diff` found exactly
   `src/price.ts#formatPrice`; the change landed autonomously at Clef 0.91.
-- **Escalation.** A change Clef was 0.89 sure of, with a new agent's trust discount, went to
+- **Overlap detection.** Two agents changing `checkout()` were flagged as a structural overlap before
+  either wrote code.
+- **Escalation.** A change Clef was 0.89 sure of, discounted by a new agent's trust, went to
   *Needs you*, and landed after approval.
+- **Credential boundary.** From inside an agent container, `example.com` gets `hive outbound: not on
+  this sandbox's allowlist`, and pushes go only to the agent's own fork.
 - **Ledger.** `shop.hive` clones with stock git and contains goals, change records with
   probabilities, and full transcripts.
 
@@ -619,6 +650,7 @@ Real runs found real problems. Each fix is in the code with a test or a comment.
 | A model call in flight during a host sleep never returned | Per-step (13 min) and per-tool (10.5 min) timeouts; `restart` aborts a stuck loop |
 | A Workflow interrupted by a dev-server restart stayed "running" forever | The coordinator's heartbeat restarts landings that errored, were terminated, or exceeded 20 min |
 | Six concurrent forks of one repo: Artifacts allows one fork at a time | Forks retry `FORK_IN_PROGRESS` with backoff |
+| Reviews shared a model's quota with coding agents and hung a landing for 12+ minutes | Reviews are time-boxed and fall back to a second model; if none answers, Clef still decides on the evidence |
 | In local Docker, `host.docker.internal` bypassed the egress gateway | Containers address devhost by a hostname only the gateway resolves |
 | Workers can't compile WebAssembly at runtime, which web-tree-sitter needs | tree-sitter runs natively in Rust in the container (`hive-merge index`) |
 | Models sometimes end a turn without a tool call | Bounded nudges back to work; the agent loop runs in a fiber that checkpoints every step |

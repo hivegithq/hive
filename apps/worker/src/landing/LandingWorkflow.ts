@@ -6,6 +6,7 @@ import type { LandingParams } from "../coordinator/RepoCoordinator.ts";
 import { decideLanding, type LandingVerdict, MAX_ATTEMPTS } from "../decide/policy.ts";
 import type { EvidenceRun, PushResult, RebaseResult, ReferentialConflict } from "./MergeBox.ts";
 
+const FALLBACK_REVIEW_MODEL = "@cf/zai-org/glm-4.7-flash";
 const RETRY = { retries: { limit: 2, delay: "5 seconds", backoff: "exponential" }, timeout: "15 minutes" } as const satisfies WorkflowStepConfig;
 
 // The convergence pipeline for one change: rebase → referential check → evidence → review → decide → land/bounce.
@@ -159,21 +160,29 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		return { outcome: "escalate" };
 	}
 
-	// A written review from the review model. Clef supplies the calibrated score; this supplies the words.
+	// A written review. Clef supplies the calibrated score; this supplies the words. Reviewers share
+	// per-minute quotas with coding agents, so each call is bounded and falls back to a second model.
 	private async review(title: string, description: string, intent: string, diff: string, conflicts: string[]): Promise<{ summary: string; concerns: string[] }> {
 		const ai = createAI({ binding: this.env.AI, id: "default" });
-		const { text } = await generateText({
-			model: ai(this.env.REVIEW_MODEL as WorkersAIModelId),
-			system:
-				"You review code changes written by AI agents. Be specific and brief. Respond with JSON only: " +
-				'{"summary": "<two sentences>", "concerns": ["<concrete issue>", ...]}. Empty concerns if none.',
-			prompt: `Goal: ${title}\n${description}\n\nDeclared intent: ${intent}\n\n${conflicts.length ? `Known conflicts:\n${conflicts.join("\n")}\n\n` : ""}Diff:\n${diff.slice(0, 50000)}`,
-		});
-		try {
-			const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
-			return { summary: String(parsed.summary ?? ""), concerns: Array.isArray(parsed.concerns) ? parsed.concerns.map(String) : [] };
-		} catch {
-			return { summary: text.slice(0, 500), concerns: [] };
+		const prompt = `Goal: ${title}\n${description}\n\nDeclared intent: ${intent}\n\n${conflicts.length ? `Known conflicts:\n${conflicts.join("\n")}\n\n` : ""}Diff:\n${diff.slice(0, 50000)}`;
+		const system =
+			"You review code changes written by AI agents. Be specific and brief. Respond with JSON only: " +
+			'{"summary": "<two sentences>", "concerns": ["<concrete issue>", ...]}. Empty concerns if none.';
+		const errors: string[] = [];
+		for (const model of [this.env.REVIEW_MODEL, FALLBACK_REVIEW_MODEL]) {
+			try {
+				const { text } = await generateText({ model: ai(model as WorkersAIModelId), system, prompt, timeout: { totalMs: 120_000 }, maxRetries: 1 });
+				try {
+					const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+					return { summary: String(parsed.summary ?? ""), concerns: Array.isArray(parsed.concerns) ? parsed.concerns.map(String) : [] };
+				} catch {
+					return { summary: text.slice(0, 500), concerns: [] };
+				}
+			} catch (err) {
+				errors.push(`${model}: ${String((err as Error)?.message ?? err).slice(0, 120)}`);
+			}
 		}
+		// No written review; Clef still decides from the goal, diff and evidence.
+		return { summary: `No written review available (${errors.join("; ")}).`, concerns: [] };
 	}
 }
