@@ -32,7 +32,10 @@ Hive is one Cloudflare Worker plus a container image. Everything stateful is a D
 | API, dashboard, MCP | Worker + static assets (Vite, React) | `apps/worker/src/index.ts`, `src/web/`, `src/mcp/` |
 | Coordinator | Agents SDK `Agent` (Durable Object, SQLite) | `src/coordinator/RepoCoordinator.ts` |
 | Coding agent | `Agent` with an attached Container | `src/agent/` |
-| Merge box | Durable Object with an attached Container | `src/landing/MergeBox.ts` |
+| Merge box | Durable Object with an attached Container (`standard-4`), two per repo | `src/landing/MergeBox.ts` |
+| Batch landing | Divide-and-conquer culprit search, additive-conflict union | `src/landing/batch.ts`, `src/landing/union.ts` |
+| Fork pool | Up to 32 mirror repos per trunk, refreshed after each batch | `src/coordinator/forks.ts` |
+| Load testing | `SimAgent`: real git, real forks, no model | `src/agent/SimAgent.ts` |
 | Landing pipeline | Workflows | `src/landing/LandingWorkflow.ts` |
 | Decisions | Workers AI `@cf/cloudflare/clef-flash` | `src/decide/` |
 | Credential boundary | `WorkerEntrypoint` as the containers' outbound gateway | `src/sandbox/outbound.ts` |
@@ -58,6 +61,23 @@ only the holder of the coordinator's trunk lease verifies and pushes. The push i
 fast-forward of the exact commit the evidence ran on. If trunk moved anyway (a person pushed
 with plain git), the push fails, and the batch is restacked and re-verified once before
 anything lands.
+
+**Scale comes from spreading load, not a bigger single writer.** Trunk keeps one writer, so a
+repository's throughput is how fast one batch can be fetched, stacked and verified. Measured
+under load, the expensive parts were never git itself:
+
+- Fetching forks is CPU-bound in the merge container (TLS plus git, about a second each on half
+  a vCPU, at any parallelism). Merge boxes run on `standard-4`; two of them pipeline batches.
+- A thousand agents cloning one repository overloads it. Only merge boxes read trunk: agents
+  clone their own fork, retries clone one of 32 fork mirrors, and mirrors are refreshed from
+  trunk after every batch.
+- Long calls into a container get cut off. Forks are fetched in short, retried workflow steps,
+  and the box re-fetches anything a restart lost before it stacks.
+- Bisecting a red batch re-applied every accepted change on each attempt. Attempts now build on
+  the last verified stack.
+
+With those, one repository lands about 125 changes a minute from 2,000 agents (README, "What's
+been verified"). Every repository has its own coordinator, merge boxes and mirrors.
 
 **Credentials never enter a container.** Containers start with internet off. Every HTTP(S)
 request goes through the `Outbound` entrypoint with a per-sandbox policy: which repos, read

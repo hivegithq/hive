@@ -181,14 +181,16 @@ sequenceDiagram
     A->>R: commit with Hive trailers, push to fork
     A->>C: submit
     C->>C: queue (disjoint changes first)
-    C->>W: start landing (single writer)
-    W->>M: prepare + rebase onto trunk (mergiraf)
-    W->>M: hive-merge referential
-    W->>M: typecheck, tests, build
-    W->>X: review (DeepSeek) + Clef decision
+    C->>W: start a batch of up to batchMax changes
+    W->>M: fetch the batch's forks (short, retried steps)
+    W->>C: acquire the trunk lease (single writer)
+    W->>M: stack on trunk (mergiraf), typecheck, tests, build
+    W->>M: if red: test trunk alone, then split and retest halves
+    W->>M: hive-merge referential, per change
+    W->>X: review (DeepSeek) + Clef decision, per change
     alt land
-        W->>M: push trunk (fast-forward only)
-        W->>C: landed → reindex, ledger, next in queue
+        W->>M: push the verified tip (fast-forward only)
+        W->>C: landed → reindex, ledger, next batch
     else bounce
         W->>C: bounced(reason)
         C->>A: fix it, with the evidence
@@ -203,12 +205,12 @@ The states a change moves through:
 stateDiagram-v2
     [*] --> drafting: fork created
     drafting --> submitted: agent submits
-    submitted --> converging: next in queue
+    submitted --> converging: picked for a batch
     converging --> landed: Clef ≥ 0.85 (trust-adjusted)
     converging --> bounced: evidence failed / Clef prefers bounce / merge conflict
     converging --> escalated: Clef unsure / referential conflict / 3rd attempt
     bounced --> submitted: agent fixes + resubmits
-    escalated --> converging: person approves
+    escalated --> submitted: person approves
     escalated --> bounced: person sends back
     submitted --> converging: race candidate (evaluate only)
     converging --> evaluated: race candidate reviewed
@@ -596,9 +598,9 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`.
 apps/worker/
   cloudflare.config.ts     bindings, Durable Object + Workflow exports, containers (cf CLI config)
   src/index.ts             Hono API, auth, routing, queue consumer
-  src/coordinator/         RepoCoordinator, overlap detection, queue ordering, schema
-  src/agent/               CodingAgent, tools, prompts
-  src/landing/             LandingWorkflow, MergeBox
+  src/coordinator/         RepoCoordinator, intent index, fork pool + mirrors, schema
+  src/agent/               CodingAgent, SimAgent (load tests), ModelGate (rate limits), tools, prompts
+  src/landing/             LandingWorkflow, MergeBox, batch culprit search, additive-conflict union
   src/decide/              Clef client and landing/overlap/race policy
   src/sandbox/             Box (container helper), Outbound gateway
   src/ledger/              isomorphic-git ledger writer, in-memory FS
@@ -610,12 +612,14 @@ crates/hive-cli/           Rust: the `hive` command
 sandbox/Dockerfile         node 24 + git + mergiraf + difftastic + hive-merge + sandbox-shim
 tools/devhost/             local Artifacts stand-in
 tools/watch.ts             terminal event stream
-demo/                      seed store (TypeScript, real tests) and swarm/race/seed scripts
+tools/stats.ts             load-test poller
+demo/                      seed store and load-test seed (real tests), swarm/race/seed scripts
 docs/                      CONCEPTS, ARCHITECTURE, DEMO script
 ```
 
-Tests: `pnpm --filter @hive/worker test` (overlap detection, queue ordering, landing policy, Clef
-client, trailers) and `cargo test` (indexing in four languages, class hashing, referential
+Tests: `pnpm --filter @hive/worker test` (overlap detection, intent index at 20k intents, batch
+selection and culprit search, additive-conflict resolution, fork pool, landing policy, trailers,
+tokens) and `cargo test` (indexing in four languages, class hashing, referential
 detection).
 
 ---
@@ -657,14 +661,56 @@ e82a495 Shop: cart, pricing, discounts, checkout                    (seed)
 | Kimi K2.7 Code | rebase ✓ typecheck ✓ tests ✓ | 0.81 | lost (p = 0.02), archived |
 | DeepSeek V4 Pro | rebase ✓ typecheck ✓ tests ✓ | 0.79 | lost (p = 0.04), archived |
 
-**Scale: 1,000 simulated agents on one repository.** Load tests use `SimAgent`, which does to the
+**Scale: thousands of simulated agents on one repository.** Load tests use `SimAgent`, which does to the
 version-control system exactly what a coding agent does (fork, clone trunk, declare an intent,
 commit with trailers, push its fork, submit, fix and resubmit on a bounce) with isomorphic-git in
 memory and no model calls. Everything else is the production path: Artifacts forks, the
 coordinator, batch Workflows, merge containers, real `git`, mergiraf and `node --test` on every
 stack. The mix: 96% add their own module, 3% append to one shared file, 1% are broken on purpose.
 
-<!-- SCALE_RESULTS -->
+**The headline run (`scale2k`): 2,000 agents, one repository, nothing touched during the run.**
+
+| | |
+|---|---|
+| Landed | **1,987**: 1,916 agents' own modules and 71 appends to one shared file |
+| Escalated | **13**, exactly the 13 agents that were broken on purpose; none reached trunk |
+| Throughput | **125 landings a minute**, sustained; 2,000 agents forked, worked and landed in about 17 minutes |
+| Batches | 32, averaging 63 changes (largest 128) |
+| Submit → landed | p50 2.4 min, p95 8.3 min |
+| Fork a repo for a change | p50 16 s, p95 74 s |
+| Intent overlap check | p50 137 ms, p95 2.3 s (2,026 checks) |
+| Trunk afterwards | stock `git clone`: 1,988 commits (seed + one per change), every `Hive-Change-Id` unique, no broken module, tests pass |
+
+At that rate one repository takes about 180,000 changes a day, and every repository has its own
+coordinator, merge boxes and fork mirrors, so more repositories add capacity rather than share it.
+
+**How it got there.** Each run found the next bottleneck; each fix is in the design notes below.
+
+| Run | Agents | Landed / min | What it found |
+|---|---|---|---|
+| `swarm1k` | 1,000 | 18.5 | Fetching forks took 70% of each batch; 22 agents appending to one file escalated instead of landing (each pair conflicted) |
+| `clean1k` | 1,000 | n/a (redeployed a dozen times mid-run) | Fork fetches are CPU-bound, so more parallelism made them slower; a long fetch call was cut off and refetched everything; parallel checks raced on `.git/config` |
+| `final1k` | 1,000 | 72 until it stalled | Hundreds of agents cloning trunk at once overloaded that one repository |
+| `scale2k` | 2,000 | **125** | Nothing new: the run above |
+
+```mermaid
+flowchart LR
+    T[(trunk)] -->|refreshed after<br/>every batch| MR["32 fork mirrors<br/>repo.m-0 … m-31"]
+    MR -->|fork, one per<br/>source at a time| F["2,000 forks<br/>one per change"]
+    F -->|clone, push| AG[agents]
+    MR -.->|clone on a retry| AG
+    F -->|fetch 32 at a time| MB["merge boxes ×2<br/>standard-4, pipelined"]
+    T <-->|"read + push<br/>(trunk lease)"| MB
+```
+
+Only the merge boxes read trunk. Every agent works against its own fork, and forks come from 32
+mirrors, so no single repository sees more than a sliver of the traffic.
+
+**Where the limits are now:** a repository lands one batch at a time (that's what keeps trunk
+single-writer and verified), so per-repository throughput is set by how fast a merge box can
+fetch, stack and test a batch. Fork creation is bounded by Artifacts' one-fork-at-a-time per
+source repository; mirrors multiply that by 32. The coordinator is one Durable Object per
+repository, which is why intent checks stretch to seconds at the p95 under 2,000 agents.
 
 **Also verified:**
 

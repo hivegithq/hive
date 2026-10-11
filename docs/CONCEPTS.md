@@ -58,8 +58,10 @@ There are no merge buttons. Submitted changes enter a **convergence queue** that
 
 1. Lands changes that touch nothing anyone else is touching first, so they can't conflict
    (writ's ordering).
-2. Rebases each change onto current trunk with mergiraf as the merge driver, so conflicts
-   that are only textual (imports, adjacent edits, reordered members) resolve themselves.
+2. Takes changes in **batches**: stacks up to `batchMax` of them on current trunk with mergiraf
+   as the merge driver (so conflicts that are only textual resolve themselves, and purely
+   additive ones keep both sides), and verifies the whole stack once. A red stack is split in
+   halves until the culprits are isolated; everything else in the batch still lands.
 3. Runs `hive-merge referential` to catch the conflicts git can't see.
 4. Gathers evidence, gets a review, and asks Clef: land, bounce or escalate. Clef returns
    probabilities, not a yes/no.
@@ -68,8 +70,9 @@ There are no merge buttons. Submitted changes enter a **convergence queue** that
    with the failing evidence and conflict excerpts, and the agent fixes it and resubmits. It
    **escalates** to a person when the model isn't sure.
 
-Only the coordinator writes trunk, one change at a time, so trunk is always the result of a
-decision that is on record.
+Only the coordinator writes trunk, one batch at a time under a trunk lease, and it pushes
+exactly the commit the evidence ran on, so trunk is always the result of decisions that are on
+record.
 
 ## Race mode
 

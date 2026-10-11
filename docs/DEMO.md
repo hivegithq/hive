@@ -1,4 +1,4 @@
-# Demo script (8 minutes)
+# Demo script (9 minutes)
 
 Setup before recording: `pnpm devhost`, `pnpm dev`, `node demo/seed.ts`, dashboard open at
 `/r/shop`, a terminal with `node tools/watch.ts shop`, and a second terminal in an empty folder.
@@ -46,7 +46,20 @@ archived. "Best-of-N is a version-control primitive here, not a prompt trick."
   exactly the symbols your diff changed.
 - "Clone with git": trunk is real git; any client works.
 
-## 6. The record (7:15–8:00)
+## 6. Two thousand agents (7:15–8:15)
+
+Before recording, start a load test on a fresh repo (deployed, `decider: "evidence"`,
+`batchMax: 128`; see the README's "Load test it yourself"), and record its dashboard from the
+start. Speed it up in the edit.
+
+- The strip board fills: thousands of agents, each with its own fork, landing in batches of up
+  to 128. `node tools/stats.ts` beside it: about 125 landings a minute on one repository.
+- Point at the escalations: exactly the agents that were broken on purpose. "A batch that fails
+  gets split until the culprit is found; everyone else in the batch still lands."
+- `git clone` the trunk: one commit per landed change, every one with its `Hive-Change-Id`, and
+  the tests pass. "It's still just git."
+
+## 7. The record (8:15–9:00)
 
 `git clone` the `shop.hive` ledger repo: goals, intents, evidence, reviews, decisions, full agent
 transcripts, as JSON in git. "Years from now, `git log` tells you what changed, and the ledger
