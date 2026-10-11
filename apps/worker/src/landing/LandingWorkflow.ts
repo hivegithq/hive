@@ -8,6 +8,7 @@ import type { Change, Goal, Intent } from "../domain/types.ts";
 import { type AttemptFn, evidenceOk, findLandable } from "./batch.ts";
 import type { EvidenceRun, PushResult, ReferentialConflict, StackEntry, StackResult } from "./MergeBox.ts";
 
+const FETCH_CHUNK = 32;
 const FALLBACK_REVIEW_MODEL = "@cf/zai-org/glm-4.7-flash";
 const RETRY = { retries: { limit: 2, delay: "5 seconds", backoff: "exponential" }, timeout: "15 minutes" } as const satisfies WorkflowStepConfig;
 
@@ -52,21 +53,25 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		const entries = (ids: string[]): StackEntry[] => ids.map((id) => ({ changeId: id, fork: byId.get(id)!.change.fork }));
 		const race = mode === "evaluate" ? items[0]?.change.race : null;
 
-		const { unavailable } = await step.do("prepare merge box", RETRY, () =>
-			box.prepare({
-				repo,
-				forks: items.map((i) => i.change.fork),
-				canPush: mode === "land",
-				previewRepo: race ? `${repo}.preview` : undefined,
-				mirrors,
-			}),
-		);
+		await step.do("prepare merge box", RETRY, () => box.prepare({ repo, canPush: mode === "land", mirrors }));
+		// Forks arrive in short steps: one dropped connection costs a chunk, not the whole batch.
+		const forks = items.map((i) => i.change.fork);
+		const unavailable: { fork: string; error: string }[] = [];
+		for (let i = 0; i < forks.length; i += FETCH_CHUNK) {
+			const chunk = forks.slice(i, i + FETCH_CHUNK);
+			unavailable.push(...(await step.do(`fetch forks ${i}`, RETRY, () => box.fetchForks(chunk))).unavailable);
+		}
 
+		// A fork that's missing or has no main is the agent's to fix; a timeout or dropped connection
+		// is ours, so those changes go back in the queue without costing the agent an attempt.
 		const unreachable = new Map(unavailable.map((u) => [u.fork, u.error]));
+		const agentsFault = (err: string) => /not found|couldn't find remote ref|does not appear to be a git repository|\b40[34]\b/i.test(err);
 		const ready = items.filter((i) => !unreachable.has(i.change.fork)).map((i) => i.change.id);
-		if (unreachable.size) {
+		const transient = items.filter((i) => unreachable.has(i.change.fork) && !agentsFault(unreachable.get(i.change.fork)!)).map((i) => i.change.id);
+		if (transient.length) await step.do("requeue forks that didn't fetch", () => coordinator.requeue(transient));
+		if (unreachable.size > transient.length) {
 			await step.do("bounce unreachable forks", async () => {
-				for (const item of items.filter((i) => unreachable.has(i.change.fork))) {
+				for (const item of items.filter((i) => unreachable.has(i.change.fork) && !transient.includes(i.change.id))) {
 					await this.reject(coordinator, item, {
 						outcome: "bounce",
 						confidence: 1,

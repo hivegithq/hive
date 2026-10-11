@@ -4,14 +4,19 @@ import { Box, sh } from "../sandbox/box.ts";
 import { UNION_SCRIPT } from "./union.ts";
 
 const DIR = "/workspace/trunk";
-// Fork fetches are mostly round trips, not bandwidth, so they parallelize well.
-const FETCH_PARALLELISM = 32;
+// Fork fetches cost about a second of CPU each (TLS through the egress gateway, then git). Measured
+// in a merge box, 13 forks: 13.4 s on standard-1 at any parallelism, 4.9 s on standard-4.
+const FETCH_PARALLELISM = 16;
 
-// Fetch one fork's main into refs/remotes/<fork>/main (two tries); prints FAIL<tab>fork<tab>base64(err).
+// Fetch one fork's main into refs/remotes/<fork>/main (two tries, each time-boxed so one stuck
+// connection can't hold the whole batch); prints MS<tab>fork<tab>millis, or FAIL<tab>fork<tab>base64(err).
 const FETCH_ONE = `cd ${"$"}{DIR:-/workspace/trunk}
-name="$1"; url="$2"
+name="$1"; url="$2"; t0=$(date +%s%3N)
 for try in 1 2; do
-  if err=$(git fetch -q "$url" "+refs/heads/main:refs/remotes/$name/main" 2>&1); then exit 0; fi
+  if err=$(timeout 120 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 -c gc.auto=0 -c maintenance.auto=false -c fetch.writeCommitGraph=false fetch -q --no-tags --no-auto-gc --no-write-fetch-head "$url" "+refs/heads/main:refs/remotes/$name/main" 2>&1); then
+    printf 'MS\\t%s\\t%s\\n' "$name" "$(( $(date +%s%3N) - t0 ))"; exit 0
+  fi
+  [ -z "$err" ] && err="timed out after 120s"
   sleep 1
 done
 printf 'FAIL\\t%s\\t%s\\n' "$name" "$(printf '%s' "$err" | base64 -w0)"
@@ -66,6 +71,13 @@ while read -r id fork; do
 done
 `;
 
+interface BoxConfig {
+	repo: string;
+	trunkRemote: string; // as the container addresses it
+	canPush: boolean;
+	mirrors: string[];
+}
+
 export interface StackEntry {
 	changeId: string;
 	fork: string; // Artifacts repo name, also used as the git remote name
@@ -105,61 +117,111 @@ export interface ReferentialConflict {
 // A container with a trunk checkout. Builds a stack of changes on top of trunk (mergiraf as the merge
 // driver), produces evidence for the whole stack at once, and performs the single push to trunk.
 export class MergeBox extends DurableObject<Env> {
-	private box = new Box(this.ctx, (policy) => this.ctx.exports.Outbound({ props: policy }));
+	// Four vCPUs: fetching forks is CPU-bound (TLS and git per fork), and a repo has only a couple of
+	// merge boxes, so they're where landing throughput is decided.
+	private box = new Box(this.ctx, (policy) => this.ctx.exports.Outbound({ props: policy }), "standard-4");
 
 	private run(command: string, timeoutMs?: number) {
 		return this.box.run(command, { cwd: DIR, timeoutMs });
 	}
 
-	// Check out trunk and fetch every fork in the batch as its own remote.
-	// Returns the forks that couldn't be fetched; their changes are bounced rather than failing the batch.
-	async prepare(input: { repo: string; forks: string[]; canPush: boolean; previewRepo?: string; mirrors?: string[] }): Promise<{ unavailable: { fork: string; error: string }[] }> {
-		const trunk = await repoHost(this.env).get(input.repo);
-		if (!trunk) throw new Error(`trunk ${input.repo} missing`);
-		// Sibling repos share trunk's remote layout, so their URLs need no lookups (one per fork
-		// would spend the namespace's control-plane budget on every batch).
-		const trunkRemote = containerRemote(this.env, trunk.remote);
-		const sibling = (name: string) => trunkRemote.replace(new RegExp(`/${escapeRe(input.repo)}\\.git$`), `/${name}.git`);
+	// What this box serves, kept in storage so a restarted object or container can set itself up again.
+	private config: BoxConfig | null = null;
 
+	private async cfg(): Promise<BoxConfig> {
+		this.config ??= (await this.ctx.storage.get<BoxConfig>("config")) ?? null;
+		if (!this.config) throw new Error("merge box was never prepared");
+		return this.config;
+	}
+
+	// Sibling repos share trunk's remote layout, so their URLs need no lookups (one per fork
+	// would spend the namespace's control-plane budget on every batch).
+	private sibling(c: BoxConfig, name: string) {
+		return c.trunkRemote.replace(new RegExp(`/${escapeRe(c.repo)}\\.git$`), `/${name}.git`);
+	}
+
+	// The container running, under its policy, with trunk checked out. Cheap when it already is.
+	private async ready(): Promise<BoxConfig> {
+		const c = await this.cfg();
 		// A static, pattern-based policy: the same for every batch this box ever runs.
-		const write = input.canPush ? ("write" as const) : ("read" as const);
 		await this.box.ensure({
 			repos: [
-				{ name: input.repo, scope: write },
-				{ name: `${input.repo}.m-*`, scope: write },
-				{ name: `${input.repo}.preview`, scope: "write" },
-				{ name: `${input.repo}.*`, scope: "read" },
+				{ name: c.repo, scope: c.canPush ? "write" : "read" },
+				{ name: `${c.repo}.m-*`, scope: c.canPush ? "write" : "read" },
+				{ name: `${c.repo}.preview`, scope: "write" },
+				{ name: `${c.repo}.*`, scope: "read" },
 			],
 			hosts: ["registry.npmjs.org"],
 		});
-		this.mirrorRemotes = Object.fromEntries((input.mirrors ?? []).map((name) => [name, sibling(name)]));
 		const r = await this.box.run(
 			`set -e
-			if [ ! -d ${DIR}/.git ]; then git clone -q ${sh(trunkRemote)} ${DIR}; fi
+			if [ ! -d ${DIR}/.git ]; then git clone -q ${sh(c.trunkRemote)} ${DIR}; fi
 			cd ${DIR}
-			git cherry-pick --abort 2>/dev/null || true
-			git rebase --abort 2>/dev/null || true
-			git remote set-url origin ${sh(trunkRemote)}
-			git fetch -q origin main`,
+			git config gc.auto 0; git config maintenance.auto false
+			git remote set-url origin ${sh(c.trunkRemote)}`,
 			{ timeoutMs: 10 * 60 * 1000 },
 		);
 		if (r.exitCode !== 0) throw new Error(`merge box setup failed: ${r.stderr || r.stdout}`);
-		if (input.forks.length === 0) return { unavailable: [] };
+		return c;
+	}
 
-		// Each fork is fetched on its own (32 at a time, two tries), straight into refs/remotes/<fork>/main,
-		// so one bad fork can't sink the batch. Failures come back with git's error for the bounce reason.
-		await this.box.files().writeFile("/tmp/hive-forks", input.forks.map((name) => `${name} ${sibling(name)}`).join("\n") + "\n");
+	// Check out current trunk and forget forks from earlier batches. Forks are fetched separately
+	// (fetchForks), a few at a time, so no single call runs long enough to be cut off.
+	async prepare(input: { repo: string; canPush: boolean; mirrors?: string[] }): Promise<void> {
+		const trunk = await repoHost(this.env).get(input.repo);
+		if (!trunk) throw new Error(`trunk ${input.repo} missing`);
+		const c: BoxConfig = { repo: input.repo, trunkRemote: containerRemote(this.env, trunk.remote), canPush: input.canPush, mirrors: input.mirrors ?? [] };
+		this.config = c;
+		await this.ctx.storage.put("config", c);
+		const prepStart = Date.now();
+		await this.ready();
+		console.log(`merge box: ready in ${Date.now() - prepStart}ms`);
+		const r = await this.run(
+			`git cherry-pick --abort 2>/dev/null; git rebase --abort 2>/dev/null
+			# Thousands of stale fork refs slow every fetch.
+			git for-each-ref --format='delete %(refname)' refs/remotes | { grep -v ' refs/remotes/origin/' || true; } | git update-ref --stdin
+			git fetch -q origin main`,
+			10 * 60 * 1000,
+		);
+		if (r.exitCode !== 0) throw new Error(`merge box setup failed: ${r.stderr || r.stdout}`);
+	}
+
+	// Fetch forks into refs/remotes/<fork>/main. Returns the ones that couldn't be fetched, with git's error.
+	async fetchForks(forks: string[]): Promise<{ unavailable: { fork: string; error: string }[] }> {
+		const c = await this.ready();
+		if (forks.length === 0) return { unavailable: [] };
+		await this.box.files().writeFile("/tmp/hive-forks", forks.map((name) => `${name} ${this.sibling(c, name)}`).join("\n") + "\n");
 		await this.box.files().writeFile("/tmp/hive-fetch-one.sh", FETCH_ONE);
+		const fetchStart = Date.now();
 		const f = await this.run(`xargs -P ${FETCH_PARALLELISM} -L 1 bash /tmp/hive-fetch-one.sh < /tmp/hive-forks`, 10 * 60 * 1000);
 		const unavailable = f.stdout
 			.split("\n")
 			.filter((l) => l.startsWith("FAIL\t"))
 			.map((l) => {
 				const [, fork, err] = l.split("\t");
-				return { fork, error: err ? new TextDecoder().decode(Uint8Array.from(atob(err), (c) => c.charCodeAt(0))).trim().slice(-500) : "unknown" };
+				return { fork, error: err ? new TextDecoder().decode(Uint8Array.from(atob(err), (ch) => ch.charCodeAt(0))).trim().slice(-500) : "unknown" };
 			});
-		if (unavailable.length) console.warn(`merge box: ${unavailable.length}/${input.forks.length} forks unavailable`, unavailable.slice(0, 3));
+		const ms = f.stdout
+			.split("\n")
+			.filter((l) => l.startsWith("MS\t"))
+			.map((l) => Number(l.split("\t")[2]))
+			.sort((a, b) => a - b);
+		console.log(
+			`merge box: fetched ${ms.length}/${forks.length} forks in ${Date.now() - fetchStart}ms` + (ms.length ? ` (each p50 ${ms[ms.length >> 1]}ms, max ${ms.at(-1)}ms)` : ""),
+			unavailable.slice(0, 2),
+		);
 		return { unavailable };
+	}
+
+	// Forks the container doesn't have (it restarted since they were fetched) are fetched again.
+	private async ensureForks(forks: string[]) {
+		await this.ready();
+		const list = forks.map((f) => sh(`refs/remotes/${f}/main`)).join(" ");
+		const r = await this.run(`for r in ${list}; do git rev-parse -q --verify "$r" >/dev/null || echo "$r"; done`);
+		const missing = r.stdout.split("\n").filter(Boolean).map((ref) => ref.replace(/^refs\/remotes\//, "").replace(/\/main$/, ""));
+		if (missing.length === 0) return;
+		const { unavailable } = await this.fetchForks(missing);
+		if (unavailable.length) throw new Error(`couldn't re-fetch ${unavailable.length} forks: ${unavailable[0].fork}: ${unavailable[0].error}`);
 	}
 
 	// Stack each change's own commits (merge-base..fork) onto trunk, in order. Changes that don't
@@ -168,6 +230,7 @@ export class MergeBox extends DurableObject<Env> {
 	// With `onto`, the changes go on top of that commit (an earlier verified stack in this
 	// container) instead of trunk; returns null if the container no longer has it.
 	async stack(entries: StackEntry[], onto?: string): Promise<StackResult | null> {
+		await this.ensureForks(entries.map((e) => e.fork));
 		await this.box.files().writeFile("/tmp/hive-stack.sh", STACK_SCRIPT);
 		await this.box.files().writeFile("/tmp/hive-union.cjs", UNION_SCRIPT);
 		await this.box.files().writeFile("/tmp/hive-stack.in", entries.map((e) => `${e.changeId} ${e.fork}`).join("\n") + "\n");
@@ -213,6 +276,7 @@ export class MergeBox extends DurableObject<Env> {
 	// vai's third conflict level, per change: did trunk change code that calls what this change
 	// modified (or vice versa) since the change's base?
 	async referential(fork: string): Promise<ReferentialConflict[]> {
+		await this.ensureForks([fork]);
 		const ref = sh(`${fork}/main`);
 		const base = (await this.run(`git merge-base origin/main ${ref}`)).stdout.trim();
 		const r = await this.run(`hive-merge referential --base ${sh(base)} --trunk origin/main --change ${ref} --json`);
@@ -226,7 +290,7 @@ export class MergeBox extends DurableObject<Env> {
 
 	// The semantic graph of trunk at a commit, built natively by hive-merge (tree-sitter).
 	async index(input: { repo: string; commit: string }): Promise<SemanticIndex> {
-		await this.prepare({ repo: input.repo, forks: [], canPush: false });
+		await this.prepare({ repo: input.repo, canPush: false });
 		const r = await this.run(`hive-merge index --rev ${sh(input.commit)}`, 5 * 60 * 1000);
 		if (r.exitCode !== 0) throw new Error(`hive-merge index failed: ${r.stderr}`);
 		return JSON.parse(r.stdout) as SemanticIndex;
@@ -266,12 +330,11 @@ export class MergeBox extends DurableObject<Env> {
 		return { ok: true, commit };
 	}
 
-	private mirrorRemotes: Record<string, string> = {};
-
 	// Bring every fork mirror up to trunk, so new changes fork from current code.
 	async refreshMirrors(): Promise<{ refreshed: number; failed: string[] }> {
 		const failed: string[] = [];
-		const entries = Object.entries(this.mirrorRemotes).filter(([, remote]) => remote);
+		const c = await this.ready();
+		const entries = c.mirrors.map((name) => [name, this.sibling(c, name)] as const);
 		await Promise.all(
 			entries.map(async ([name, remote]) => {
 				const r = await this.run(`git push -q --force ${sh(remote)} origin/main:refs/heads/main 2>&1`);

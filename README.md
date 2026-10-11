@@ -540,6 +540,23 @@ second argument.
 | `AI` | | Workers AI (agents, review, Clef) |
 | `LANDING` | Workflow `hive-landing` | The landing pipeline |
 
+### Load test it yourself
+
+No model calls, so it costs only Workers, Containers and Artifacts usage:
+
+```bash
+export HIVE_TOKEN=... H=https://<your-worker>.workers.dev
+SEED=seed-load node demo/seed.ts load1 $H                     # a repo whose tests check every agent's module
+curl -X POST $H/api/repos/load1/settings -H "authorization: Bearer $HIVE_TOKEN" \
+  -H 'content-type: application/json' -d '{"decider":"evidence","batchMax":128}'
+curl -X POST $H/api/repos/load1/loadtest -H "authorization: Bearer $HIVE_TOKEN" \
+  -H 'content-type: application/json' -d '{"agents":1000,"waveSize":100,"sharedRate":0.03,"brokenRate":0.01}'
+node tools/stats.ts load1 $H 20                               # poll until it settles
+```
+
+`decider: "evidence"` lands on tests alone. With the default `clef`, every change also gets a
+model review and a Clef decision, which is right for real agents and pointless for simulated ones.
+
 ---
 
 ## API reference
@@ -564,6 +581,9 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`.
 | `POST` | `/api/repos/:repo/changes/:change/restart` | Restart a built-in agent |
 | `POST` | `/api/repos/:repo/changes/:change/abandon` | Archive a change, release its intent |
 | `POST` | `/api/repos/:repo/races/:group/winner` | A person picks the race winner |
+| `POST` | `/api/repos/:repo/settings` | `decider` (`clef` or `evidence`), `batchMax` (1–256) |
+| `POST` | `/api/repos/:repo/loadtest` | Spawn simulated agents: `agents`, `waveSize`, `sharedRate`, `brokenRate` |
+| `GET` | `/api/repos/:repo/stats` | Landings per minute, queue wait, fork and intent-check latency, batch sizes |
 | `GET` | `/api/agents/:agent/transcript` | Agent transcript |
 | `WS` | `/agents/coordinator/:repo` | Live events (snapshot, then every change, intent, decision, log line) |
 | `POST` | `/mcp` | MCP (streamable HTTP) |
@@ -637,6 +657,15 @@ e82a495 Shop: cart, pricing, discounts, checkout                    (seed)
 | Kimi K2.7 Code | rebase ✓ typecheck ✓ tests ✓ | 0.81 | lost (p = 0.02), archived |
 | DeepSeek V4 Pro | rebase ✓ typecheck ✓ tests ✓ | 0.79 | lost (p = 0.04), archived |
 
+**Scale: 1,000 simulated agents on one repository.** Load tests use `SimAgent`, which does to the
+version-control system exactly what a coding agent does (fork, clone trunk, declare an intent,
+commit with trailers, push its fork, submit, fix and resubmit on a bounce) with isomorphic-git in
+memory and no model calls. Everything else is the production path: Artifacts forks, the
+coordinator, batch Workflows, merge containers, real `git`, mergiraf and `node --test` on every
+stack. The mix: 96% add their own module, 3% append to one shared file, 1% are broken on purpose.
+
+<!-- SCALE_RESULTS -->
+
 **Also verified:**
 
 - **External agents.** A CLI user claimed a goal; `hive intent --from-diff` found exactly
@@ -670,6 +699,18 @@ Real runs found real problems. Each fix is in the code with a test or a comment.
 | Workers can't compile WebAssembly at runtime, which web-tree-sitter needs | tree-sitter runs natively in Rust in the container (`hive-merge index`) |
 | Models sometimes end a turn without a tool call | Bounded nudges back to work; the agent loop runs in a fiber that checkpoints every step |
 | A docs agent declared every symbol it *documented* | Prompt: declare only what you'll **modify**; intents are how others learn what you're changing |
+| One landing at a time capped a repo at a few changes a minute | Batches stack up to `batchMax` changes and verify once; two batches pipeline under a trunk lease |
+| A failing batch landed one change per batch (prefix search) | Divide and conquer: keep every half that passes, so k culprits cost about k·log₂(n) runs |
+| Each culprit-search step re-applied every accepted change from trunk | Attempts build on the last verified stack and pick only the new candidates |
+| The push sent the last *attempted* stack, so a failing tip reached trunk once | Only the exact verified commit is pushed (`box.push(verifiedTip)` checks it exists) |
+| Two pumps raced on an `await` and started overlapping batches | Synchronous status claim under a pump lock; slots and a trunk lease make pipelining explicit |
+| A trunk broken from outside made every change look guilty | Trunk is tested alone before blaming anyone; a red trunk requeues the batch and backs off |
+| 1,000 forks of one repo queue behind Artifacts' one-fork-at-a-time limit | A pool of up to 32 mirror repos, grown on demand and refreshed after each batch |
+| Agents appending to one file conflicted pairwise; one landed per batch, the rest escalated | Purely additive hunks (empty diff3 base) keep both sides; evidence still gates the result |
+| Each batch looked up every fork through the API before fetching | Fork URLs are derived from trunk's remote; 32 fetches run in parallel |
+| Forcing git protocol v1 corrupted fetches through the egress proxy ("bad pack header") | Default protocol; the gateway asks for identity encoding and buffers bodies |
+| A container's egress policy is fixed at first interception | One static, pattern-based policy per box (`repo.*` read, own fork write); a changed policy restarts the box |
+| Hundreds of agents on one model hit rate limits together | `ModelGate`: a per-model AIMD limiter every agent acquires before a model step |
 
 ---
 

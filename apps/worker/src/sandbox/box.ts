@@ -9,6 +9,8 @@ export interface OutboundPolicy {
 	hosts: string[]; // extra hosts allowed straight through, e.g. the npm registry
 }
 
+export type Instance = "lite" | "standard-1" | "standard-2" | "standard-3" | "standard-4";
+
 export interface RunResult {
 	exitCode: number;
 	stdout: string;
@@ -23,9 +25,11 @@ const TRUST_ENV = { NODE_EXTRA_CA_CERTS: CA, GIT_SSL_CAINFO: CA, CURL_CA_BUNDLE:
 export class Box {
 	private readonly ctx: DurableObjectState;
 	private readonly outbound: (policy: OutboundPolicy) => Fetcher;
-	constructor(ctx: DurableObjectState, outbound: (policy: OutboundPolicy) => Fetcher) {
+	private readonly instance: Instance;
+	constructor(ctx: DurableObjectState, outbound: (policy: OutboundPolicy) => Fetcher, instance: Instance = "standard-1") {
 		this.ctx = ctx;
 		this.outbound = outbound;
+		this.instance = instance;
 	}
 
 	private get container(): Container {
@@ -48,7 +52,7 @@ export class Box {
 		if (this.policyKey === key && c.running) return;
 		this.policyKey = key;
 		if (!c.running) {
-			c.start({ image: c.images.sandbox, enableInternet: false, instance: "standard-1" });
+			c.start({ image: c.images.sandbox, enableInternet: false, instance: this.instance });
 		}
 		await this.waitUntilReady(c);
 		const gateway = this.outbound(policy);

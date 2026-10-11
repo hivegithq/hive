@@ -25,7 +25,20 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 			// decodes one side and leaves the encoding header on it.
 			headers.set("accept-encoding", "identity");
 			const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
-			const upstream = await fetch(this.upstream(url), { method: request.method, headers, body, redirect: "manual" });
+			// Reads (ref discovery, upload-pack) are safe to resend once if the connection drops; pushes are not.
+			const send = () => fetch(this.upstream(url), { method: request.method, headers, body, redirect: "manual" });
+			let upstream: Response;
+			try {
+				upstream = await send();
+			} catch (err) {
+				if (isPush) throw err;
+				await new Promise((r) => setTimeout(r, 250));
+				upstream = await send();
+			}
+			if (upstream.status >= 500 && !isPush) {
+				await new Promise((r) => setTimeout(r, 500));
+				upstream = await send();
+			}
 			if (!upstream.ok) console.warn(`hive outbound: ${request.method} ${repo}${url.pathname.slice(url.pathname.lastIndexOf("/"))} → ${upstream.status}`);
 			return upstream;
 		}

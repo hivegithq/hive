@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { agentOf, coordinatorOf } from "./bindings.ts";
+import { agentOf, coordinatorOf, simOf } from "./bindings.ts";
 import { handleMcp } from "./mcp/server.ts";
 import { authenticatedRemote, parseTrailers, repoHost } from "./repo/index.ts";
 
@@ -155,6 +155,8 @@ app.post("/api/repos/:repo/changes/:changeId/decision", async (c) => {
 	await coordinator(c.executionCtx.exports, c.req.param("repo")).humanDecision(c.req.param("changeId"), outcome, by, note);
 	return c.json({ ok: true });
 });
+
+app.get("/api/sims/:agentId", async (c) => c.json(await simOf(c.executionCtx.exports, c.req.param("agentId")).status()));
 
 app.get("/api/agents/:agentId/transcript", async (c) =>
 	c.body(await agentOf(c.executionCtx.exports, c.req.param("agentId")).transcript(), 200, { "content-type": "application/json" }),

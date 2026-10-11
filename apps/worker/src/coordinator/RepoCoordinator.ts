@@ -212,6 +212,22 @@ export class RepoCoordinator extends Agent<Env> {
 			.exec("SELECT c.agent_id FROM changes c JOIN agents a ON a.id = c.agent_id WHERE c.status IN ('drafting','bounced') AND a.kind = 'builtin'")
 			.toArray();
 		await Promise.all(rows.map((r) => agentOf(this.ctx.exports, String(r.agent_id)).ping().catch(() => null)));
+
+		// Simulated agents get their bounce again if it may have been lost (they ignore duplicates),
+		// and a nudge if their change has been drafting a while.
+		const sims = this.db
+			.exec(
+				`SELECT c.id, c.agent_id, c.status FROM changes c JOIN agents a ON a.id = c.agent_id
+				 WHERE c.status IN ('drafting','bounced') AND a.kind = 'sim' AND c.updated_at < ? LIMIT 500`,
+				now() - 120_000,
+			)
+			.toArray();
+		await Promise.all(
+			sims.map((r) => {
+				const sim = simOf(this.ctx.exports, String(r.agent_id));
+				return (r.status === "bounced" ? sim.onBounced("redelivered") : sim.ping()).catch(() => null);
+			}),
+		);
 	}
 
 	onConnect(connection: Connection) {

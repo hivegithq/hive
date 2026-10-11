@@ -18,23 +18,40 @@ interface SimState {
 	attempts: number;
 	phase: "idle" | "working" | "submitted" | "done" | "failed";
 	error: string | null;
+	since: number; // when the current phase began
+	retries?: number; // transient failures retried so far
 }
+
+const MAX_RETRIES = 5;
+
+// Work that hasn't finished in this long was lost (an eviction or a deploy) and may be redone.
+const STALE_MS = 3 * 60 * 1000;
 
 const DIR = "/work";
 const AUTHOR = { name: "hive sim", email: "sim@agents.hive" };
 
 export class SimAgent extends Agent<Env, SimState> {
-	initialState: SimState = { repo: "", changeId: "", kind: "disjoint", attempts: 0, phase: "idle", error: null };
+	initialState: SimState = { repo: "", changeId: "", kind: "disjoint", attempts: 0, phase: "idle", error: null, since: 0 };
 
 	async start(input: { repo: string; changeId: string; kind: SimKind }) {
-		this.setState({ ...this.initialState, ...input, phase: "working" });
+		this.setState({ ...this.initialState, ...input, phase: "working", since: Date.now() });
 		await this.schedule(0, "work");
 	}
 
+	// Bounces can be delivered twice (the coordinator's heartbeat re-sends ones that may have been
+	// lost), so a delivery while fresh work is under way is ignored.
 	async onBounced(_reason: string) {
+		if (this.state.phase === "working" && Date.now() - this.state.since < STALE_MS) return;
 		if (this.state.attempts >= 3) return this.setState({ ...this.state, phase: "failed", error: "bounced too often" });
-		this.setState({ ...this.state, phase: "working" });
+		this.setState({ ...this.state, phase: "working", since: Date.now(), retries: 0 });
 		await this.schedule(1, "work");
+	}
+
+	// Heartbeat for a change still drafting: redo work that was lost.
+	async ping() {
+		if (this.state.phase !== "working" || Date.now() - this.state.since < STALE_MS) return;
+		this.setState({ ...this.state, since: Date.now() });
+		await this.schedule(0, "work");
 	}
 
 	onLanded(_commit: string) {
@@ -43,8 +60,24 @@ export class SimAgent extends Agent<Env, SimState> {
 
 	release() {}
 
+	status(): SimState {
+		return this.state;
+	}
+
 	async work() {
-		this.ctx.waitUntil(this.keepAliveWhile(() => this.run()).catch((err) => this.setState({ ...this.state, phase: "failed", error: String(err) })));
+		this.ctx.waitUntil(this.keepAliveWhile(() => this.run()).catch((err) => this.failed(err)));
+	}
+
+	// Under load, git hosting answers with the odd 5xx or dropped connection. Back off and redo the
+	// work (it starts from a fresh clone, so it's safe to repeat) before giving up.
+	private async failed(err: unknown) {
+		const retries = (this.state.retries ?? 0) + 1;
+		if (retries <= MAX_RETRIES && /\b5\d\d\b|network|connection|timed? ?out|reset/i.test(String(err))) {
+			this.setState({ ...this.state, retries, error: String(err), since: Date.now() });
+			await this.schedule(Math.round(5 * 2 ** retries * (0.5 + Math.random())), "work");
+			return;
+		}
+		this.setState({ ...this.state, phase: "failed", error: String(err) });
 	}
 
 	private async run() {
@@ -77,7 +110,7 @@ export class SimAgent extends Agent<Env, SimState> {
 		});
 		await git.push({ fs, http, dir: DIR, url: fork.remote, ref: "main", remoteRef: "main", force: true, onAuth: () => forkAuth });
 
-		this.setState({ ...this.state, attempts: this.state.attempts + 1, phase: "submitted" });
+		this.setState({ ...this.state, attempts: this.state.attempts + 1, phase: "submitted", since: Date.now() });
 		await coordinator.submit(changeId);
 	}
 
