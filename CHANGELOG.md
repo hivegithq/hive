@@ -2,6 +2,11 @@
 
 All notable changes to Hive. Versions follow [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+- Hive lives at **hivegit.dev** (the workers.dev address keeps working).
+
 ## [1.1.0] - 2026-10-11
 
 Hive works on any codebase: bring a repository in from GitHub, check it in its own language,

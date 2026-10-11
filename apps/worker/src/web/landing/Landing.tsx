@@ -200,7 +200,11 @@ function Footer() {
 					<a href={`${GITHUB}/releases`} className="font-mono text-kumo-default hover:text-honey">
 						v{VERSION}
 					</a>
-					, open source under the MIT license. Built for Cloudflare's next Git platform challenge.
+					, open source under the MIT license. Built and maintained by{" "}
+					<a href="https://github.com/karanbalaji" className="text-kumo-default hover:text-honey">
+						Karan Balaji
+					</a>
+					, for Cloudflare's next Git platform challenge.
 				</p>
 				<div className="flex items-center gap-4 sm:ml-auto">
 					<a href={GITHUB} className="text-sm text-kumo-subtle hover:text-wax">

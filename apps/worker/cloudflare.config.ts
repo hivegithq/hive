@@ -20,6 +20,9 @@ export default defineConfig(({ mode }) => {
 			entrypoint,
 			assets: { notFoundHandling: "single-page-application", runWorkerFirst: ["/api/*", "/agents/*", "/_dev/*", "/mcp"] },
 			observability: { enabled: true },
+			// Keep hive.<account>.workers.dev serving alongside hivegit.dev: links, MCP setups and
+			// clone URLs in the wild use it.
+			workersDev: true,
 			env: {
 				ASSETS: bindings.assets(),
 				AI: bindings.ai({ dev: { remote: true } }),
@@ -46,7 +49,13 @@ export default defineConfig(({ mode }) => {
 				LandingWorkflow: exports.workflow({ name: "hive-landing" }),
 				Outbound: exports.worker(),
 			},
-			triggers: [triggers.queue({ name: "hive-repo-events", maxBatchSize: 10, maxRetries: 5 })],
+			triggers: [
+				triggers.queue({ name: "hive-repo-events", maxBatchSize: 10, maxRetries: 5 }),
+				// hivegit.dev (proxied placeholder records in the zone point at the Worker); workers.dev stays up too.
+				...(local
+					? []
+					: [triggers.fetch({ pattern: "hivegit.dev/*", zone: "hivegit.dev" }), triggers.fetch({ pattern: "www.hivegit.dev/*", zone: "hivegit.dev" })]),
+			],
 		},
 	};
 });

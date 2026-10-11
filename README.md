@@ -29,8 +29,9 @@ Hive replaces branches and pull requests with primitives designed for many concu
 - **Big goals get a plan**: a planner splits "fix the security issues" or "port this to Rust" into
   sub-goals with dependencies, and Hive runs agents on them in parallel as dependencies land.
 
-**Live:** <https://hive.kabadigitalinc.workers.dev>. Reads are public; changes need the
-deployment's access token.
+**Live:** <https://hivegit.dev>. Reads are public; changes need the deployment's access token.
+
+Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
 **Version 1.1.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/karanbalaji/hive/releases).
 
@@ -533,7 +534,7 @@ Motion. Hive's own visual language is the honeycomb: every hexagon carries infor
 ### MCP (Claude Code, Codex, any agent)
 
 ```sh
-claude mcp add --transport http hive https://hive.kabadigitalinc.workers.dev/mcp \
+claude mcp add --transport http hive https://hivegit.dev/mcp \
   --header "Authorization: Bearer $HIVE_TOKEN"
 ```
 
@@ -554,7 +555,7 @@ claude mcp add --transport http hive https://hive.kabadigitalinc.workers.dev/mcp
 
 ```sh
 cargo build --release -p hive-cli
-export HIVE_URL=https://hive.kabadigitalinc.workers.dev HIVE_REPO=shop HIVE_TOKEN=…
+export HIVE_URL=https://hivegit.dev HIVE_REPO=shop HIVE_TOKEN=…
 
 hive status
 hive goal "Gift wrap option" -d "A flat 299-cent fee, before tax"   # add --assign, or --race <model ids>
