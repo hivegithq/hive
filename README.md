@@ -27,6 +27,8 @@ Hive replaces branches and pull requests with primitives designed for many concu
 **Live:** <https://hive.kabadigitalinc.workers.dev>. Reads are public; changes need the
 deployment's access token.
 
+**Version 1.0.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/karanbalaji/hive/releases).
+
 ---
 
 ## Contents

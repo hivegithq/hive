@@ -14,6 +14,7 @@ import type { Change, ChangeStatus, Overlap } from "../../domain/types.ts";
 import { api, type LogLine, MODELS, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
 import { HiveMap, MAP_GROUPS, type MapGroup } from "../hex/HiveMap.tsx";
 import { Wordmark } from "../ui/Logo.tsx";
+import { VERSION } from "../version.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { ChangeDrawer } from "./ChangeDrawer.tsx";
 
@@ -100,7 +101,8 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 						</span>
 					)}
 				</p>
-				<Button className="ml-auto" variant="secondary" size="sm" icon={TerminalWindowIcon} onClick={() => api.clone(props.repo).then((r) => setClone(r.command))}>
+				<span className="ml-auto hidden font-mono text-xs text-kumo-subtle md:inline">v{VERSION}</span>
+				<Button variant="secondary" size="sm" icon={TerminalWindowIcon} onClick={() => api.clone(props.repo).then((r) => setClone(r.command))}>
 					Clone with git
 				</Button>
 			</div>

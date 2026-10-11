@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { HiveCanvas } from "../hex/HiveCanvas.tsx";
 import { HiveMark, Wordmark } from "../ui/Logo.tsx";
 import { Section } from "../ui/Section.tsx";
+import { VERSION } from "../version.ts";
 import { BatchDemo } from "./BatchDemo.tsx";
 import { Join, Lifecycle, Overlaps, Problem, Race, Record, Stack } from "./sections.tsx";
 
@@ -191,7 +192,12 @@ function Footer() {
 		<footer className="border-t border-white/5 px-4 py-12 sm:px-8">
 			<div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-center">
 				<Wordmark />
-				<p className="text-sm text-kumo-subtle">Open source under the MIT license. Built for Cloudflare's next Git platform challenge.</p>
+				<p className="text-sm text-kumo-subtle">
+					<a href={`${GITHUB}/releases`} className="font-mono text-kumo-default hover:text-honey">
+						v{VERSION}
+					</a>
+					, open source under the MIT license. Built for Cloudflare's next Git platform challenge.
+				</p>
 				<div className="flex items-center gap-4 sm:ml-auto">
 					<a href={GITHUB} className="text-sm text-kumo-subtle hover:text-wax">
 						GitHub
