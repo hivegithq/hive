@@ -1,4 +1,4 @@
-import type { EvidenceRun, Stacked, StackResult } from "./MergeBox.ts";
+import type { EvidenceRun, Stacked, StackResult } from "./types.ts";
 
 // Batch landing (the Bors/Zuul idea): stack many queued changes on trunk and verify them once.
 // If the stack fails, divide and conquer: keep every half that verifies, recurse into halves that

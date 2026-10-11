@@ -29,7 +29,7 @@ Hive is one Cloudflare Worker plus a container image. Everything stateful is a D
 
 | Piece | Product | Source |
 |---|---|---|
-| API, dashboard, MCP | Worker + static assets (Vite, React) | `apps/worker/src/index.ts`, `src/web/`, `src/mcp/` |
+| API, landing page, dashboard, MCP | Worker + static assets (Vite, React, Kumo, Motion) | `apps/worker/src/index.ts`, `src/web/`, `src/mcp/` |
 | Coordinator | Agents SDK `Agent` (Durable Object, SQLite) | `src/coordinator/RepoCoordinator.ts` |
 | Coding agent | `Agent` with an attached Container | `src/agent/` |
 | Merge box | Durable Object with an attached Container (`standard-4`), two per repo | `src/landing/MergeBox.ts` |

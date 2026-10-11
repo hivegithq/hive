@@ -80,30 +80,8 @@ interface BoxConfig {
 	mirrors: string[];
 }
 
-export interface StackEntry {
-	changeId: string;
-	fork: string; // Artifacts repo name, also used as the git remote name
-}
-
-export type Stacked =
-	| { changeId: string; ok: true; prev: string; tip: string; files: string[]; unioned?: string[] } // unioned: additive conflicts resolved
-	| { changeId: string; ok: false; conflicts: { path: string; excerpt: string }[] }
-	| { changeId: string; ok: false; empty: true };
-
-export interface StackResult {
-	trunk: string;
-	tip: string; // tip of the stack after every change that applied
-	entries: Stacked[];
-}
-
-export type PushResult = { ok: true; commit: string } | { ok: false; reason: string };
-
-export interface EvidenceRun {
-	kind: "test" | "typecheck" | "build";
-	command: string;
-	ok: boolean;
-	output: string;
-}
+export type { EvidenceRun, PushResult, StackEntry, Stacked, StackResult } from "./types.ts";
+import type { EvidenceRun, PushResult, StackEntry, Stacked, StackResult } from "./types.ts";
 
 export interface SemanticIndex {
 	symbols: { path: string; name: string; kind: string }[];

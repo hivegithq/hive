@@ -132,7 +132,7 @@ flowchart TB
 
 | Component | Cloudflare product | Source |
 |---|---|---|
-| API, dashboard, MCP endpoint | Worker + static assets (Vite, React) | [`apps/worker/src/index.ts`](apps/worker/src/index.ts), [`src/web/`](apps/worker/src/web), [`src/mcp/`](apps/worker/src/mcp) |
+| API, landing page, dashboard, MCP endpoint | Worker + static assets (Vite, React, Kumo) | [`apps/worker/src/index.ts`](apps/worker/src/index.ts), [`src/web/`](apps/worker/src/web), [`src/mcp/`](apps/worker/src/mcp) |
 | Coordinator | Agents SDK `Agent` (Durable Object, SQLite) | [`src/coordinator/`](apps/worker/src/coordinator) |
 | Coding agents | `Agent` + attached Container | [`src/agent/`](apps/worker/src/agent) |
 | Merge box | Durable Object + attached Container | [`src/landing/MergeBox.ts`](apps/worker/src/landing/MergeBox.ts) |
@@ -428,14 +428,23 @@ flowchart LR
 
 ## Ways in: dashboard, MCP, CLI, git
 
-### Dashboard
+### Landing page and dashboard
 
-A **flight-progress strip board**: the tool air traffic control uses to coordinate many
-concurrent actors. Each change is a paper strip that moves through bays (Working → In queue →
-Converging → Landed, plus *Needs you* when something waits on a person). Overlap notches sit on
-each strip's edge, trunk history runs down the right, and agent activity streams along the bottom.
-Click a strip for its intent, evidence, review, and Clef's probabilities, and to land, send back,
-or pick a race winner.
+Built with **[Kumo](https://www.npmjs.com/package/@cloudflare/kumo)**, Cloudflare's own design
+system (its components, tokens and dark mode, themed to Cloudflare orange), with Tailwind v4 and
+Motion. Hive's own visual language is the honeycomb: every hexagon carries information.
+
+- **`/`** explains Hive and shows its proof. The hero is a live hive in which every cell is an
+  agent that forks, is batched and lands. The 2,000-agent numbers are read live from that run's
+  coordinator. An interactive **batch demo** runs the production culprit-search code
+  (`landing/batch.ts`) in the browser: break any changes, run the batch, and watch it isolate them.
+- **`/r/<repo>`** is a repository's live hive. The **Hive map** draws every change as one cell of a
+  honeycomb that fills from the centre: landed changes are the honey core, converging ones pulse
+  around it, then the queue, the agents still working, and anything waiting on a person. All
+  2,000 changes of the scale run fit on one screen. Below it, each stage's changes are cards with
+  their intent and overlap markers. Click one for its evidence, review, Clef's probabilities, and
+  to land, send back, or pick a race winner. Trunk history runs down the right and agent activity
+  along the bottom.
 
 ### MCP (Claude Code, Codex, any agent)
 
@@ -606,7 +615,7 @@ apps/worker/
   src/ledger/              isomorphic-git ledger writer, in-memory FS
   src/repo/                RepoHost: Artifacts + devhost implementations
   src/mcp/                 MCP server
-  src/web/                 dashboard (React)
+  src/web/                 landing page and dashboard (React, Kumo, Motion): landing/, dashboard/, hex/
 crates/hive-merge/         Rust: tree-sitter index, referential conflicts, git reader
 crates/hive-cli/           Rust: the `hive` command
 sandbox/Dockerfile         node 24 + git + mergiraf + difftastic + hive-merge + sandbox-shim

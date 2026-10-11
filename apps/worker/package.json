@@ -13,22 +13,27 @@
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "beta",
 		"@cloudflare/workers-types": "^5.20261010.1",
+		"@tailwindcss/vite": "^4.3.3",
 		"@types/react": "^19.3.0",
 		"@types/react-dom": "^19.3.0",
 		"@vitejs/plugin-react": "^6.1.2",
 		"cf": "^1.0.0-beta.5",
+		"tailwindcss": "^4.3.3",
 		"typescript": "^7.0.2",
 		"vite": "^8.3.0",
 		"vitest": "^5.0.3"
 	},
 	"dependencies": {
 		"@ai-sdk/provider": "^4.0.26",
+		"@cloudflare/kumo": "2.14.0",
 		"@cloudflare/sandbox": "^1.0.0",
 		"@modelcontextprotocol/server": "2.0.0",
+		"@phosphor-icons/react": "^2.1.10",
 		"agents": "^0.28.0",
 		"ai": "^7.0.137",
 		"hono": "^4.13.13",
 		"isomorphic-git": "^1.43.3",
+		"motion": "12.43.0",
 		"react": "^19.3.0",
 		"react-dom": "^19.3.0",
 		"zod": "^4.6.5"
