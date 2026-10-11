@@ -92,7 +92,7 @@ export class RepoCoordinator extends Agent<Env> {
 		const rows = this.db
 			.exec("SELECT c.agent_id FROM changes c JOIN agents a ON a.id = c.agent_id WHERE c.status IN ('drafting','bounced') AND a.kind = 'builtin'")
 			.toArray();
-		await Promise.all(rows.map((r) => agentOf(this.env, String(r.agent_id)).ping().catch(() => null)));
+		await Promise.all(rows.map((r) => agentOf(this.ctx.exports, String(r.agent_id)).ping().catch(() => null)));
 	}
 
 	onConnect(connection: Connection) {
@@ -155,7 +155,7 @@ export class RepoCoordinator extends Agent<Env> {
 	async assign(goalId: string, model: string = this.env.CODER_MODEL): Promise<Change> {
 		const agentId = id("a");
 		const change = await this.startChange({ goalId, agentId, model });
-		await agentOf(this.env, agentId).start({ repo: this.repo, changeId: change.id });
+		await agentOf(this.ctx.exports, agentId).start({ repo: this.repo, changeId: change.id });
 		return change;
 	}
 
@@ -165,7 +165,7 @@ export class RepoCoordinator extends Agent<Env> {
 		if (!change) throw new Error(`unknown change ${changeId}`);
 		if (!["drafting", "bounced"].includes(change.status)) throw new Error(`change ${changeId} is ${change.status}, not with its agent`);
 		if (!this.isBuiltin(change.agentId)) throw new Error(`${change.agentId} is an external agent; restart it yourself`);
-		await agentOf(this.env, change.agentId).start({ repo: this.repo, changeId });
+		await agentOf(this.ctx.exports, change.agentId).start({ repo: this.repo, changeId });
 		this.log(change.agentId, "restarted");
 		return change;
 	}
@@ -203,7 +203,7 @@ export class RepoCoordinator extends Agent<Env> {
 			const agentId = id("a");
 			changes.push(await this.startChange({ goalId, agentId, model, race: { group, index } }));
 		}
-		await Promise.all(changes.map((c) => agentOf(this.env, c.agentId).start({ repo: this.repo, changeId: c.id })));
+		await Promise.all(changes.map((c) => agentOf(this.ctx.exports, c.agentId).start({ repo: this.repo, changeId: c.id })));
 		return { group, changes };
 	}
 
@@ -220,6 +220,8 @@ export class RepoCoordinator extends Agent<Env> {
 		const host = repoHost(this.env);
 		const changeId = id("c");
 		const genesis = (await head(host, this.repo)) ?? "";
+		// Overlap checks need a current semantic index. Push events keep it fresh, but don't rely on them.
+		if (genesis && this.indexStatus().commit !== genesis) await this.schedule(0, "reindex", { commit: genesis });
 		const fork = changeRepo(this.repo, changeId);
 		await host.fork(this.repo, fork, `Hive change ${changeId}`);
 		this.ensureAgent(input.agentId, input.model, input.kind);
@@ -305,7 +307,7 @@ export class RepoCoordinator extends Agent<Env> {
 		for (const o of overlaps) {
 			if (!this.isBuiltin(o.otherAgentId)) continue;
 			const note = `Heads-up from Hive: ${intent.agentId} (${changeId}) now intends to "${intent.summary}". That ${o.level}ly overlaps your work: ${o.detail.join("; ")}. Coordinate with message_agent if needed.`;
-			this.ctx.waitUntil(agentOf(this.env, o.otherAgentId).receiveMessage("hive", note).catch(() => {}));
+			this.ctx.waitUntil(agentOf(this.ctx.exports, o.otherAgentId).receiveMessage("hive", note).catch(() => {}));
 		}
 		return { intent, overlaps, advice };
 	}
@@ -343,7 +345,7 @@ export class RepoCoordinator extends Agent<Env> {
 		this.db.exec("INSERT INTO messages VALUES (?, ?, ?, ?, ?)", id("m"), from, to, text, now());
 		this.emit({ type: "message", from, to, text });
 		const target = this.db.exec("SELECT id FROM changes WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1", to).toArray()[0];
-		if (target && this.isBuiltin(to)) await agentOf(this.env, to).receiveMessage(from, text);
+		if (target && this.isBuiltin(to)) await agentOf(this.ctx.exports, to).receiveMessage(from, text);
 	}
 
 	log(agentId: string, text: string) {
@@ -485,7 +487,7 @@ export class RepoCoordinator extends Agent<Env> {
 			files[`changes/${changeId}.json`] = detail;
 			if (detail.goal) files[`goals/${detail.goal.id}.json`] = detail.goal;
 			const transcript = this.isBuiltin(detail.change.agentId)
-				? await agentOf(this.env, detail.change.agentId)
+				? await agentOf(this.ctx.exports, detail.change.agentId)
 						.transcript()
 						.catch(() => "[]")
 				: "[]";
@@ -532,7 +534,7 @@ export class RepoCoordinator extends Agent<Env> {
 		if (this.db.exec("SELECT COUNT(*) AS n FROM changes WHERE goal_id = ? AND status NOT IN ('landed','archived')", change.goalId).one().n === 0) {
 			this.setGoalStatus(change.goalId, "achieved");
 		}
-		if (this.isBuiltin(change.agentId)) await agentOf(this.env, change.agentId).onLanded(commit).catch(() => {});
+		if (this.isBuiltin(change.agentId)) await agentOf(this.ctx.exports, change.agentId).onLanded(commit).catch(() => {});
 		await this.pump();
 	}
 
@@ -542,7 +544,7 @@ export class RepoCoordinator extends Agent<Env> {
 		this.setStatus(changeId, "bounced");
 		// External agents (MCP, CLI) read the reason from the change detail instead.
 		if (this.isBuiltin(change.agentId)) {
-			await agentOf(this.env, change.agentId).onBounced(reason).catch((err: unknown) => console.warn("bounce delivery failed", err));
+			await agentOf(this.ctx.exports, change.agentId).onBounced(reason).catch((err: unknown) => console.warn("bounce delivery failed", err));
 		}
 		await this.pump();
 	}
@@ -633,7 +635,7 @@ export class RepoCoordinator extends Agent<Env> {
 		this.recordDecision({ changeId, outcome, confidence: 1, probabilities: { [outcome]: 1 }, rationale: note || `Decided by ${by}`, decidedBy: `human:${by}` });
 		if (outcome === "bounce") {
 			this.setStatus(changeId, "bounced");
-			if (this.isBuiltin(change.agentId)) await agentOf(this.env, change.agentId).onBounced(note || "A reviewer sent this back.");
+			if (this.isBuiltin(change.agentId)) await agentOf(this.ctx.exports, change.agentId).onBounced(note || "A reviewer sent this back.");
 		} else {
 			// Re-run landing with the human's approval recorded; the workflow skips Clef when approved.
 			this.setStatus(changeId, "converging");
@@ -658,7 +660,7 @@ export class RepoCoordinator extends Agent<Env> {
 
 	async reindex(payload: { commit: string }) {
 		// Indexing runs natively (tree-sitter in hive-merge) in a dedicated merge box container.
-		const graph = await mergeBoxOf(this.env, `${this.repo}:index`).index({ repo: this.repo, commit: payload.commit });
+		const graph = await mergeBoxOf(this.ctx.exports, `${this.repo}:index`).index({ repo: this.repo, commit: payload.commit });
 		this.ctx.storage.transactionSync(() => {
 			this.db.exec("DELETE FROM symbols");
 			this.db.exec("DELETE FROM refs");

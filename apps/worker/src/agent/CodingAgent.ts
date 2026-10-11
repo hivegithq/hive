@@ -40,7 +40,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	private box = new Box(this.ctx, (policy) => this.ctx.exports.Outbound({ props: policy }));
 
 	private get coordinator() {
-		return coordinatorOf(this.env, this.state.repo);
+		return coordinatorOf(this.ctx.exports, this.state.repo);
 	}
 
 	// ── Lifecycle (RPC from the coordinator) ─────────────────────────────────

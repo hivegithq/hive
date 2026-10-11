@@ -22,6 +22,9 @@ struct Cli {
     url: String,
     #[arg(long, env = "HIVE_REPO", global = true)]
     repo: Option<String>,
+    /// Access token for a deployed Hive (writes only).
+    #[arg(long, env = "HIVE_TOKEN", global = true, hide_env_values = true)]
+    token: Option<String>,
     #[command(subcommand)]
     command: Cmd,
 }
@@ -69,6 +72,7 @@ enum Cmd {
 
 struct Api {
     base: String,
+    token: Option<String>,
 }
 
 impl Api {
@@ -77,7 +81,11 @@ impl Api {
         Ok(res.body_mut().read_json()?)
     }
     fn post(&self, path: &str, body: Value) -> Result<Value> {
-        let mut res = ureq::post(&format!("{}{}", self.base, path)).send_json(body).with_context(|| format!("POST {path}"))?;
+        let mut req = ureq::post(&format!("{}{}", self.base, path));
+        if let Some(t) = &self.token {
+            req = req.header("authorization", &format!("Bearer {t}"));
+        }
+        let mut res = req.send_json(body).with_context(|| format!("POST {path}"))?;
         Ok(res.body_mut().read_json()?)
     }
 }
@@ -116,7 +124,7 @@ fn symbols_from_diff() -> Result<Vec<Value>> {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let api = Api { base: cli.url.trim_end_matches('/').to_string() };
+    let api = Api { base: cli.url.trim_end_matches('/').to_string(), token: cli.token.clone() };
 
     match cli.command {
         Cmd::Status => {

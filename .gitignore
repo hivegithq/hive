@@ -3,7 +3,9 @@
 .cloudflare
 .dev.vars
 .devhost
+.hive-token
 .playwright-mcp
+.secrets.json
 .wrangler
 dist
 node_modules

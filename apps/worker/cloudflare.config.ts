@@ -25,15 +25,14 @@ export default defineConfig(({ mode }) => {
 				AI: bindings.ai({ dev: { remote: true } }),
 				// Artifacts has no local simulation and needs a paid plan, so devhost mode leaves it out.
 				...(local ? {} : { ARTIFACTS: bindings.artifacts({ namespace: "hive", dev: { remote: true } }) }),
-				COORDINATOR: bindings.durableObject({ worker: "hive", exportName: "RepoCoordinator" }),
-				CODING_AGENT: bindings.durableObject({ worker: "hive", exportName: "CodingAgent" }),
-				MERGE_BOX: bindings.durableObject({ worker: "hive", exportName: "MergeBox" }),
 				LANDING: bindings.workflow({ name: "hive-landing", worker: "hive", exportName: "LandingWorkflow" }),
 				REPO_HOST: bindings.text(local ? "devhost" : "artifacts"),
 				DEVHOST_URL: bindings.text("http://localhost:8788"),
 				// How containers address devhost. A made-up hostname, so every request goes through the
 				// Outbound gateway (host.docker.internal would bypass interception in local Docker).
 				DEVHOST_CONTAINER_URL: bindings.text("http://devhost.hive.internal"),
+				// Required for writes outside devhost mode: `cf workers secrets put HIVE_TOKEN` (or the dashboard).
+				...(local ? {} : { HIVE_TOKEN: bindings.secret() }),
 				CODER_MODEL: bindings.text("@cf/moonshotai/kimi-k2.7-code"),
 				REVIEW_MODEL: bindings.text("@cf/deepseek-ai/deepseek-v4-pro-0813"),
 			},

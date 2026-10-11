@@ -4,7 +4,8 @@ const host = process.argv[3] ?? "localhost:5173";
 const short = (s: string, n = 160) => (s.length > n ? `${s.slice(0, n)}…` : s).replaceAll("\n", " ");
 let first = true;
 function connect() {
-	const ws = new WebSocket(`ws://${host}/agents/coordinator/${repo}`);
+	const proto = /^(localhost|127\.|\[::1\])/.test(host) ? "ws" : "wss";
+	const ws = new WebSocket(`${proto}://${host}/agents/coordinator/${repo}`);
 	ws.onopen = () => first && console.log(`watching ${repo}`);
 	// The dev server reloads the Worker on code changes; reconnect quietly.
 	ws.onclose = () => setTimeout(connect, 1000);

@@ -13,9 +13,9 @@ const RETRY = { retries: { limit: 2, delay: "5 seconds", backoff: "exponential" 
 export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 	async run(event: WorkflowEvent<LandingParams>, step: WorkflowStep) {
 		const { repo, changeId, mode } = event.payload;
-		const coordinator = coordinatorOf(this.env, repo);
+		const coordinator = coordinatorOf(this.ctx.exports, repo);
 		// Landing uses one merge box per repo (it holds the trunk checkout); race evaluations run in parallel boxes.
-		const box = mergeBoxOf(this.env, mode === "land" ? repo : `${repo}:${changeId}`);
+		const box = mergeBoxOf(this.ctx.exports, mode === "land" ? repo : `${repo}:${changeId}`);
 
 		const detail = await step.do("load change", async () => {
 			const d = await coordinator.changeDetail(changeId);

@@ -5,12 +5,14 @@
 
 const repo = process.argv[2] ?? "shop";
 const hive = process.argv[3] ?? process.env.HIVE_URL ?? "http://localhost:5173";
+// Deployed Hives require HIVE_TOKEN for writes; local devhost mode does not.
+const auth: Record<string, string> = process.env.HIVE_TOKEN ? { authorization: `Bearer ${process.env.HIVE_TOKEN}` } : {};
 
 // Needs Workers Paid. On the free plan use "@cf/openai/gpt-oss-120b", "@cf/qwen/qwen3.8-27b", "@cf/nvidia/nemotron-3-120b-a12b".
 const MODELS = ["@cf/moonshotai/kimi-k2.7-code", "@cf/zai-org/glm-5.3", "@cf/deepseek-ai/deepseek-v4-pro-0813"];
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-	const res = await fetch(`${hive}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+	const res = await fetch(`${hive}${path}`, { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(body) });
 	if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
 	return res.json() as Promise<T>;
 }

@@ -46,12 +46,32 @@ export const MODELS = [
 
 export const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? id.split("/").at(-1) ?? id;
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-	const res = await fetch(path, {
-		method,
-		headers: body ? { "content-type": "application/json" } : undefined,
-		body: body ? JSON.stringify(body) : undefined,
-	});
+const TOKEN_KEY = "hive-token";
+const readToken = () => {
+	try {
+		return localStorage.getItem(TOKEN_KEY);
+	} catch {
+		return null;
+	}
+};
+
+async function call<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+	const token = readToken();
+	const headers: Record<string, string> = {};
+	if (body) headers["content-type"] = "application/json";
+	if (token && method !== "GET") headers.authorization = `Bearer ${token}`;
+	const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+	if (res.status === 401 && !retried) {
+		const entered = window.prompt("This Hive needs its access token to make changes.");
+		if (entered) {
+			try {
+				localStorage.setItem(TOKEN_KEY, entered.trim());
+			} catch {
+				// private mode: the token works for this call only
+			}
+			return call<T>(method, path, body, true);
+		}
+	}
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error((data as { error?: string }).error ?? `${method} ${path} failed with ${res.status}`);
 	return data as T;

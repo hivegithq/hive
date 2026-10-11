@@ -1,10 +1,10 @@
-// Typed access to this Worker's own Durable Objects and Workflow. The config references
-// them by worker name (a self-reference can't be an object), so cf infers untyped namespaces.
-import type { CodingAgent } from "./agent/CodingAgent.ts";
-import type { LandingParams, RepoCoordinator } from "./coordinator/RepoCoordinator.ts";
-import type { MergeBox } from "./landing/MergeBox.ts";
+// Typed access to this Worker's own Durable Objects (through its exports, so they stay local
+// classes the deploy can attach containers to) and to the landing Workflow.
+import type { LandingParams } from "./coordinator/RepoCoordinator.ts";
 
-export const coordinatorOf = (env: Env, repo: string) => (env.COORDINATOR as DurableObjectNamespace<RepoCoordinator>).getByName(repo);
-export const agentOf = (env: Env, agentId: string) => (env.CODING_AGENT as DurableObjectNamespace<CodingAgent>).getByName(agentId);
-export const mergeBoxOf = (env: Env, name: string) => (env.MERGE_BOX as DurableObjectNamespace<MergeBox>).getByName(name);
+type Exports = Cloudflare.Exports;
+
+export const coordinatorOf = (ex: Exports, repo: string) => ex.RepoCoordinator.getByName(repo);
+export const agentOf = (ex: Exports, agentId: string) => ex.CodingAgent.getByName(agentId);
+export const mergeBoxOf = (ex: Exports, name: string) => ex.MergeBox.getByName(name);
 export const landing = (env: Env) => env.LANDING as Workflow<LandingParams>;

@@ -10,9 +10,11 @@ import { join } from "node:path";
 
 const repo = process.argv[2] ?? "shop";
 const hive = process.argv[3] ?? process.env.HIVE_URL ?? "http://localhost:5173";
+// Deployed Hives require HIVE_TOKEN for writes; local devhost mode does not.
+const auth: Record<string, string> = process.env.HIVE_TOKEN ? { authorization: `Bearer ${process.env.HIVE_TOKEN}` } : {};
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-	const res = await fetch(`${hive}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+	const res = await fetch(`${hive}${path}`, { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(body) });
 	if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
 	return res.json() as Promise<T>;
 }

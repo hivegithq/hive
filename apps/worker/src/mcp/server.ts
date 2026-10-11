@@ -8,9 +8,9 @@ import { coordinatorOf } from "../bindings.ts";
 
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
-function createServer(env: Env) {
+function createServer(env: Env, exports: Cloudflare.Exports) {
 	const server = new McpServer({ name: "hive", version: "0.1.0" });
-	const coordinator = (repo: string) => coordinatorOf(env, repo);
+	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
 		"hive_status",
@@ -121,5 +121,5 @@ function createServer(env: Env) {
 }
 
 export function handleMcp(request: Request, env: Env, ctx: ExecutionContext) {
-	return createMcpHandler(() => createServer(env), { route: "/mcp" })(request, env, ctx);
+	return createMcpHandler(() => createServer(env, ctx.exports), { route: "/mcp" })(request, env, ctx);
 }
