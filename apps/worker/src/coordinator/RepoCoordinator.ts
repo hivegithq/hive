@@ -179,6 +179,7 @@ export class RepoCoordinator extends Agent<Env> {
 			intentCheckMs: { n: intentMs.length, p50: pct(intentMs, 50), p95: pct(intentMs, 95) },
 			batches: { count: Number(batches.n), avgSize: batches.avg === null ? null : +Number(batches.avg).toFixed(1), maxSize: batches.max === null ? null : Number(batches.max) },
 			liveIntents: this.intents.liveCount(),
+			trunkRed: this.trunkRed(),
 			mirrors: this.db.exec("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'mirror:%'").one().n,
 		};
 	}
@@ -560,8 +561,27 @@ export class RepoCoordinator extends Agent<Env> {
 		for (const id of changeIds) if (this.change(id)?.status === "converging") this.setStatus(id, "submitted");
 	}
 
+	// Trunk fails verification on its own (someone pushed a breaking commit, or an earlier bug let one
+	// through). Record it, say so, and slow the queue down until trunk is green again.
+	markTrunkRed(info: { commit: string; output: string }) {
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('trunk_red', ?)", JSON.stringify({ ...info, since: now() }));
+		this.log("hive", `trunk is red at ${info.commit.slice(0, 8)}: landings paused until it passes again`);
+		this.recordMetric("trunk_red", 1);
+	}
+
+	private trunkRed(): { commit: string; since: number } | null {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'trunk_red'").toArray()[0];
+		return row ? JSON.parse(String(row.value)) : null;
+	}
+
+	private clearTrunkRed() {
+		this.db.exec("DELETE FROM meta WHERE key = 'trunk_red'");
+	}
+
 	async batchFinished() {
-		await this.pump();
+		// While trunk is red, re-check every two minutes instead of spinning through batches.
+		if (this.trunkRed()) await this.schedule(120, "pump");
+		else await this.pump();
 	}
 
 	// ── Race mode ────────────────────────────────────────────────────────────
@@ -721,6 +741,11 @@ export class RepoCoordinator extends Agent<Env> {
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('loadtest', ?)", JSON.stringify(run));
 		if (run.spawned < run.agents) await this.schedule(1, "loadTestWave");
 
+		// Detached: a wave waits on forks, and scheduler callbacks must return quickly.
+		this.ctx.waitUntil(this.keepAliveWhile(() => this.spawnWave(run, count)));
+	}
+
+	private async spawnWave(run: { sharedRate: number; brokenRate: number; spawned: number; id: string }, count: number) {
 		await Promise.all(
 			Array.from({ length: count }, async (_, i) => {
 				const n = run.spawned - count + i;
@@ -757,6 +782,7 @@ export class RepoCoordinator extends Agent<Env> {
 			if (notify) this.ctx.waitUntil(Promise.resolve(notify.onLanded(commit)).catch(() => {}));
 		}
 		this.recordMetric("landed", items.length);
+		this.clearTrunkRed();
 		this.setTrunkHead(tip);
 		await this.schedule(0, "reindex", { commit: tip });
 	}
@@ -877,6 +903,7 @@ export class RepoCoordinator extends Agent<Env> {
 	// semantic index so intent overlap checks see the current code.
 	async onTrunkPush(after: string, commits: { id: string; trailers: Record<string, string> }[]) {
 		this.setTrunkHead(after);
+		this.clearTrunkRed(); // a fix may have been pushed; the next batch re-checks
 		const external = commits.filter((c) => !c.trailers["Hive-Change-Id"]);
 		if (external.length > 0) this.emit({ type: "trunk", commit: after, changeId: null });
 		await this.schedule(0, "reindex", { commit: after });

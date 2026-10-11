@@ -62,7 +62,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			}),
 		);
 
-		const unreachable = new Set(unavailable);
+		const unreachable = new Map(unavailable.map((u) => [u.fork, u.error]));
 		const ready = items.filter((i) => !unreachable.has(i.change.fork)).map((i) => i.change.id);
 		if (unreachable.size) {
 			await step.do("bounce unreachable forks", async () => {
@@ -73,7 +73,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 						probabilities: { bounce: 1 },
 						rationale: "Hive couldn't fetch the fork.",
 						decidedBy: "hive:merge",
-						reason: "Hive couldn't fetch your fork's main branch. Push your work again and resubmit.",
+						reason: `Hive couldn't fetch your fork's main branch (${unreachable.get(item.change.fork)}). Push your work again and resubmit.`,
 					});
 				}
 			});
@@ -87,6 +87,18 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			});
 
 		const outcome = await findLandable(attempt, ready);
+
+		// Trunk itself fails verification: nobody in this batch is to blame. Put them all back,
+		// tell people trunk is red, and let the queue back off until someone fixes it.
+		if (outcome.trunkRed) {
+			const red = outcome.trunkRed;
+			await step.do("trunk is red", async () => {
+				await coordinator.requeue(items.map((i) => i.change.id));
+				await coordinator.markTrunkRed({ commit: red.commit, output: red.evidence.filter((e) => !e.ok).map((e) => e.output.slice(-1500)).join("\n\n") });
+			});
+			await step.do("finish batch", () => coordinator.batchFinished());
+			return { landed: 0, trunkRed: red.commit };
+		}
 
 		// Changes that can't land in this batch: conflicts and culprits go back to their agents
 		// (or to a person after repeated attempts); untested ones rejoin the queue.
@@ -115,8 +127,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 					reason: "Nothing to land: your fork has no commits beyond trunk. Commit your work and submit again.",
 				});
 			}
-			if (outcome.culprit) {
-				const { changeId, evidence } = outcome.culprit;
+			for (const { changeId, evidence } of outcome.culprits) {
 				for (const run of evidence) await coordinator.recordEvidence({ changeId, ...run, commit: trunk });
 				await this.reject(coordinator, byId.get(changeId)!, {
 					outcome: "bounce",
@@ -195,14 +206,14 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		if (approved.length > 0) {
 			const pushed = await step.do("push to trunk", RETRY, async (): Promise<{ push: PushResult; tips: Record<string, string> }> => {
 				const tipsOf = (s: StackResult) => Object.fromEntries(s.entries.flatMap((e) => (e.ok ? [[e.changeId, e.tip]] : [])));
-				const first = await box.push();
+				const first = await box.push(final.stack.tip);
 				if (first.ok) return { push: first, tips: tipsOf(final.stack) };
-				// Trunk moved (someone pushed directly). Restack and re-verify once.
+				// Trunk moved (someone pushed directly) or the container restarted. Restack and re-verify once.
 				const again = await box.stack(entries(approved));
 				if (!again.entries.every((e) => e.ok) || !evidenceOk(await box.evidence())) {
 					return { push: { ok: false, reason: "trunk moved and the batch no longer verifies" }, tips: {} };
 				}
-				return { push: await box.push(), tips: tipsOf(again) };
+				return { push: await box.push(again.tip), tips: tipsOf(again) };
 			});
 			if (pushed.push.ok) {
 				const landed = approved.map((id) => ({ changeId: id, commit: pushed.tips[id], decision: verdicts[outcome.land.indexOf(id)] }));

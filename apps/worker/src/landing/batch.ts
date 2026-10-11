@@ -1,8 +1,9 @@
 import type { EvidenceRun, Stacked, StackResult } from "./MergeBox.ts";
 
 // Batch landing (the Bors/Zuul idea): stack many queued changes on trunk and verify them once.
-// If the stack fails, halve it until a prefix passes; a single failing change is the culprit.
-// Every batch makes progress: something lands, or the culprit is sent back.
+// If the stack fails, divide and conquer: keep every half that verifies, recurse into halves that
+// don't, until each failing change is isolated. Everything good in the batch lands in this batch;
+// k broken changes in n cost about k·log2(n) extra verifications.
 
 export interface Attempt {
 	stack: StackResult;
@@ -12,40 +13,73 @@ export interface Attempt {
 // Stack `changeIds` (in order) on trunk and gather evidence for the result.
 export type AttemptFn = (label: string, changeIds: string[]) => Promise<Attempt>;
 
+type Conflicted = Extract<Stacked, { conflicts: unknown }>;
+
 export interface BatchOutcome {
-	attempt: Attempt | null; // the stack whose evidence passed, if any
-	land: string[]; // changes in that passing stack
-	conflicted: Extract<Stacked, { conflicts: unknown }>[]; // didn't apply onto trunk
+	attempt: Attempt | null; // the verified stack of exactly `land`, if anything lands
+	land: string[];
+	conflicted: Conflicted[]; // didn't apply onto trunk (or onto the changes ahead of them)
 	empty: string[]; // no commits of their own
-	culprit: { changeId: string; evidence: EvidenceRun[] } | null; // fails on its own
-	requeue: string[]; // untested because of the culprit; try again next batch
+	culprits: { changeId: string; evidence: EvidenceRun[] }[]; // fail verification on their own
+	requeue: string[]; // reserved: untested changes (none with divide and conquer)
+	trunkRed: { commit: string; evidence: EvidenceRun[] } | null; // trunk fails on its own: blame no one
 }
 
 export const evidenceOk = (runs: EvidenceRun[]) => runs.every((r) => r.ok);
 
 export async function findLandable(attempt: AttemptFn, changeIds: string[]): Promise<BatchOutcome> {
-	const first = await attempt("all", changeIds);
-	const conflicted = first.stack.entries.filter((e): e is Extract<Stacked, { conflicts: unknown }> => !e.ok && "conflicts" in e);
-	const empty = first.stack.entries.filter((e) => !e.ok && "empty" in e).map((e) => e.changeId);
-	const applied = first.stack.entries.filter((e) => e.ok).map((e) => e.changeId);
-	const base = { conflicted, empty };
+	const conflicted: Conflicted[] = [];
+	const empty: string[] = [];
+	const culprits: BatchOutcome["culprits"] = [];
+	let accepted: string[] = [];
+	let verified: Attempt | null = null;
+	let n = 0;
 
-	if (applied.length === 0) return { ...base, attempt: null, land: [], culprit: null, requeue: [] };
-	if (evidenceOk(first.evidence)) return { ...base, attempt: first, land: applied, culprit: null, requeue: [] };
-
-	// Halve until a prefix passes. Prefixes of an applied order apply cleanly again.
-	let prefix = applied;
-	let failing = first;
-	while (prefix.length > 1) {
-		prefix = prefix.slice(0, Math.ceil(prefix.length / 2));
-		const a = await attempt(`first ${prefix.length}`, prefix);
-		if (evidenceOk(a.evidence)) {
-			return { ...base, attempt: a, land: prefix, culprit: null, requeue: applied.filter((id) => !prefix.includes(id)) };
+	// Run an attempt and drop any change that no longer applies (e.g. it built on a culprit).
+	const run = async (candidates: string[]) => {
+		const a = await attempt(`#${++n} ${accepted.length}+${candidates.length}`, [...accepted, ...candidates]);
+		for (const e of a.stack.entries) {
+			if (e.ok || !candidates.includes(e.changeId)) continue;
+			if ("conflicts" in e) conflicted.push(e);
+			else empty.push(e.changeId);
 		}
-		failing = a;
+		const applied = new Set(a.stack.entries.filter((e) => e.ok).map((e) => e.changeId));
+		return { a, kept: candidates.filter((id) => applied.has(id)) };
+	};
+
+	// `segment` is known to fail on top of `accepted` (with evidence `failing`).
+	const resolve = async (segment: string[], failing: Attempt): Promise<void> => {
+		if (segment.length === 0) return;
+		if (segment.length === 1) {
+			culprits.push({ changeId: segment[0], evidence: failing.evidence });
+			return;
+		}
+		const mid = Math.ceil(segment.length / 2);
+		for (const half of [segment.slice(0, mid), segment.slice(mid)]) {
+			const { a, kept } = await run(half);
+			if (kept.length === 0) continue;
+			if (evidenceOk(a.evidence)) {
+				accepted = [...accepted, ...kept];
+				verified = a;
+			} else {
+				await resolve(kept, a);
+			}
+		}
+	};
+
+	const { a: first, kept } = await run(changeIds);
+	if (evidenceOk(first.evidence)) {
+		accepted = kept;
+		verified = kept.length ? first : null;
+	} else {
+		// Before blaming anyone, check trunk on its own. If it's already red, every change would look guilty.
+		const baseline = await attempt(`#${++n} baseline`, []);
+		if (!evidenceOk(baseline.evidence)) {
+			return { attempt: null, land: [], conflicted, empty, culprits: [], requeue: kept, trunkRed: { commit: baseline.stack.trunk, evidence: baseline.evidence } };
+		}
+		await resolve(kept, first);
 	}
-	const culprit = prefix[0];
-	return { ...base, attempt: null, land: [], culprit: { changeId: culprit, evidence: failing.evidence }, requeue: applied.filter((id) => id !== culprit) };
+	return { attempt: accepted.length ? verified : null, land: accepted, conflicted, empty, culprits, requeue: [], trunkRed: null };
 }
 
 // Choose the next batch from the queue (oldest first): changes touching no file another selected change

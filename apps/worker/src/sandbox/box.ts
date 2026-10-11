@@ -3,6 +3,8 @@ import { Files } from "@cloudflare/sandbox";
 // Which repos a container may reach, and how. Enforced by the Outbound entrypoint,
 // which also injects short-lived Artifacts tokens so credentials never enter the container.
 export interface OutboundPolicy {
+	// First match wins. A trailing "*" matches any suffix ("shop.*" covers every fork of shop).
+	// Interception is registered once per container, so a policy must not need to change later.
 	repos: { name: string; scope: "read" | "write" }[];
 	hosts: string[]; // extra hosts allowed straight through, e.g. the npm registry
 }
@@ -32,8 +34,19 @@ export class Box {
 		return c;
 	}
 
+	// The policy a running container was set up with (in memory: unknown after a restart, which
+	// costs one container restart, the price of never running with a stale policy).
+	private policyKey: string | null = null;
+
 	async ensure(policy: OutboundPolicy) {
 		const c = this.container;
+		const key = JSON.stringify(policy);
+		if (c.running && this.policyKey !== key) {
+			await c.destroy().catch(() => {});
+			for (let i = 0; i < 50 && c.running; i++) await new Promise((r) => setTimeout(r, 200));
+		}
+		if (this.policyKey === key && c.running) return;
+		this.policyKey = key;
 		if (!c.running) {
 			c.start({ image: c.images.sandbox, enableInternet: false, instance: "standard-1" });
 		}

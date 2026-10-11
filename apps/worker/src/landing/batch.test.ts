@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type Attempt, type AttemptFn, findLandable, selectBatch } from "./batch.ts";
 
 // A fake stack: every change applies except `conflicting`; evidence fails if the stack contains `broken`.
-function fakeAttempt(opts: { conflicting?: string[]; broken?: string[] }) {
+function fakeAttempt(opts: { conflicting?: string[]; broken?: string[]; redTrunk?: boolean }) {
 	const labels: string[] = [];
 	const fn: AttemptFn = async (label, ids) => {
 		labels.push(label);
@@ -12,7 +12,7 @@ function fakeAttempt(opts: { conflicting?: string[]; broken?: string[] }) {
 				: { changeId, ok: true as const, prev: "p", tip: `t-${changeId}`, files: [] },
 		);
 		const applied = entries.filter((e) => e.ok).map((e) => e.changeId);
-		const ok = !applied.some((id) => opts.broken?.includes(id));
+		const ok = !opts.redTrunk && !applied.some((id) => opts.broken?.includes(id));
 		const attempt: Attempt = { stack: { trunk: "t0", tip: "tip", entries }, evidence: [{ kind: "test", command: "npm test", ok, output: ok ? "" : "fail" }] };
 		return attempt;
 	};
@@ -22,11 +22,11 @@ function fakeAttempt(opts: { conflicting?: string[]; broken?: string[] }) {
 const ids = (n: number) => Array.from({ length: n }, (_, i) => `c${i}`);
 
 describe("findLandable", () => {
-	it("lands the whole batch with one evidence run when it passes", async () => {
+	it("lands the whole batch with one verification when it passes", async () => {
 		const { fn, labels } = fakeAttempt({});
 		const r = await findLandable(fn, ids(32));
 		expect(r.land).toHaveLength(32);
-		expect(labels).toEqual(["all"]);
+		expect(labels).toHaveLength(1);
 	});
 
 	it("drops conflicting changes and lands the rest", async () => {
@@ -35,27 +35,46 @@ describe("findLandable", () => {
 		expect(r.land).toHaveLength(7);
 	});
 
-	it("halves to a passing prefix and requeues the rest", async () => {
+	it("isolates one culprit and lands everything else in the same batch", async () => {
 		const { fn, labels } = fakeAttempt({ broken: ["c5"] });
-		const r = await findLandable(fn, ids(8));
-		expect(r.land).toEqual(["c0", "c1", "c2", "c3"]);
-		expect(r.requeue).toEqual(["c4", "c5", "c6", "c7"]);
-		expect(labels).toEqual(["all", "first 4"]);
+		const r = await findLandable(fn, ids(64));
+		expect(r.culprits.map((c) => c.changeId)).toEqual(["c5"]);
+		expect(r.land).toHaveLength(63);
+		expect(r.land).not.toContain("c5");
+		expect(labels.length).toBeLessThanOrEqual(2 + 2 * Math.log2(64)); // batch, trunk baseline, halving
 	});
 
-	it("isolates a culprit at the front", async () => {
-		const r = await findLandable(fakeAttempt({ broken: ["c0"] }).fn, ids(8));
-		expect(r.land).toEqual([]);
-		expect(r.culprit?.changeId).toBe("c0");
-		expect(r.requeue).toHaveLength(7);
+	it("isolates several culprits", async () => {
+		const broken = ["c0", "c17", "c40", "c63"];
+		const r = await findLandable(fakeAttempt({ broken }).fn, ids(64));
+		expect(r.culprits.map((c) => c.changeId).sort()).toEqual([...broken].sort());
+		expect(r.land).toHaveLength(60);
 	});
 
-	it("always makes progress: something lands or a culprit is named", async () => {
+	it("the verified attempt is exactly the landed set", async () => {
+		const r = await findLandable(fakeAttempt({ broken: ["c2", "c9"] }).fn, ids(16));
+		const stacked = r.attempt!.stack.entries.filter((e) => e.ok).map((e) => e.changeId);
+		expect(stacked).toEqual(r.land);
+	});
+
+	it("every culprit position is found, every good change lands", async () => {
 		for (let bad = 0; bad < 16; bad++) {
 			const r = await findLandable(fakeAttempt({ broken: [`c${bad}`] }).fn, ids(16));
-			expect(r.land.length > 0 || r.culprit !== null).toBe(true);
-			expect(r.land).not.toContain(`c${bad}`);
+			expect(r.culprits.map((c) => c.changeId)).toEqual([`c${bad}`]);
+			expect(r.land).toHaveLength(15);
 		}
+	});
+});
+
+describe("findLandable on a red trunk", () => {
+	it("blames no one and puts everything back when trunk itself fails", async () => {
+		const { fn, labels } = fakeAttempt({ redTrunk: true });
+		const r = await findLandable(fn, ids(64));
+		expect(r.trunkRed).not.toBeNull();
+		expect(r.culprits).toEqual([]);
+		expect(r.land).toEqual([]);
+		expect(r.requeue).toHaveLength(64);
+		expect(labels).toHaveLength(2); // the batch, then trunk alone
 	});
 });
 

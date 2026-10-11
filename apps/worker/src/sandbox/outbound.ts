@@ -12,7 +12,7 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 		const repo = this.gitRepoFor(url);
 
 		if (repo) {
-			const grant = policy.repos.find((r) => r.name === repo);
+			const grant = policy.repos.find((r) => (r.name.endsWith("*") ? repo.startsWith(r.name.slice(0, -1)) : r.name === repo));
 			if (!grant) return deny(`repo ${repo} is not granted to this sandbox`);
 			const isPush = url.pathname.endsWith("/git-receive-pack") || url.searchParams.get("service") === "git-receive-pack";
 			if (isPush && grant.scope !== "write") return deny(`repo ${repo} is read-only for this sandbox`);
@@ -20,7 +20,14 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 			const token = await cachedToken(this.env, repo, grant.scope);
 			const headers = new Headers(request.headers);
 			headers.set("authorization", `Basic ${btoa(`x:${tokenSecret(token)}`)}`);
-			return fetch(this.upstream(url), { method: request.method, headers, body: request.body, redirect: "manual" });
+			// Git protocol bodies must pass through byte-for-byte. Buffer the request (git gzips large
+			// negotiation bodies) and ask for an uncompressed response, so no layer in between
+			// decodes one side and leaves the encoding header on it.
+			headers.set("accept-encoding", "identity");
+			const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
+			const upstream = await fetch(this.upstream(url), { method: request.method, headers, body, redirect: "manual" });
+			if (!upstream.ok) console.warn(`hive outbound: ${request.method} ${repo}${url.pathname.slice(url.pathname.lastIndexOf("/"))} → ${upstream.status}`);
+			return upstream;
 		}
 
 		if (policy.hosts.includes(url.hostname)) return fetch(request);
