@@ -1,4 +1,4 @@
-import { coordinatorOf } from "../bindings.ts";
+import { coordinatorOf, gateOf } from "../bindings.ts";
 import { Agent, type FiberContext, type FiberRecoveryContext } from "agents";
 import { createAI, type WorkersAIModelId } from "agents/models/ai-sdk";
 import { generateText, hasToolCall, isStepCount, type ModelMessage } from "ai";
@@ -60,6 +60,13 @@ export class CodingAgent extends Agent<Env, AgentState> {
 
 	async onLanded(_commit: string) {
 		this.setState({ ...this.state, phase: "done" });
+		await this.release();
+	}
+
+	// The change is finished (landed or archived): stop the loop and give the container back.
+	async release() {
+		this.abort.abort(new Error("released"));
+		if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => {});
 	}
 
 	receiveMessage(from: string, text: string) {
@@ -142,6 +149,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 				},
 			});
 
+			const gate = gateOf(this.ctx.exports, change.model);
 			const system = systemPrompt(goal, change, notes.exitCode === 0 && notes.stdout.trim() ? notes.stdout : null);
 			let steps = 0;
 			// Models sometimes end a turn without a tool call (or leak template tokens). Nudge them
@@ -160,11 +168,18 @@ export class CodingAgent extends Agent<Env, AgentState> {
 						messages: base,
 						tools,
 						stopWhen: [hasToolCall("submit"), isStepCount(MAX_STEPS - steps)],
+						// Every model call waits for its slot in the model's shared, adaptive rate gate.
+						prepareStep: async () => {
+							const wait = await gate.acquire();
+							if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+							return {};
+						},
 						abortSignal: AbortSignal.any([fiber.signal, this.abort.signal]),
 						// A hung model call (network drop, host sleep) must not stall the agent forever.
 						timeout: { stepMs: 13 * 60_000, toolMs: 10.5 * 60_000 },
 						onStepEnd: (step) => {
 							steps++;
+							this.ctx.waitUntil(gate.report(false).catch(() => 0));
 							// v7: each step's response.messages holds only that step's messages.
 							generated.push(...step.response.messages);
 							fiber.stash({ payload, messages: [...base, ...generated] } satisfies Checkpoint);
@@ -183,6 +198,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 						break;
 					} catch (err) {
 						if (!isTransient(err) || attempt >= MAX_RATE_LIMIT_RETRIES) throw err;
+						if (/rate.?limit|429|too many/i.test(String((err as Error)?.message ?? err))) await gate.report(true);
 						const seconds = Math.round(Math.min(120, 10 * 2 ** attempt) * (0.75 + Math.random() / 2));
 						this.coordinator.log(this.name, `${change.model} unavailable (${String((err as Error)?.message ?? err).slice(0, 80)}); retrying in ${seconds}s`);
 						await new Promise((r) => setTimeout(r, seconds * 1000));

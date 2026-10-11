@@ -32,4 +32,9 @@ export const SCHEMA = [
 	`CREATE INDEX IF NOT EXISTS refs_to ON refs (to_path, to_name)`,
 	`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS ledger_dirty (change_id TEXT PRIMARY KEY)`,
+	`CREATE TABLE IF NOT EXISTS metrics (name TEXT NOT NULL, value REAL NOT NULL, at INTEGER NOT NULL)`,
+	`CREATE INDEX IF NOT EXISTS metrics_by_name ON metrics (name, at)`,
+	`CREATE INDEX IF NOT EXISTS changes_by_status ON changes (status, submitted_at)`,
+	`CREATE INDEX IF NOT EXISTS decisions_by_change ON decisions (change_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS evidence_by_change ON evidence (change_id, created_at)`,
 ];

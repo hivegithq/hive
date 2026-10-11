@@ -40,6 +40,8 @@ export default defineConfig(({ mode }) => {
 				RepoCoordinator: exports.durableObject({ storage: "sqlite" }),
 				CodingAgent: exports.durableObject({ storage: "sqlite", container: agentBox }),
 				MergeBox: exports.durableObject({ storage: "sqlite", container: mergeBox }),
+				ModelGate: exports.durableObject({ storage: "sqlite" }),
+				SimAgent: exports.durableObject({ storage: "sqlite" }),
 				LandingWorkflow: exports.workflow({ name: "hive-landing" }),
 				Outbound: exports.worker(),
 			},

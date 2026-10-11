@@ -9,17 +9,21 @@ function connect() {
 	ws.onopen = () => first && console.log(`watching ${repo}`);
 	// The dev server reloads the Worker on code changes; reconnect quietly.
 	ws.onclose = () => setTimeout(connect, 1000);
-	ws.onmessage = onMessage;
+	ws.onmessage = onMessage as any;
 }
 connect();
 
 function onMessage(m: MessageEvent) {
-	let e: any;
+	let data: any;
 	try {
-		e = JSON.parse(String(m.data));
+		data = JSON.parse(String(m.data));
 	} catch {
 		return;
 	}
+	for (const e of data.type === "batch" ? data.events : [data]) show(e);
+}
+
+function show(e: any) {
 	switch (e.type) {
 		case "snapshot":
 			if (!first) return;

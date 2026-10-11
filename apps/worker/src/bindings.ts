@@ -7,4 +7,6 @@ type Exports = Cloudflare.Exports;
 export const coordinatorOf = (ex: Exports, repo: string) => ex.RepoCoordinator.getByName(repo);
 export const agentOf = (ex: Exports, agentId: string) => ex.CodingAgent.getByName(agentId);
 export const mergeBoxOf = (ex: Exports, name: string) => ex.MergeBox.getByName(name);
+export const simOf = (ex: Exports, agentId: string) => ex.SimAgent.getByName(agentId);
+export const gateOf = (ex: Exports, model: string) => ex.ModelGate.getByName(model);
 export const landing = (env: Env) => env.LANDING as Workflow<LandingParams>;

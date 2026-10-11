@@ -1,4 +1,4 @@
-import { agentOf, landing, mergeBoxOf } from "../bindings.ts";
+import { agentOf, landing, mergeBoxOf, simOf } from "../bindings.ts";
 import { Agent, type Connection } from "agents";
 import { adviseOnOverlap, judgeRace, type OverlapAction } from "../decide/policy.ts";
 import type {
@@ -14,8 +14,10 @@ import type {
 	SymbolRef,
 } from "../domain/types.ts";
 import { authenticatedRemote, changeRepo, head, ledgerRepo, repoHost } from "../repo/index.ts";
-import { detectOverlaps, type ReferenceGraph, touchedPaths } from "./overlap.ts";
-import { orderQueue } from "./queue.ts";
+import { detectOverlaps, type ReferenceGraph } from "./overlap.ts";
+import { selectBatch } from "../landing/batch.ts";
+import { INTENT_SCHEMA, IntentStore, toIntent, touched } from "./intents.ts";
+import { ForkPool } from "./forks.ts";
 import { SCHEMA } from "./schema.ts";
 import { type LedgerFiles, writeLedger } from "../ledger/ledger.ts";
 
@@ -27,11 +29,20 @@ export interface IntentResult {
 
 export interface LandingParams {
 	repo: string;
-	changeId: string;
+	changeIds: string[]; // a batch for "land"; exactly one race candidate for "evaluate"
 	mode: "land" | "evaluate"; // evaluate = race candidate: gather evidence + review, don't touch trunk
 }
 
+export interface RepoSettings {
+	decider: "clef" | "evidence"; // evidence: deterministic checks decide, no model calls
+	batchMax: number; // changes stacked and verified together per landing
+}
+
+const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16 };
+
 const LANDING_TIMEOUT_MS = 20 * 60 * 1000;
+const MAX_LANDING_RESTARTS = 3;
+type AgentKind = "builtin" | "mcp" | "cli" | "sim";
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
 const now = () => Date.now();
 
@@ -41,49 +52,149 @@ export class RepoCoordinator extends Agent<Env> {
 	private get repo() {
 		return this.name;
 	}
+	// Schema, migrations and stores are set up synchronously on first use. RPCs can reach a freshly
+	// woken object before onStart runs, so nothing may depend on onStart having happened.
+	private migrated = false;
+	private store: IntentStore | null = null;
+
 	private get db() {
-		return this.ctx.storage.sql;
+		const sql = this.ctx.storage.sql;
+		if (!this.migrated) {
+			this.migrated = true;
+			for (const stmt of SCHEMA) sql.exec(stmt);
+			for (const column of ["landing_instance TEXT", "landing_mode TEXT", "landing_started INTEGER", "landing_restarts INTEGER"]) {
+				try {
+					sql.exec(`ALTER TABLE changes ADD COLUMN ${column}`);
+				} catch {
+					// already present
+				}
+			}
+			for (const stmt of INTENT_SCHEMA) sql.exec(stmt);
+			// Backfill the target index for intents declared before it existed.
+			if (Number(sql.exec("SELECT COUNT(*) AS n FROM intent_targets").one().n) === 0) {
+				for (const i of sql.exec("SELECT * FROM intents WHERE released_at IS NULL").toArray().map(toIntent)) {
+					for (const path of touched(i)) sql.exec("INSERT OR IGNORE INTO intent_targets VALUES (?, ?)", i.id, path);
+				}
+			}
+		}
+		return sql;
+	}
+
+	private get intents(): IntentStore {
+		this.store ??= new IntentStore(this.db);
+		return this.store;
 	}
 
 	async onStart() {
-		for (const stmt of SCHEMA) this.db.exec(stmt);
-		for (const column of ["landing_instance TEXT", "landing_mode TEXT", "landing_started INTEGER"]) {
-			try {
-				this.db.exec(`ALTER TABLE changes ADD COLUMN ${column}`);
-			} catch {
-				// already present
-			}
-		}
+		void this.db;
 		await this.scheduleEvery(90, "wakeAgents");
 	}
 
-	private async startLanding(changeId: string, mode: LandingParams["mode"]) {
-		const id = `${changeId}-${mode}-${now()}`;
-		await landing(this.env).create({ id, params: { repo: this.repo, changeId, mode } satisfies LandingParams });
-		this.db.exec("UPDATE changes SET landing_instance = ?, landing_mode = ?, landing_started = ? WHERE id = ?", id, mode, now(), changeId);
+	private async startLanding(changeIds: string[], mode: LandingParams["mode"]) {
+		// Workflow instance ids are global, so they carry the repo name.
+		const id = `${this.repo}-${mode === "land" ? "batch" : changeIds[0]}-${now()}`;
+		await landing(this.env).create({ id, params: { repo: this.repo, changeIds, mode } satisfies LandingParams });
+		const t = now();
+		for (const changeId of changeIds) {
+			this.db.exec("UPDATE changes SET landing_instance = ?, landing_mode = ?, landing_started = ? WHERE id = ?", id, mode, t, changeId);
+		}
 	}
 
 	// Landings are Workflows and normally survive restarts. If one errored, was terminated, or
-	// has been running far longer than any landing should, start it again.
+	// has been running far longer than any landing should, start it again with the same changes.
 	private async reviveStalledLandings() {
 		const rows = this.db.exec("SELECT id, landing_instance, landing_mode, landing_started FROM changes WHERE status = 'converging'").toArray();
+		const byInstance = new Map<string, { mode: LandingParams["mode"]; started: number; changeIds: string[] }>();
 		for (const r of rows) {
-			const changeId = String(r.id);
-			const mode = (r.landing_mode === "evaluate" ? "evaluate" : "land") as LandingParams["mode"];
-			let stalled = r.landing_instance === null || now() - Number(r.landing_started ?? 0) > LANDING_TIMEOUT_MS;
+			const key = r.landing_instance === null ? `none:${r.id}` : String(r.landing_instance);
+			const entry = byInstance.get(key) ?? { mode: r.landing_mode === "evaluate" ? "evaluate" : "land", started: Number(r.landing_started ?? 0), changeIds: [] };
+			entry.changeIds.push(String(r.id));
+			byInstance.set(key, entry);
+		}
+		for (const [instance, { mode, started, changeIds }] of byInstance) {
+			let stalled = instance.startsWith("none:") || now() - started > LANDING_TIMEOUT_MS;
 			if (!stalled) {
 				try {
-					const { status } = await landing(this.env).get(String(r.landing_instance)).then((i) => i.status());
+					const { status } = await landing(this.env).get(instance).then((i) => i.status());
 					stalled = ["errored", "terminated", "unknown"].includes(status);
 				} catch {
 					stalled = true;
 				}
 			}
 			if (!stalled) continue;
-			if (r.landing_instance) await landing(this.env).get(String(r.landing_instance)).then((i) => i.terminate()).catch(() => {});
-			this.log("hive", `restarting stalled landing for ${changeId}`);
-			await this.startLanding(changeId, mode);
+			if (!instance.startsWith("none:")) await landing(this.env).get(instance).then((i) => i.terminate()).catch(() => {});
+			// A landing that keeps failing (missing trunk, broken fork) goes to a person, not round again.
+			const retry: string[] = [];
+			for (const changeId of changeIds) {
+				this.db.exec("UPDATE changes SET landing_restarts = COALESCE(landing_restarts, 0) + 1 WHERE id = ?", changeId);
+				const restarts = Number(this.db.exec("SELECT landing_restarts AS n FROM changes WHERE id = ?", changeId).one().n);
+				if (restarts > MAX_LANDING_RESTARTS) {
+					await this.escalated(changeId, { confidence: 1, probabilities: { escalate: 1 }, rationale: `Landing failed ${restarts - 1} times; a person should look.`, decidedBy: "hive:watchdog" }, { pump: false });
+				} else retry.push(changeId);
+			}
+			if (retry.length === 0) continue;
+			this.log("hive", `restarting stalled landing for ${retry.length} change(s)`);
+			await this.startLanding(retry, mode);
 		}
+	}
+
+	// ── Metrics ──────────────────────────────────────────────────────────────
+
+	recordMetric(name: string, value: number) {
+		this.db.exec("INSERT INTO metrics VALUES (?, ?, ?)", name, value, now());
+	}
+
+	// Throughput and latency for this repo, for load tests and the README.
+	stats(sinceMs = 0) {
+		const statusCounts = Object.fromEntries(
+			this.db.exec("SELECT status, COUNT(*) AS n FROM changes WHERE created_at >= ? GROUP BY status", sinceMs).toArray().map((r) => [String(r.status), Number(r.n)]),
+		);
+		// Time from a change's creation (fork) and from its submission to its landing decision.
+		const landed = this.db
+			.exec(
+				`SELECT c.created_at AS created, c.submitted_at AS submitted, d.created_at AS landed_at FROM changes c
+				 JOIN decisions d ON d.change_id = c.id AND d.outcome = 'land'
+				 WHERE c.status = 'landed' AND c.created_at >= ?`,
+				sinceMs,
+			)
+			.toArray()
+			.map((r) => ({ created: Number(r.created), submitted: Number(r.submitted), landedAt: Number(r.landed_at) }));
+		const pct = (xs: number[], p: number) => (xs.length ? xs.sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] : null);
+		const queueWait = landed.map((l) => l.landedAt - l.submitted);
+		const endToEnd = landed.map((l) => l.landedAt - l.created);
+		const first = landed.length ? Math.min(...landed.map((l) => l.landedAt)) : 0;
+		const last = landed.length ? Math.max(...landed.map((l) => l.landedAt)) : 0;
+		const metric = (name: string) =>
+			this.db.exec("SELECT COUNT(*) AS n, AVG(value) AS avg, MAX(value) AS max FROM metrics WHERE name = ? AND at >= ?", name, sinceMs).one();
+		const batches = metric("batch_size");
+		const forkMs = this.db.exec("SELECT value FROM metrics WHERE name = 'fork_ms' AND at >= ?", sinceMs).toArray().map((r) => Number(r.value));
+		const intentMs = this.db.exec("SELECT value FROM metrics WHERE name = 'intent_ms' AND at >= ?", sinceMs).toArray().map((r) => Number(r.value));
+		return {
+			changes: statusCounts,
+			landed: landed.length,
+			landedPerMinute: landed.length > 1 && last > first ? +(landed.length / ((last - first) / 60000)).toFixed(1) : null,
+			queueWaitMs: { p50: pct(queueWait, 50), p95: pct(queueWait, 95) },
+			endToEndMs: { p50: pct(endToEnd, 50), p95: pct(endToEnd, 95) },
+			forkMs: { n: forkMs.length, p50: pct(forkMs, 50), p95: pct(forkMs, 95) },
+			intentCheckMs: { n: intentMs.length, p50: pct(intentMs, 50), p95: pct(intentMs, 95) },
+			batches: { count: Number(batches.n), avgSize: batches.avg === null ? null : +Number(batches.avg).toFixed(1), maxSize: batches.max === null ? null : Number(batches.max) },
+			liveIntents: this.intents.liveCount(),
+			mirrors: this.db.exec("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'mirror:%'").one().n,
+		};
+	}
+
+	// ── Settings ─────────────────────────────────────────────────────────────
+
+	settings(): RepoSettings {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'settings'").toArray()[0];
+		return { ...DEFAULT_SETTINGS, ...(row ? JSON.parse(String(row.value)) : {}) };
+	}
+
+	setSettings(patch: Partial<RepoSettings>): RepoSettings {
+		const next = { ...this.settings(), ...patch };
+		next.batchMax = Math.max(1, Math.min(256, Math.floor(next.batchMax)));
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('settings', ?)", JSON.stringify(next));
+		return next;
 	}
 
 	// Waking an agent's Durable Object lets it recover an interrupted fiber (deploys, restarts).
@@ -99,8 +210,32 @@ export class RepoCoordinator extends Agent<Env> {
 		connection.send(JSON.stringify({ type: "snapshot", snapshot: this.snapshot() }));
 	}
 
+	// Events go out in batches every 250ms (or every 500 events), and each agent's log lines are
+	// throttled to one per second: with thousands of agents, one message per event would swamp
+	// every connected dashboard.
+	private outbox: HiveEvent[] = [];
+	private flushTimer: ReturnType<typeof setTimeout> | null = null;
+	private lastLog = new Map<string, number>();
+
 	private emit(event: HiveEvent) {
-		this.broadcast(JSON.stringify(event));
+		if (event.type === "log") {
+			const t = Date.now();
+			if ((this.lastLog.get(event.agentId) ?? 0) > t - 1000) return;
+			this.lastLog.set(event.agentId, t);
+			if (this.lastLog.size > 5000) this.lastLog.clear();
+		}
+		this.outbox.push(event);
+		if (this.outbox.length >= 500) this.flush();
+		else this.flushTimer ??= setTimeout(() => this.flush(), 250);
+	}
+
+	private flush() {
+		if (this.flushTimer) clearTimeout(this.flushTimer);
+		this.flushTimer = null;
+		if (this.outbox.length === 0) return;
+		const events = this.outbox;
+		this.outbox = [];
+		this.broadcast(JSON.stringify({ type: "batch", events }));
 	}
 
 	// ── Repos ────────────────────────────────────────────────────────────────
@@ -176,6 +311,7 @@ export class RepoCoordinator extends Agent<Env> {
 		if (!change) throw new Error(`unknown change ${changeId}`);
 		if (["landed", "archived", "converging"].includes(change.status)) throw new Error(`change ${changeId} is ${change.status}`);
 		this.releaseIntent(changeId);
+		if (this.isBuiltin(change.agentId)) this.ctx.waitUntil(agentOf(this.ctx.exports, change.agentId).release().catch(() => {}));
 		this.log(change.agentId, `abandoned by ${by}`);
 		return this.setStatus(changeId, "archived");
 	}
@@ -215,15 +351,16 @@ export class RepoCoordinator extends Agent<Env> {
 		agentId: string;
 		model: string;
 		race?: { group: string; index: number };
-		kind?: "builtin" | "mcp" | "cli";
+		kind?: AgentKind;
 	}): Promise<Change> {
-		const host = repoHost(this.env);
 		const changeId = id("c");
-		const genesis = (await head(host, this.repo)) ?? "";
+		const genesis = await this.trunkHead();
 		// Overlap checks need a current semantic index. Push events keep it fresh, but don't rely on them.
 		if (genesis && this.indexStatus().commit !== genesis) await this.schedule(0, "reindex", { commit: genesis });
 		const fork = changeRepo(this.repo, changeId);
-		await host.fork(this.repo, fork, `Hive change ${changeId}`);
+		const forkStarted = Date.now();
+		await this.forkPool().fork(fork, `Hive change ${changeId}`);
+		this.recordMetric("fork_ms", Date.now() - forkStarted);
 		this.ensureAgent(input.agentId, input.model, input.kind);
 
 		const t = now();
@@ -247,6 +384,35 @@ export class RepoCoordinator extends Agent<Env> {
 		return change;
 	}
 
+	// Trunk's head, cached: updated on every landing and trunk push instead of asked for per fork.
+	private async trunkHead(): Promise<string> {
+		const cached = this.db.exec("SELECT value FROM meta WHERE key = 'trunk_head'").toArray()[0];
+		if (cached) return String(cached.value);
+		const fresh = (await head(repoHost(this.env), this.repo)) ?? "";
+		if (fresh) this.setTrunkHead(fresh);
+		return fresh;
+	}
+
+	private setTrunkHead(commit: string) {
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('trunk_head', ?)", commit);
+	}
+
+	private pool: ForkPool | null = null;
+	private forkPool(): ForkPool {
+		this.pool ??= new ForkPool(repoHost(this.env), this.repo, {
+			list: () => this.mirrors(),
+			add: (name) => this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", `mirror:${name}`, String(now())),
+		});
+		return this.pool;
+	}
+
+	mirrors(): string[] {
+		return this.db
+			.exec("SELECT key FROM meta WHERE key LIKE 'mirror:%' ORDER BY key")
+			.toArray()
+			.map((r) => String(r.key).slice("mirror:".length));
+	}
+
 	change(changeId: string): Change | null {
 		const row = this.db.exec("SELECT * FROM changes WHERE id = ?", changeId).toArray()[0];
 		return row ? toChange(row, this.repo) : null;
@@ -266,7 +432,7 @@ export class RepoCoordinator extends Agent<Env> {
 		const change = this.change(changeId);
 		if (!change) throw new Error(`unknown change ${changeId}`);
 		// A change holds one live intent; re-declaring replaces it (scope narrowed or widened).
-		this.db.exec("UPDATE intents SET released_at = ? WHERE change_id = ? AND released_at IS NULL", now(), changeId);
+		this.intents.release(changeId, now());
 
 		const intent: Intent = {
 			id: id("i"),
@@ -278,23 +444,15 @@ export class RepoCoordinator extends Agent<Env> {
 			createdAt: now(),
 			releasedAt: null,
 		};
-		this.db.exec(
-			"INSERT INTO intents VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
-			intent.id,
-			changeId,
-			intent.agentId,
-			intent.summary,
-			JSON.stringify(intent.paths),
-			JSON.stringify(intent.symbols),
-			intent.createdAt,
-		);
+		this.intents.insert(intent);
 
 		// Race candidates deliberately overlap each other; only compare against other goals' work.
-		const live = this.liveIntents().filter((i) => {
-			const other = this.change(i.changeId);
-			return !(change.race && other?.race?.group === change.race.group);
+		const graph = this.referenceGraph();
+		const candidates = this.intents.candidates(intent, graph).filter((i) => {
+			if (!change.race) return true;
+			return this.change(i.changeId)?.race?.group !== change.race.group;
 		});
-		const overlaps = detectOverlaps(intent, live, this.referenceGraph());
+		const overlaps = detectOverlaps(intent, candidates, graph);
 		let advice: IntentResult["advice"] = null;
 		if (overlaps.length > 0) {
 			advice = await adviseOnOverlap(this.env.AI, { mine: intent.summary, overlaps }).catch((err) => {
@@ -313,29 +471,26 @@ export class RepoCoordinator extends Agent<Env> {
 	}
 
 	releaseIntent(changeId: string) {
-		const rows = this.db.exec("SELECT id FROM intents WHERE change_id = ? AND released_at IS NULL", changeId).toArray();
-		this.db.exec("UPDATE intents SET released_at = ? WHERE change_id = ? AND released_at IS NULL", now(), changeId);
-		for (const r of rows) this.emit({ type: "intent_released", intentId: String(r.id) });
+		for (const intentId of this.intents.release(changeId, now())) this.emit({ type: "intent_released", intentId });
 	}
 
 	liveIntents(): Intent[] {
-		return this.db.exec("SELECT * FROM intents WHERE released_at IS NULL").toArray().map(toIntent);
+		return this.intents.live();
 	}
 
 	private intentFor(changeId: string): Intent | null {
-		const row = this.db
-			.exec("SELECT * FROM intents WHERE change_id = ? ORDER BY created_at DESC LIMIT 1", changeId)
-			.toArray()[0];
-		return row ? toIntent(row) : null;
+		return this.intents.forChange(changeId);
 	}
 
-	referenceGraph(): ReferenceGraph {
+	referenceGraph(): ReferenceGraph & { dependenciesOf(s: SymbolRef): SymbolRef[] } {
+		const rows = (sql: string, s: SymbolRef, pathCol: string, nameCol: string) =>
+			this.db
+				.exec(sql, s.path, s.name)
+				.toArray()
+				.map((r) => ({ path: String(r[pathCol]), name: String(r[nameCol]) }));
 		return {
-			dependentsOf: (s) =>
-				this.db
-					.exec("SELECT from_path, from_name FROM refs WHERE to_path = ? AND to_name = ?", s.path, s.name)
-					.toArray()
-					.map((r) => ({ path: String(r.from_path), name: String(r.from_name) })),
+			dependentsOf: (s) => rows("SELECT from_path, from_name FROM refs WHERE to_path = ? AND to_name = ?", s, "from_path", "from_name"),
+			dependenciesOf: (s) => rows("SELECT to_path, to_name FROM refs WHERE from_path = ? AND from_name = ?", s, "to_path", "to_name"),
 		};
 	}
 
@@ -369,40 +524,51 @@ export class RepoCoordinator extends Agent<Env> {
 		return submitted;
 	}
 
-	// Start the next landing if nothing is converging. Only one change converges at a time,
-	// which makes the coordinator the single writer to trunk.
+	// Start the next batch if nothing is landing. One batch lands at a time, which keeps the
+	// coordinator the single writer to trunk; batching is what makes that single writer fast.
 	async pump() {
-		const converging = this.db.exec("SELECT id FROM changes WHERE status = 'converging' AND (race_group IS NULL OR race_won = 1)").toArray();
-		if (converging.length > 0) return;
-		const pending = this.db
-			.exec("SELECT id, submitted_at FROM changes WHERE status = 'submitted' AND (race_group IS NULL OR race_won = 1)")
-			.toArray()
-			.map((r) => {
-				const intent = this.intentFor(String(r.id));
-				return { changeId: String(r.id), submittedAt: Number(r.submitted_at), paths: intent ? touchedPaths(intent) : new Set<string>() };
-			});
-		const [next] = orderQueue(pending);
-		if (!next) return;
-		this.setStatus(next.changeId, "converging");
-		await this.startLanding(next.changeId, "land");
+		const landing = this.db.exec("SELECT 1 FROM changes WHERE status = 'converging' AND landing_mode = 'land' LIMIT 1").toArray();
+		if (landing.length > 0) return;
+		const { batchMax } = this.settings();
+		const batch = selectBatch(this.queued(batchMax * 4), batchMax);
+		if (batch.length === 0) return;
+		for (const id of batch) this.setStatus(id, "converging");
+		this.recordMetric("batch_size", batch.length);
+		await this.startLanding(batch, "land");
 	}
 
-	queueOrder(): { changeId: string; position: number }[] {
-		const pending = this.db
-			.exec("SELECT id, submitted_at FROM changes WHERE status = 'submitted' AND (race_group IS NULL OR race_won = 1)")
+	// The oldest queued changes, with the files their intents touch.
+	private queued(limit: number) {
+		return this.db
+			.exec(
+				`SELECT c.id, (SELECT json_group_array(t.path) FROM intent_targets t JOIN intents i ON i.id = t.intent_id
+				                WHERE i.change_id = c.id AND i.released_at IS NULL) AS paths
+				 FROM changes c WHERE c.status = 'submitted' AND (c.race_group IS NULL OR c.race_won = 1)
+				 ORDER BY c.submitted_at LIMIT ?`,
+				limit,
+			)
 			.toArray()
-			.map((r) => {
-				const intent = this.intentFor(String(r.id));
-				return { changeId: String(r.id), submittedAt: Number(r.submitted_at), paths: intent ? touchedPaths(intent) : new Set<string>() };
-			});
-		return orderQueue(pending).map((p, position) => ({ changeId: p.changeId, position }));
+			.map((r) => ({ changeId: String(r.id), paths: JSON.parse(String(r.paths ?? "[]")) as string[] }));
+	}
+
+	queueOrder(limit = 200): { changeId: string; position: number }[] {
+		return this.queued(limit).map((q, position) => ({ changeId: q.changeId, position }));
+	}
+
+	// Untested changes from a batch go back in line (keeping their place by submission time).
+	requeue(changeIds: string[]) {
+		for (const id of changeIds) if (this.change(id)?.status === "converging") this.setStatus(id, "submitted");
+	}
+
+	async batchFinished() {
+		await this.pump();
 	}
 
 	// ── Race mode ────────────────────────────────────────────────────────────
 
 	private async startRaceEvaluation(change: Change) {
 		this.setStatus(change.id, "converging");
-		await this.startLanding(change.id, "evaluate");
+		await this.startLanding([change.id], "evaluate");
 	}
 
 	raceCandidates(group: string): Change[] {
@@ -517,42 +683,98 @@ export class RepoCoordinator extends Agent<Env> {
 		return !row || row.kind === "builtin";
 	}
 
-	private ensureAgent(agentId: string, model: string, kind: "builtin" | "mcp" | "cli" = "builtin") {
-		this.db.exec("INSERT OR IGNORE INTO agents VALUES (?, ?, ?, ?)", agentId, kind, model, kind === "builtin" ? 0.8 : 0.6);
+	private ensureAgent(agentId: string, model: string, kind: AgentKind = "builtin") {
+		this.db.exec("INSERT OR IGNORE INTO agents VALUES (?, ?, ?, ?)", agentId, kind, model, kind === "builtin" || kind === "sim" ? 0.8 : 0.6);
 	}
 
-	// Landing workflow pushed the rebased change to trunk.
-	async landed(changeId: string, commit: string, d: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome">) {
-		const change = this.change(changeId)!;
-		this.recordDecision({ ...d, changeId, outcome: "land" });
-		this.setStatus(changeId, "landed", { head: commit });
-		this.releaseIntent(changeId);
-		// Trust is earned: each clean landing nudges the agent up.
-		this.db.exec("UPDATE agents SET trust = MIN(1.0, trust + 0.02) WHERE id = ?", change.agentId);
-		this.emit({ type: "trunk", commit, changeId });
-		await this.schedule(0, "reindex", { commit });
-		if (this.db.exec("SELECT COUNT(*) AS n FROM changes WHERE goal_id = ? AND status NOT IN ('landed','archived')", change.goalId).one().n === 0) {
-			this.setGoalStatus(change.goalId, "achieved");
+	private agentKind(agentId: string): AgentKind | null {
+		const row = this.db.exec("SELECT kind FROM agents WHERE id = ?", agentId).toArray()[0];
+		return row ? (String(row.kind) as AgentKind) : null;
+	}
+
+	// The Durable Object to notify about a change's fate: built-in coding agents and simulated
+	// agents get callbacks; external agents (MCP, CLI) poll the change detail instead.
+	private notifier(agentId: string) {
+		const kind = this.agentKind(agentId);
+		if (kind === "sim") return simOf(this.ctx.exports, agentId);
+		if (kind === "builtin" || kind === null) return agentOf(this.ctx.exports, agentId);
+		return null;
+	}
+
+	// ── Load testing ─────────────────────────────────────────────────────────
+
+	// Spawn `agents` simulated agents in waves. Runs on alarms so the request returns immediately.
+	async loadTest(opts: { agents: number; waveSize: number; sharedRate: number; brokenRate: number }) {
+		const run = { ...opts, spawned: 0, startedAt: now(), id: id("lt") };
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('loadtest', ?)", JSON.stringify(run));
+		await this.schedule(0, "loadTestWave");
+		return run;
+	}
+
+	async loadTestWave() {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'loadtest'").toArray()[0];
+		if (!row) return;
+		const run = JSON.parse(String(row.value)) as { agents: number; waveSize: number; sharedRate: number; brokenRate: number; spawned: number; id: string };
+		const count = Math.min(run.waveSize, run.agents - run.spawned);
+		if (count <= 0) return;
+		run.spawned += count;
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('loadtest', ?)", JSON.stringify(run));
+		if (run.spawned < run.agents) await this.schedule(1, "loadTestWave");
+
+		await Promise.all(
+			Array.from({ length: count }, async (_, i) => {
+				const n = run.spawned - count + i;
+				const r = Math.random();
+				const kind = r < run.brokenRate ? "broken" : r < run.brokenRate + run.sharedRate ? "shared" : "disjoint";
+				try {
+					const goal = this.createGoal({ title: `Load ${run.id} #${n} (${kind})`, description: "Simulated agent" });
+					const agentId = id("s");
+					const change = await this.startChange({ goalId: goal.id, agentId, model: "sim", kind: "sim" });
+					await simOf(this.ctx.exports, agentId).start({ repo: this.repo, changeId: change.id, kind });
+				} catch (err) {
+					this.recordMetric("spawn_error", 1);
+					console.warn("load test spawn failed", err);
+				}
+			}),
+		);
+	}
+
+	// A landing batch fast-forwarded trunk to `tip`; each change landed at its own commit in the stack.
+	async landedBatch(items: { changeId: string; commit: string; decision: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome"> }[], tip: string) {
+		for (const { changeId, commit, decision } of items) {
+			const change = this.change(changeId);
+			if (!change) continue;
+			this.recordDecision({ ...decision, changeId, outcome: "land" });
+			this.setStatus(changeId, "landed", { head: commit });
+			this.releaseIntent(changeId);
+			// Trust is earned: each clean landing nudges the agent up.
+			this.db.exec("UPDATE agents SET trust = MIN(1.0, trust + 0.02) WHERE id = ?", change.agentId);
+			this.emit({ type: "trunk", commit, changeId });
+			if (this.db.exec("SELECT COUNT(*) AS n FROM changes WHERE goal_id = ? AND status NOT IN ('landed','archived')", change.goalId).one().n === 0) {
+				this.setGoalStatus(change.goalId, "achieved");
+			}
+			const notify = this.notifier(change.agentId);
+			if (notify) this.ctx.waitUntil(Promise.resolve(notify.onLanded(commit)).catch(() => {}));
 		}
-		if (this.isBuiltin(change.agentId)) await agentOf(this.ctx.exports, change.agentId).onLanded(commit).catch(() => {});
-		await this.pump();
+		this.recordMetric("landed", items.length);
+		this.setTrunkHead(tip);
+		await this.schedule(0, "reindex", { commit: tip });
 	}
 
-	async bounced(changeId: string, reason: string, d: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome">) {
+	async bounced(changeId: string, reason: string, d: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome">, opts: { pump?: boolean } = {}) {
 		const change = this.change(changeId)!;
 		this.recordDecision({ ...d, changeId, outcome: "bounce" });
 		this.setStatus(changeId, "bounced");
 		// External agents (MCP, CLI) read the reason from the change detail instead.
-		if (this.isBuiltin(change.agentId)) {
-			await agentOf(this.ctx.exports, change.agentId).onBounced(reason).catch((err: unknown) => console.warn("bounce delivery failed", err));
-		}
-		await this.pump();
+		const notify = this.notifier(change.agentId);
+		if (notify) this.ctx.waitUntil(Promise.resolve(notify.onBounced(reason)).catch((err: unknown) => console.warn("bounce delivery failed", err)));
+		if (opts.pump !== false) await this.pump();
 	}
 
-	async escalated(changeId: string, d: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome">) {
+	async escalated(changeId: string, d: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome">, opts: { pump?: boolean } = {}) {
 		this.recordDecision({ ...d, changeId, outcome: "escalate" });
 		this.setStatus(changeId, "escalated");
-		await this.pump();
+		if (opts.pump !== false) await this.pump();
 	}
 
 	// Race candidate finished evaluation. When every candidate is done, Clef judges the race.
@@ -605,6 +827,7 @@ export class RepoCoordinator extends Agent<Env> {
 			} else {
 				this.setStatus(c.id, "archived");
 				this.releaseIntent(c.id);
+				if (this.isBuiltin(c.agentId)) this.ctx.waitUntil(agentOf(this.ctx.exports, c.agentId).release().catch(() => {}));
 			}
 		}
 		await this.pump();
@@ -637,9 +860,9 @@ export class RepoCoordinator extends Agent<Env> {
 			this.setStatus(changeId, "bounced");
 			if (this.isBuiltin(change.agentId)) await agentOf(this.ctx.exports, change.agentId).onBounced(note || "A reviewer sent this back.");
 		} else {
-			// Re-run landing with the human's approval recorded; the workflow skips Clef when approved.
-			this.setStatus(changeId, "converging");
-			await this.startLanding(changeId, "land");
+			// Back in the queue with the approval recorded; the next batch lands it without asking Clef.
+			this.setStatus(changeId, "submitted");
+			await this.pump();
 		}
 	}
 
@@ -653,6 +876,7 @@ export class RepoCoordinator extends Agent<Env> {
 	// Every push to trunk (from Hive's landing or from a human with plain git) refreshes the
 	// semantic index so intent overlap checks see the current code.
 	async onTrunkPush(after: string, commits: { id: string; trailers: Record<string, string> }[]) {
+		this.setTrunkHead(after);
 		const external = commits.filter((c) => !c.trailers["Hive-Change-Id"]);
 		if (external.length > 0) this.emit({ type: "trunk", commit: after, changeId: null });
 		await this.schedule(0, "reindex", { commit: after });
@@ -700,12 +924,18 @@ export class RepoCoordinator extends Agent<Env> {
 		};
 	}
 
+	// Bounded: the active changes (up to 500) plus recent history, with exact counts per status.
 	snapshot() {
+		const active = this.db
+			.exec("SELECT * FROM changes WHERE status NOT IN ('landed','archived') ORDER BY updated_at DESC LIMIT 500")
+			.toArray();
+		const recent = this.db.exec("SELECT * FROM changes WHERE status IN ('landed','archived') ORDER BY updated_at DESC LIMIT 100").toArray();
 		return {
 			repo: this.repo,
-			goals: this.db.exec("SELECT * FROM goals ORDER BY created_at").toArray().map((r) => toGoal(r, this.repo)),
-			changes: this.db.exec("SELECT * FROM changes ORDER BY created_at").toArray().map((r) => toChange(r, this.repo)),
-			intents: this.liveIntents(),
+			counts: Object.fromEntries(this.db.exec("SELECT status, COUNT(*) AS n FROM changes GROUP BY status").toArray().map((r) => [String(r.status), Number(r.n)])),
+			goals: this.db.exec("SELECT * FROM goals ORDER BY created_at DESC LIMIT 300").toArray().map((r) => toGoal(r, this.repo)).reverse(),
+			changes: [...active, ...recent].map((r) => toChange(r, this.repo)).sort((a, b) => a.createdAt - b.createdAt),
+			intents: this.intents.live(500),
 			queue: this.queueOrder(),
 			decisions: this.db.exec("SELECT * FROM decisions ORDER BY created_at DESC LIMIT 50").toArray().map(toDecision),
 			agents: this.db.exec("SELECT * FROM agents").toArray().map((r) => ({ id: String(r.id), kind: String(r.kind), model: String(r.model), trust: Number(r.trust) })),
@@ -746,18 +976,6 @@ function toChange(r: Row, repo: string): Change {
 	};
 }
 
-function toIntent(r: Row): Intent {
-	return {
-		id: String(r.id),
-		changeId: String(r.change_id),
-		agentId: String(r.agent_id),
-		summary: String(r.summary),
-		paths: json(r.paths),
-		symbols: json(r.symbols),
-		createdAt: Number(r.created_at),
-		releasedAt: r.released_at === null ? null : Number(r.released_at),
-	};
-}
 
 function toEvidence(r: Row): Evidence {
 	return {

@@ -3,6 +3,7 @@ import type { Change, Decision, Evaluation, Evidence, Goal, HiveEvent, Intent, O
 
 export interface Snapshot {
 	repo: string;
+	counts?: Record<string, number>;
 	goals: Goal[];
 	changes: Change[];
 	intents: Intent[];
@@ -131,14 +132,17 @@ export function useHive(repo: string) {
 				if (!closed) retry = setTimeout(connect, 1500);
 			};
 			ws.onmessage = (msg) => {
-				let data: HiveEvent | { type: "snapshot"; snapshot: Snapshot } | { type: string };
+				let data: HiveEvent | { type: "snapshot"; snapshot: Snapshot } | { type: "batch"; events: HiveEvent[] } | { type: string };
 				try {
 					data = JSON.parse(msg.data);
 				} catch {
 					return;
 				}
 				if (data.type === "snapshot" && "snapshot" in data) return setSnapshot(data.snapshot);
-				const event = data as HiveEvent;
+				const events = data.type === "batch" && "events" in data ? data.events : [data as HiveEvent];
+				for (const event of events) handle(event);
+			};
+			const handle = (event: HiveEvent) => {
 				switch (event.type) {
 					case "intent":
 						setOverlaps((o) => ({ ...o, [event.intent.changeId]: event.overlaps }));

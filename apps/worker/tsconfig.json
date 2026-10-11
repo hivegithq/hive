@@ -20,6 +20,8 @@
 		".cloudflare/types"
 	],
 	"exclude": [
-		"src/web"
+		"src/web",
+		"src/test",
+		"src/**/*.test.ts"
 	]
 }

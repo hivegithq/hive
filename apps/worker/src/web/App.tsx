@@ -4,6 +4,8 @@ import { api, MODELS, modelLabel, type Snapshot, useHive } from "./api.ts";
 import { ChangeDrawer } from "./ChangeDrawer.tsx";
 import { Strip } from "./Strip.tsx";
 
+const STRIPS_PER_BAY = 60;
+
 // Bays follow a change from fork to trunk. Archived race losers are counted, not shown.
 const BAYS: { id: string; title: string; hint: string; statuses: ChangeStatus[] }[] = [
 	{ id: "working", title: "Working", hint: "Agents editing in their own forks", statuses: ["drafting", "bounced"] },
@@ -73,13 +75,16 @@ function RepoView({ repo }: { repo: string }) {
 }
 
 function Header(props: { repo: string; snapshot: Snapshot; connected: boolean; trunkHead?: string }) {
-	const active = props.snapshot.changes.filter((c) => !["landed", "archived"].includes(c.status)).length;
+	const counts = props.snapshot.counts;
+	const active = counts
+		? Object.entries(counts).reduce((n, [status, k]) => (["landed", "archived"].includes(status) ? n : n + k), 0)
+		: props.snapshot.changes.filter((c) => !["landed", "archived"].includes(c.status)).length;
 	const [clone, setClone] = useState<string | null>(null);
 	return (
 		<header className="header">
 			<h1 className="header__repo">{props.repo}</h1>
 			<p className="header__stats">
-				<span>{active} changes in flight</span>
+				<span>{active.toLocaleString()} changes in flight</span>
 				<span>{props.snapshot.intents.length} live intents</span>
 				{props.trunkHead && <span>trunk at <span className="hash">{props.trunkHead.slice(0, 8)}</span></span>}
 				<span className={props.connected ? "live" : "live live--off"}>{props.connected ? "Live" : "Reconnecting"}</span>
@@ -200,7 +205,7 @@ function Board(props: {
 	const intents = useMemo(() => new Map(snapshot.intents.map((i) => [i.changeId, i])), [snapshot.intents]);
 	const queue = useMemo(() => new Map(snapshot.queue.map((q) => [q.changeId, q.position])), [snapshot.queue]);
 	const agentToChange = useMemo(() => new Map(snapshot.changes.map((c) => [c.agentId, c.id])), [snapshot.changes]);
-	const archived = snapshot.changes.filter((c) => c.status === "archived").length;
+	const archived = snapshot.counts?.archived ?? snapshot.changes.filter((c) => c.status === "archived").length;
 
 	const byBay = (statuses: ChangeStatus[]) =>
 		snapshot.changes
@@ -211,17 +216,20 @@ function Board(props: {
 		<main className="board" aria-label="Changes">
 			{BAYS.map((bay) => {
 				const changes: Change[] = byBay(bay.statuses);
+				// Exact totals come from the coordinator; the snapshot itself is bounded.
+				const total = snapshot.counts ? bay.statuses.reduce((n, s) => n + (snapshot.counts?.[s] ?? 0), 0) : changes.length;
 				// "Needs you" only takes space when something is actually waiting on a person.
-				if (bay.id === "attention" && changes.length === 0) return null;
+				if (bay.id === "attention" && total === 0) return null;
+				const shown = changes.slice(0, STRIPS_PER_BAY);
 				return (
 					<section key={bay.id} className={`bay bay--${bay.id}`} aria-labelledby={`bay-${bay.id}`}>
 						<header className="bay__header">
 							<h2 id={`bay-${bay.id}`}>{bay.title}</h2>
-							<span className="bay__count">{changes.length}</span>
+							<span className="bay__count">{total.toLocaleString()}</span>
 						</header>
 						<p className="bay__hint">{bay.hint}</p>
 						<div className="bay__strips">
-							{changes.map((c) => (
+							{shown.map((c) => (
 								<Strip
 									key={c.id}
 									change={c}
@@ -234,7 +242,8 @@ function Board(props: {
 									onSelect={() => props.onSelect(c.id)}
 								/>
 							))}
-							{bay.id === "landed" && archived > 0 && <p className="bay__note">{archived} race entries archived</p>}
+							{total > shown.length && <p className="bay__note">and {(total - shown.length).toLocaleString()} more</p>}
+							{bay.id === "landed" && archived > 0 && <p className="bay__note">{archived.toLocaleString()} archived</p>}
 						</div>
 					</section>
 				);

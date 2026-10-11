@@ -4,9 +4,49 @@ import { Box, sh } from "../sandbox/box.ts";
 
 const DIR = "/workspace/trunk";
 
-export type RebaseResult =
-	| { ok: true; head: string; trunk: string; diff: string; structuralDiff: string; files: string[] }
-	| { ok: false; trunk: string; conflicts: { path: string; excerpt: string }[] };
+// Reads "<changeId> <fork>" lines; prints TRUNK, then OK / EMPTY / CONFLICT per change (tab-separated,
+// file lists and conflict excerpts base64-encoded).
+const STACK_SCRIPT = `set -u
+cd ${"$"}{DIR:-/workspace/trunk}
+git cherry-pick --abort >/dev/null 2>&1
+git checkout -q -f -B land origin/main && git clean -qfd
+tip=$(git rev-parse HEAD)
+printf 'TRUNK\\t%s\\n' "$tip"
+while read -r id fork; do
+  [ -z "$id" ] && continue
+  ref="$fork/main"
+  base=$(git merge-base origin/main "$ref" 2>/dev/null)
+  if [ -z "$base" ] || [ "$(git rev-list --count "$base..$ref" 2>/dev/null || echo 0)" = "0" ]; then
+    printf 'EMPTY\\t%s\\n' "$id"; continue
+  fi
+  if git cherry-pick --allow-empty --keep-redundant-commits "$base..$ref" >/tmp/hive-pick.log 2>&1; then
+    next=$(git rev-parse HEAD)
+    files=$(git diff --name-only "$tip" "$next" | base64 -w0)
+    printf 'OK\\t%s\\t%s\\t%s\\t%s\\n' "$id" "$tip" "$next" "$files"
+    tip=$next
+  else
+    excerpt=$(for f in $(git diff --name-only --diff-filter=U); do printf '%s\\n' "$f"; grep -n -A8 -B2 '^<<<<<<<' "$f" | head -60; printf '\\036'; done | base64 -w0)
+    git cherry-pick --abort >/dev/null 2>&1; git reset -q --hard "$tip"
+    printf 'CONFLICT\\t%s\\t%s\\n' "$id" "$excerpt"
+  fi
+done
+`;
+
+export interface StackEntry {
+	changeId: string;
+	fork: string; // Artifacts repo name, also used as the git remote name
+}
+
+export type Stacked =
+	| { changeId: string; ok: true; prev: string; tip: string; files: string[] }
+	| { changeId: string; ok: false; conflicts: { path: string; excerpt: string }[] }
+	| { changeId: string; ok: false; empty: true };
+
+export interface StackResult {
+	trunk: string;
+	tip: string; // tip of the stack after every change that applied
+	entries: Stacked[];
+}
 
 export type PushResult = { ok: true; commit: string } | { ok: false; reason: string };
 
@@ -24,76 +64,120 @@ export interface SemanticIndex {
 
 export interface ReferentialConflict {
 	changed: string; // symbol this change modified
-	affected: string; // symbol on trunk (changed since genesis) that references it, or vice versa
+	affected: string; // symbol on trunk (changed since the change's base) that references it, or vice versa
 	direction: "trunk-uses-change" | "change-uses-trunk";
 }
 
-// A container with a trunk checkout. Rebases changes with mergiraf as the merge driver,
-// produces evidence, and performs the (serialized) push to trunk.
+// A container with a trunk checkout. Builds a stack of changes on top of trunk (mergiraf as the merge
+// driver), produces evidence for the whole stack at once, and performs the single push to trunk.
 export class MergeBox extends DurableObject<Env> {
 	private box = new Box(this.ctx, (policy) => this.ctx.exports.Outbound({ props: policy }));
 
-	async prepare(input: { repo: string; fork?: string; canPush: boolean; previewRepo?: string }) {
+	private run(command: string, timeoutMs?: number) {
+		return this.box.run(command, { cwd: DIR, timeoutMs });
+	}
+
+	// Check out trunk and fetch every fork in the batch as its own remote.
+	// Returns the forks that couldn't be fetched; their changes are bounced rather than failing the batch.
+	async prepare(input: { repo: string; forks: string[]; canPush: boolean; previewRepo?: string; mirrors?: string[] }): Promise<{ unavailable: string[] }> {
 		const host = repoHost(this.env);
-		const [trunk, fork] = await Promise.all([host.get(input.repo), input.fork ? host.get(input.fork) : null]);
-		if (!trunk || (input.fork && !fork)) throw new Error("trunk or fork missing");
+		const trunk = await host.get(input.repo);
+		if (!trunk) throw new Error(`trunk ${input.repo} missing`);
+		const found = await Promise.all(input.forks.map(async (name) => ({ name, handle: await host.get(name) })));
+		const missing = found.filter((f) => !f.handle).map((f) => f.name);
+		const forks = found.filter((f) => f.handle);
+
 		await this.box.ensure({
 			repos: [
 				{ name: input.repo, scope: input.canPush ? "write" : "read" },
-				...(input.fork ? [{ name: input.fork, scope: "read" as const }] : []),
+				...input.forks.map((name) => ({ name, scope: "read" as const })),
 				...(input.previewRepo ? [{ name: input.previewRepo, scope: "write" as const }] : []),
+				...(input.canPush ? (input.mirrors ?? []).map((name) => ({ name, scope: "write" as const })) : []),
 			],
 			hosts: ["registry.npmjs.org"],
 		});
+		this.mirrorRemotes = Object.fromEntries(
+			await Promise.all(
+				(input.mirrors ?? []).map(async (name) => {
+					const m = await host.get(name);
+					return [name, m ? containerRemote(this.env, m.remote) : ""] as const;
+				}),
+			),
+		);
 		const trunkRemote = containerRemote(this.env, trunk.remote);
-		const addFork = fork ? `git remote add change ${sh(containerRemote(this.env, fork.remote))} && git fetch -q change main` : "true";
+		const remotes = forks.map((f) => `git remote add ${sh(f.name)} ${sh(containerRemote(this.env, f.handle!.remote))}`).join("\n");
 		const r = await this.box.run(
 			`set -e
 			if [ ! -d ${DIR}/.git ]; then git clone -q ${sh(trunkRemote)} ${DIR}; fi
 			cd ${DIR}
-			git remote set-url origin ${sh(trunkRemote)}
-			git remote remove change 2>/dev/null || true
+			git cherry-pick --abort 2>/dev/null || true
 			git rebase --abort 2>/dev/null || true
-			git fetch -q origin main
-			${addFork}`,
+			git remote set-url origin ${sh(trunkRemote)}
+			for r in $(git remote | grep -v '^origin$'); do git remote remove "$r"; done
+			${remotes}
+			git fetch -q origin main`,
+			{ timeoutMs: 10 * 60 * 1000 },
 		);
 		if (r.exitCode !== 0) throw new Error(`merge box setup failed: ${r.stderr || r.stdout}`);
-	}
-
-	// Replay the change's own commits onto current trunk. mergiraf resolves structural conflicts;
-	// anything it can't resolve is reported with an excerpt. The base is the merge-base, not the
-	// change's genesis: an agent that synced with trunk already carries trunk's newer commits.
-	async rebase(): Promise<RebaseResult> {
-		const trunk = (await this.box.run(`git rev-parse origin/main`, { cwd: DIR })).stdout.trim();
-		const base = (await this.box.run(`git merge-base origin/main change/main`, { cwd: DIR })).stdout.trim();
-		const r = await this.box.run(
-			`git checkout -q -B land change/main && git rebase -q --onto origin/main ${sh(base)} land 2>&1`,
-			{ cwd: DIR },
+		if (forks.length === 0) return { unavailable: missing };
+		// Each fork is fetched on its own (8 at a time), so one bad fork can't sink the whole batch.
+		const names = forks.map((f) => f.name);
+		await this.box.files().writeFile("/tmp/hive-forks", `${names.join("\n")}\n`);
+		const f = await this.run(
+			`xargs -P 8 -I{} sh -c 'git -c protocol.version=1 fetch -q "{}" main 2>/dev/null || echo "{}"' < /tmp/hive-forks`,
+			10 * 60 * 1000,
 		);
-		if (r.exitCode !== 0) {
-			const unmerged = (await this.box.run(`git diff --name-only --diff-filter=U`, { cwd: DIR })).stdout.trim().split("\n").filter(Boolean);
-			const conflicts = await Promise.all(
-				unmerged.map(async (path) => ({
-					path,
-					excerpt: (await this.box.run(`grep -n -A8 -B2 '^<<<<<<<' ${sh(path)} | head -60`, { cwd: DIR })).stdout,
-				})),
-			);
-			await this.box.run(`git rebase --abort`, { cwd: DIR });
-			return { ok: false, trunk, conflicts };
-		}
-		const head = (await this.box.run(`git rev-parse HEAD`, { cwd: DIR })).stdout.trim();
-		const diff = (await this.box.run(`git diff origin/main..land | head -c 60000`, { cwd: DIR })).stdout;
-		const structuralDiff = (
-			await this.box.run(`GIT_EXTERNAL_DIFF='difft --color never --display inline' git diff --ext-diff origin/main..land | head -c 30000`, { cwd: DIR })
-		).stdout;
-		const files = (await this.box.run(`git diff --name-only origin/main..land`, { cwd: DIR })).stdout.trim().split("\n").filter(Boolean);
-		return { ok: true, head, trunk, diff, structuralDiff, files };
+		const failed = f.stdout.split("\n").map((l) => l.trim()).filter((l) => names.includes(l));
+		return { unavailable: [...missing, ...failed] };
 	}
 
-	// vai's third conflict level: did trunk change code that calls what this change modified (or vice versa)?
-	async referential(): Promise<ReferentialConflict[]> {
-		const base = (await this.box.run(`git merge-base origin/main change/main`, { cwd: DIR })).stdout.trim();
-		const r = await this.box.run(`hive-merge referential --base ${sh(base)} --trunk origin/main --change change/main --json`, { cwd: DIR });
+	// Stack each change's own commits (merge-base..fork) onto trunk, in order. Changes that don't
+	// apply are skipped and reported with conflict excerpts; the rest carry on. The whole loop runs
+	// as one script in the container: one round trip per batch instead of several per change.
+	async stack(entries: StackEntry[]): Promise<StackResult> {
+		await this.box.files().writeFile("/tmp/hive-stack.sh", STACK_SCRIPT);
+		await this.box.files().writeFile("/tmp/hive-stack.in", entries.map((e) => `${e.changeId} ${e.fork}`).join("\n") + "\n");
+		const r = await this.run("bash /tmp/hive-stack.sh < /tmp/hive-stack.in", 10 * 60 * 1000);
+		if (r.exitCode !== 0) throw new Error(`stacking failed: ${r.stderr || r.stdout}`);
+		const b64 = (x: string) => (x ? new TextDecoder().decode(Uint8Array.from(atob(x), (c) => c.charCodeAt(0))) : "");
+		let trunk = "";
+		let tip = "";
+		const out: Stacked[] = [];
+		for (const line of r.stdout.split("\n")) {
+			const [tag, ...f] = line.split("\t");
+			if (tag === "TRUNK") trunk = tip = f[0];
+			else if (tag === "OK") {
+				out.push({ changeId: f[0], ok: true, prev: f[1], tip: f[2], files: b64(f[3]).split("\n").filter(Boolean) });
+				tip = f[2];
+			} else if (tag === "EMPTY") out.push({ changeId: f[0], ok: false, empty: true });
+			else if (tag === "CONFLICT") {
+				const conflicts = b64(f[1])
+					.split("\x1e")
+					.filter(Boolean)
+					.map((block) => {
+						const [path, ...rest] = block.split("\n");
+						return { path, excerpt: rest.join("\n") };
+					});
+				out.push({ changeId: f[0], ok: false, conflicts: conflicts.length ? conflicts : [{ path: "(unknown)", excerpt: "cherry-pick failed" }] });
+			}
+		}
+		return { trunk, tip, entries: out };
+	}
+
+	// One change's slice of the stack, for review.
+	async diff(prev: string, tip: string): Promise<{ diff: string; structuralDiff: string }> {
+		const range = sh(`${prev}..${tip}`);
+		const diff = (await this.run(`git diff ${range} | head -c 60000`)).stdout;
+		const structuralDiff = (await this.run(`GIT_EXTERNAL_DIFF='difft --color never --display inline' git diff --ext-diff ${range} | head -c 30000`)).stdout;
+		return { diff, structuralDiff };
+	}
+
+	// vai's third conflict level, per change: did trunk change code that calls what this change
+	// modified (or vice versa) since the change's base?
+	async referential(fork: string): Promise<ReferentialConflict[]> {
+		const ref = sh(`${fork}/main`);
+		const base = (await this.run(`git merge-base origin/main ${ref}`)).stdout.trim();
+		const r = await this.run(`hive-merge referential --base ${sh(base)} --trunk origin/main --change ${ref} --json`);
 		if (r.exitCode !== 0) return [];
 		try {
 			return JSON.parse(r.stdout) as ReferentialConflict[];
@@ -104,43 +188,64 @@ export class MergeBox extends DurableObject<Env> {
 
 	// The semantic graph of trunk at a commit, built natively by hive-merge (tree-sitter).
 	async index(input: { repo: string; commit: string }): Promise<SemanticIndex> {
-		await this.prepare({ repo: input.repo, canPush: false });
-		const r = await this.box.run(`hive-merge index --rev ${sh(input.commit)}`, { cwd: DIR, timeoutMs: 5 * 60 * 1000 });
+		await this.prepare({ repo: input.repo, forks: [], canPush: false });
+		const r = await this.run(`hive-merge index --rev ${sh(input.commit)}`, 5 * 60 * 1000);
 		if (r.exitCode !== 0) throw new Error(`hive-merge index failed: ${r.stderr}`);
 		return JSON.parse(r.stdout) as SemanticIndex;
 	}
 
-	// Deterministic evidence: whatever the repo declares in package.json (test, typecheck, build).
+	// Deterministic evidence for the current checkout: whatever package.json declares.
+	// Dependencies are reinstalled only when the lockfile or manifest changed.
 	async evidence(): Promise<EvidenceRun[]> {
-		const pkg = await this.box.run(`cat package.json 2>/dev/null`, { cwd: DIR });
+		const pkg = await this.run("cat package.json 2>/dev/null");
 		if (pkg.exitCode !== 0) return [];
 		const scripts: Record<string, string> = JSON.parse(pkg.stdout).scripts ?? {};
-		await this.box.run(`npm install --silent --no-audit --no-fund >/dev/null 2>&1 || true`, { cwd: DIR, timeoutMs: 10 * 60 * 1000 });
+		await this.run(
+			`h=$(cat package.json package-lock.json 2>/dev/null | sha1sum | cut -c1-40)
+			if [ "$(cat node_modules/.hive-hash 2>/dev/null)" != "$h" ]; then
+				npm install --silent --no-audit --no-fund >/dev/null 2>&1 && echo "$h" > node_modules/.hive-hash || true
+			fi`,
+			10 * 60 * 1000,
+		);
 		const runs: EvidenceRun[] = [];
 		for (const kind of ["typecheck", "test", "build"] as const) {
 			if (!scripts[kind]) continue;
 			const command = `npm run -s ${kind}`;
-			const r = await this.box.run(`${command} 2>&1`, { cwd: DIR, timeoutMs: 10 * 60 * 1000 });
+			const r = await this.run(`${command} 2>&1`, 10 * 60 * 1000);
 			runs.push({ kind, command, ok: r.exitCode === 0, output: (r.stdout + r.stderr).slice(-8000) });
 		}
 		return runs;
 	}
 
-	// Fast-forward trunk to the rebased change. Fails (non-fast-forward) if trunk moved underneath.
+	// Fast-forward trunk to the stack. Fails (non-fast-forward) if trunk moved underneath.
 	async push(): Promise<PushResult> {
-		const r = await this.box.run(`git push -q origin land:main 2>&1`, { cwd: DIR });
+		const r = await this.run("git push -q origin land:main 2>&1");
 		if (r.exitCode !== 0) return { ok: false, reason: r.stdout + r.stderr };
-		const commit = (await this.box.run(`git rev-parse land`, { cwd: DIR })).stdout.trim();
-		await this.box.run(`git fetch -q origin main`, { cwd: DIR });
+		const commit = (await this.run("git rev-parse land")).stdout.trim();
+		await this.run("git fetch -q origin main");
 		return { ok: true, commit };
+	}
+
+	private mirrorRemotes: Record<string, string> = {};
+
+	// Bring every fork mirror up to trunk, so new changes fork from current code.
+	async refreshMirrors(): Promise<{ refreshed: number; failed: string[] }> {
+		const failed: string[] = [];
+		const entries = Object.entries(this.mirrorRemotes).filter(([, remote]) => remote);
+		await Promise.all(
+			entries.map(async ([name, remote]) => {
+				const r = await this.run(`git push -q --force ${sh(remote)} origin/main:refs/heads/main 2>&1`);
+				if (r.exitCode !== 0) failed.push(name);
+			}),
+		);
+		return { refreshed: entries.length - failed.length, failed };
 	}
 
 	// Race candidates are pushed as branches to a preview repo so Workers Builds can deploy them.
 	async pushPreview(input: { previewRepo: string; branch: string }): Promise<{ ok: boolean; reason: string | null }> {
-		const host = repoHost(this.env);
-		const preview = await host.get(input.previewRepo);
+		const preview = await repoHost(this.env).get(input.previewRepo);
 		if (!preview) return { ok: false, reason: "no preview repo" };
-		const r = await this.box.run(`git push -q --force ${sh(containerRemote(this.env, preview.remote))} land:refs/heads/${input.branch} 2>&1`, { cwd: DIR });
+		const r = await this.run(`git push -q --force ${sh(containerRemote(this.env, preview.remote))} land:refs/heads/${input.branch} 2>&1`);
 		return { ok: r.exitCode === 0, reason: r.exitCode === 0 ? null : r.stdout };
 	}
 }

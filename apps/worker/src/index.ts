@@ -7,6 +7,8 @@ import { authenticatedRemote, parseTrailers, repoHost } from "./repo/index.ts";
 export { CodingAgent } from "./agent/CodingAgent.ts";
 export { RepoCoordinator } from "./coordinator/RepoCoordinator.ts";
 export { LandingWorkflow } from "./landing/LandingWorkflow.ts";
+export { ModelGate } from "./agent/ModelGate.ts";
+export { SimAgent } from "./agent/SimAgent.ts";
 export { MergeBox } from "./landing/MergeBox.ts";
 export { Outbound } from "./sandbox/outbound.ts";
 
@@ -100,6 +102,30 @@ app.post("/api/repos/:repo/changes/:changeId/intent", async (c) => {
 
 app.post("/api/repos/:repo/changes/:changeId/submit", async (c) =>
 	c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).submit(c.req.param("changeId"))),
+);
+
+// Per-repo settings: decider ("clef" | "evidence") and landing batch size.
+app.post("/api/repos/:repo/settings", async (c) => {
+	const patch = await body(c.req.raw, z.object({ decider: z.enum(["clef", "evidence"]).optional(), batchMax: z.number().int().min(1).max(256).optional() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setSettings(patch));
+});
+
+// Load test with simulated agents (no containers, no model calls).
+app.post("/api/repos/:repo/loadtest", async (c) => {
+	const opts = await body(
+		c.req.raw,
+		z.object({
+			agents: z.number().int().min(1).max(100_000),
+			waveSize: z.number().int().min(1).max(500).default(50),
+			sharedRate: z.number().min(0).max(1).default(0.05),
+			brokenRate: z.number().min(0).max(1).default(0.01),
+		}),
+	);
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).loadTest(opts), 202);
+});
+
+app.get("/api/repos/:repo/stats", async (c) =>
+	c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).stats(Number(c.req.query("since") ?? 0))),
 );
 
 app.post("/api/repos/:repo/races/:group/winner", async (c) => {

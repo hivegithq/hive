@@ -25,7 +25,8 @@ const remote = command.split(" ")[2];
 
 const dir = mkdtempSync(join(tmpdir(), "hive-seed-"));
 try {
-	cpSync(new URL("./seed-shop", import.meta.url).pathname, dir, { recursive: true, filter: (src) => !src.includes("node_modules") });
+	// SEED=seed-load node demo/seed.ts … seeds the load-test repo instead of the shop.
+	cpSync(new URL(`./${process.env.SEED ?? "seed-shop"}`, import.meta.url).pathname, dir, { recursive: true, filter: (src) => !src.includes("node_modules") });
 	const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" }).toString().trim();
 	git("init", "-q", "-b", "main");
 	git("add", "-A");
