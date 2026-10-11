@@ -1,0 +1,26 @@
+{
+	"compilerOptions": {
+		"target": "es2024",
+		"lib": [
+			"es2024",
+			"dom",
+			"dom.iterable"
+		],
+		"module": "preserve",
+		"moduleResolution": "bundler",
+		"jsx": "react-jsx",
+		"strict": true,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"skipLibCheck": true,
+		"types": [
+			"vite/client"
+		]
+	},
+	"include": [
+		"src/web",
+		"src/domain"
+	]
+}

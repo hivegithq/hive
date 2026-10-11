@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+allowBuilds:
+  workerd: true
+  esbuild: true
+  core-js-pure: false
