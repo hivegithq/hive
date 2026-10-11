@@ -5,6 +5,8 @@ import { generateText, hasToolCall, isStepCount, type ModelMessage } from "ai";
 import type { Change, Goal } from "../domain/types.ts";
 import { containerRemote, repoHost } from "../repo/index.ts";
 import { Box, sh } from "../sandbox/box.ts";
+import { describePlan, gatherEvidence, readPlan, runSetup } from "../evidence/run.ts";
+import { REGISTRY_HOSTS } from "../sandbox/registries.ts";
 import { bouncePrompt, systemPrompt } from "./prompts.ts";
 import { codingTools, REPO_DIR } from "./tools.ts";
 
@@ -142,6 +144,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 					return inbox;
 				},
 				syncTrunk: () => this.syncTrunk(change),
+				runChecks: () => this.runChecks(),
 				submit: async (message) => {
 					const result = await this.commitAndSubmit(change, goal, message);
 					submitted = result.startsWith("submitted");
@@ -150,7 +153,8 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			});
 
 			const gate = gateOf(this.ctx.exports, change.model);
-			const system = systemPrompt(goal, change, notes.exitCode === 0 && notes.stdout.trim() ? notes.stdout : null);
+			const plan = await readPlan(this.shell(), { security: (await this.coordinator.settings()).security });
+			const system = systemPrompt(goal, change, notes.exitCode === 0 && notes.stdout.trim() ? notes.stdout : null, describePlan(plan));
 			let steps = 0;
 			// Models sometimes end a turn without a tool call (or leak template tokens). Nudge them
 			// back to work a few times before giving up, within the overall step budget.
@@ -225,13 +229,13 @@ export class CodingAgent extends Agent<Env, AgentState> {
 		const fork = await host.get(change.fork);
 		const trunk = await host.get(change.repo);
 		if (!fork || !trunk) throw new Error("fork or trunk repo missing");
-		// The container gets write access to its own fork, read access to trunk, and npm for installs.
+		// The container gets write access to its own fork, read access to trunk, and package registries.
 		await this.box.ensure({
 			repos: [
 				{ name: change.fork, scope: "write" },
 				{ name: change.repo, scope: "read" },
 			],
-			hosts: ["registry.npmjs.org"],
+			hosts: REGISTRY_HOSTS,
 		});
 		const forkRemote = containerRemote(this.env, fork.remote);
 		const trunkRemote = containerRemote(this.env, trunk.remote);
@@ -243,9 +247,32 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			git remote get-url trunk >/dev/null 2>&1 && git remote set-url trunk ${sh(trunkRemote)} || git remote add trunk ${sh(trunkRemote)}
 			git config user.name ${sh(`hive agent ${this.name}`)}
 			git config user.email ${sh(`${this.name}@agents.hive`)}
-			if [ -f package.json ] && [ ! -d node_modules ]; then npm install --silent --no-audit --no-fund >/dev/null 2>&1 || true; fi`,
+			# Dependencies and build output never belong in a commit, whatever the repo's .gitignore says.
+			grep -qx 'target/' .git/info/exclude 2>/dev/null || printf 'node_modules/\\ntarget/\\n__pycache__/\\n.pytest_cache/\\n*.pyc\\n.venv/\\n' >> .git/info/exclude`,
 		);
 		if (r.exitCode !== 0) throw new Error(`workspace setup failed: ${r.stderr || r.stdout}`);
+		// Install dependencies the way the merge box will; failures surface again in run_checks.
+		await runSetup(this.shell(), await readPlan(this.shell()));
+	}
+
+	private shell() {
+		return {
+			exec: (command: string, timeoutMs?: number) => this.box.run(command, { cwd: REPO_DIR, timeoutMs }),
+			write: (path: string, content: string) => this.box.files().writeFile(path, content),
+		};
+	}
+
+	// The checks the convergence queue will run, in this workspace. Security findings are compared
+	// with where this fork branched from trunk.
+	private async runChecks(): Promise<string> {
+		const { security } = await this.coordinator.settings();
+		await this.box.run("git fetch -q trunk main 2>/dev/null; true", { cwd: REPO_DIR });
+		const base = (await this.box.run("git merge-base HEAD trunk/main 2>/dev/null || git rev-parse HEAD", { cwd: REPO_DIR })).stdout.trim();
+		const { plan, runs } = await gatherEvidence(this.shell(), { security, baseRef: base });
+		if (plan.source === "none" && runs.length === 0) return describePlan(plan);
+		const lines = runs.map((r) => (r.ok ? `PASS ${r.kind}: ${r.command}` : `FAIL ${r.kind}: ${r.command}\n${r.output.slice(-3000)}`));
+		const failed = runs.filter((r) => !r.ok).length;
+		return `${failed ? `${failed} of ${runs.length} checks failed.` : `All ${runs.length} checks passed.`}\n\n${lines.join("\n\n")}`;
 	}
 
 	private async declareIntent(input: { summary: string; paths: string[]; symbols: { path: string; name: string }[] }) {

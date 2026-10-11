@@ -4,7 +4,8 @@
 //   defaults: repo "shop", hive http://localhost:5173
 
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,10 +28,17 @@ const dir = mkdtempSync(join(tmpdir(), "hive-seed-"));
 try {
 	// SEED=seed-load node demo/seed.ts … seeds the load-test repo instead of the shop.
 	cpSync(new URL(`./${process.env.SEED ?? "seed-shop"}`, import.meta.url).pathname, dir, { recursive: true, filter: (src) => !src.includes("node_modules") });
+	// seed-vuln plants a hard-coded payment key; it's generated here so no key-shaped string lives in
+	// Hive's own repository (or trips GitHub's push protection).
+	const payments = join(dir, "src/payments.ts");
+	if (existsSync(payments)) {
+		const key = `sk_live_${randomBytes(24).toString("base64url").replace(/[-_]/g, "x")}`;
+		writeFileSync(payments, readFileSync(payments, "utf8").replace("__GENERATED_LIVE_KEY__", key));
+	}
 	const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" }).toString().trim();
 	git("init", "-q", "-b", "main");
 	git("add", "-A");
-	git("-c", "user.name=Hive Demo", "-c", "user.email=demo@hive.local", "commit", "-q", "-m", "Shop: cart, pricing, discounts, checkout");
+	git("-c", "user.name=Hive Demo", "-c", "user.email=demo@hive.local", "commit", "-q", "-m", process.env.SEED_MESSAGE ?? "Shop: cart, pricing, discounts, checkout");
 	git("push", "-q", remote, "main");
 	console.log(`Seeded ${repo} at ${git("rev-parse", "--short", "HEAD")}. Open ${hive}/r/${repo}`);
 } finally {

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import type { Decision } from "../../domain/types.ts";
 import { api, type ChangeDetail, modelLabel } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
+import { EvidenceList } from "./Evidence.tsx";
 
 const OUTCOME_COPY: Record<Decision["outcome"], string> = {
 	land: "Landed on trunk",
@@ -134,21 +135,7 @@ function Body({ detail, busy, error, act, repo }: { detail: ChangeDetail; busy: 
 				{evidence.length === 0 ? (
 					<p className="text-kumo-subtle">Nothing has run yet. Evidence appears once the change is in a batch.</p>
 				) : (
-					<ul className="space-y-1.5">
-						{evidence.map((e) => (
-							<li key={e.id}>
-								<details className="group cut-sm bg-black/30 ring-1 ring-white/5">
-									<summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm">
-										<Badge variant={e.ok ? "success" : "error"} appearance="dot">
-											{e.ok ? "passed" : "failed"}
-										</Badge>
-										<span className="truncate font-mono text-xs text-kumo-default">{e.command}</span>
-									</summary>
-									<pre className="max-h-72 overflow-auto border-t border-white/5 p-3 font-mono text-xs leading-relaxed text-kumo-subtle">{e.output || "(no output)"}</pre>
-								</details>
-							</li>
-						))}
-					</ul>
+					<EvidenceList runs={evidence} />
 				)}
 			</Block>
 

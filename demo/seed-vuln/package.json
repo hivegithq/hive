@@ -1,0 +1,12 @@
+{
+  "name": "orders-service",
+  "private": true,
+  "type": "module",
+  "description": "A small order service with deliberately planted security bugs, for Hive's security demo.",
+  "dependencies": {
+    "lodash": "4.17.15"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\""
+  }
+}

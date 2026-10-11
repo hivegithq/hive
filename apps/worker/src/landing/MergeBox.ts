@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { containerRemote, repoHost } from "../repo/index.ts";
 import { Box, sh } from "../sandbox/box.ts";
+import { gatherEvidence } from "../evidence/run.ts";
+import { REGISTRY_HOSTS } from "../sandbox/registries.ts";
 import { UNION_SCRIPT } from "./union.ts";
 
 const DIR = "/workspace/trunk";
@@ -143,7 +145,7 @@ export class MergeBox extends DurableObject<Env> {
 				{ name: `${c.repo}.preview`, scope: "write" },
 				{ name: `${c.repo}.*`, scope: "read" },
 			],
-			hosts: ["registry.npmjs.org"],
+			hosts: REGISTRY_HOSTS,
 		});
 		if (started) this.setUp = false;
 		if (this.setUp) return c;
@@ -211,6 +213,55 @@ export class MergeBox extends DurableObject<Env> {
 			unavailable.slice(0, 2),
 		);
 		return { unavailable };
+	}
+
+	// Run the repository's checks on trunk itself: what an agent's change will be measured against.
+	// Useful straight after an import, to see that Hive can build and test the repository.
+	async checkTrunk(input: { repo: string; security?: boolean }) {
+		await this.prepare({ repo: input.repo, canPush: false });
+		await this.run("git checkout -q -f --detach origin/main && git clean -qfd");
+		const t0 = Date.now();
+		const shell = { exec: (command: string, timeoutMs?: number) => this.run(command, timeoutMs), write: (path: string, content: string) => this.box.files().writeFile(path, content) };
+		const { plan, runs } = await gatherEvidence(shell, { security: input.security, baseRef: "origin/main" });
+		const head = (await this.run("git rev-parse HEAD")).stdout.trim();
+		return { commit: head, plan, runs, ms: Date.now() - t0 };
+	}
+
+	// Bring an existing repository in: clone it from its host (GitHub or any git server) and push it
+	// to the empty trunk as main, whatever its default branch was called. A token for a private
+	// repository is passed as a per-command HTTP header: never in a URL, a command line or storage.
+	// Runs in its own box (repo:import), whose only reachable hosts are the source's and trunk.
+	async importRepo(input: { repo: string; url: string; branch?: string; token?: string }): Promise<{ head: string; commits: number; files: number }> {
+		const trunk = await repoHost(this.env).get(input.repo);
+		if (!trunk) throw new Error(`trunk ${input.repo} missing`);
+		const source = new URL(input.url);
+		if (source.protocol !== "https:") throw new Error("import needs an https:// git URL");
+		await this.box.ensure({ repos: [{ name: input.repo, scope: "write" }], hosts: [source.hostname] });
+		const env: Record<string, string> = {};
+		if (input.token) {
+			env.GIT_CONFIG_COUNT = "1";
+			env.GIT_CONFIG_KEY_0 = "http.extraHeader";
+			env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${btoa(`x-access-token:${input.token}`)}`;
+		}
+		const dir = "/tmp/hive-import";
+		const branch = input.branch ? `--branch ${sh(input.branch)}` : "";
+		const r = await this.box.run(
+			`set -e
+			rm -rf ${dir}
+			git clone -q --single-branch --no-tags ${branch} ${sh(input.url)} ${dir} 2>&1
+			cd ${dir}
+			git push -q ${sh(containerRemote(this.env, trunk.remote))} HEAD:refs/heads/main 2>&1
+			printf 'HEAD\t%s\t%s\t%s\n' "$(git rev-parse HEAD)" "$(git rev-list --count HEAD)" "$(git ls-files | wc -l)"
+			cd / && rm -rf ${dir}`,
+			{ cwd: "/tmp", env, timeoutMs: 20 * 60 * 1000 },
+		);
+		const line = r.stdout.split("\n").find((l) => l.startsWith("HEAD\t"));
+		if (r.exitCode !== 0 || !line) {
+			const why = (r.stdout + r.stderr).replace(/Authorization: Basic \S+/g, "Authorization: Basic ***").trim().slice(-800);
+			throw new Error(`import failed: ${why || `exit ${r.exitCode}`}`);
+		}
+		const [, head, commits, files] = line.split("\t");
+		return { head, commits: Number(commits), files: Number(files) };
 	}
 
 	// Forks the container doesn't have (it restarted since they were fetched) are fetched again.
@@ -298,24 +349,12 @@ export class MergeBox extends DurableObject<Env> {
 
 	// Deterministic evidence for the current checkout: whatever package.json declares.
 	// Dependencies are reinstalled only when the lockfile or manifest changed.
-	async evidence(): Promise<EvidenceRun[]> {
-		const pkg = await this.run("cat package.json 2>/dev/null");
-		if (pkg.exitCode !== 0) return [];
-		const scripts: Record<string, string> = JSON.parse(pkg.stdout).scripts ?? {};
-		await this.run(
-			`h=$(cat package.json package-lock.json 2>/dev/null | sha1sum | cut -c1-40)
-			if [ "$(cat node_modules/.hive-hash 2>/dev/null)" != "$h" ]; then
-				npm install --silent --no-audit --no-fund >/dev/null 2>&1 && echo "$h" > node_modules/.hive-hash || true
-			fi`,
-			10 * 60 * 1000,
-		);
-		const runs: EvidenceRun[] = [];
-		for (const kind of ["typecheck", "test", "build"] as const) {
-			if (!scripts[kind]) continue;
-			const command = `npm run -s ${kind}`;
-			const r = await this.run(`${command} 2>&1`, 10 * 60 * 1000);
-			runs.push({ kind, command, ok: r.exitCode === 0, output: (r.stdout + r.stderr).slice(-8000) });
-		}
+	// Setup and checks from the repository's evidence plan (hive.json, or detected for Node, Rust,
+	// Python and Go), plus the security scan compared with trunk when it's on.
+	async evidence(opts: { security?: boolean } = {}): Promise<EvidenceRun[]> {
+		const shell = { exec: (command: string, timeoutMs?: number) => this.run(command, timeoutMs), write: (path: string, content: string) => this.box.files().writeFile(path, content) };
+		const { plan, runs } = await gatherEvidence(shell, { security: opts.security, baseRef: "origin/main" });
+		if (plan.source === "none") console.warn("merge box: this repository has no checks; add hive.json");
 		return runs;
 	}
 

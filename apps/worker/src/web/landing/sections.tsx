@@ -1,10 +1,8 @@
-import { Button } from "@cloudflare/kumo/components/button";
-import { Input } from "@cloudflare/kumo/components/input";
 import { BroadcastIcon, GitForkIcon, GitMergeIcon, ScalesIcon, StackIcon, TargetIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
-import { type FormEvent, useEffect, useState } from "react";
-import { api } from "../api.ts";
+import { useEffect, useState } from "react";
 import { hexPoints } from "../hex/geometry.ts";
+import { RepoForm } from "../ui/RepoForm.tsx";
 import { Section } from "../ui/Section.tsx";
 
 const rise = {
@@ -48,7 +46,7 @@ const STEPS = [
 	{ icon: TargetIcon, name: "Goal", text: "A person or an agent describes an outcome. It replaces both the issue and the pull request." },
 	{ icon: GitForkIcon, name: "Fork", text: "The change gets its own Artifacts repository and its own short-lived token. Nothing it does touches anyone else." },
 	{ icon: BroadcastIcon, name: "Intent", text: "Before editing, the agent names the symbols it will change. Hive checks every live intent and warns both sides of an overlap." },
-	{ icon: StackIcon, name: "Batch", text: "Submitted changes are stacked on trunk with a structural merge driver and tested together, up to 128 at a time." },
+	{ icon: StackIcon, name: "Batch", text: "Submitted changes are stacked on trunk with a structural merge driver and checked together, up to 128 at a time: the repository's own tests, and its security scan." },
 	{ icon: ScalesIcon, name: "Decide", text: "Evidence, a review and Clef's probabilities: land, send back with the failing output, or ask a person." },
 	{ icon: GitMergeIcon, name: "Land", text: "The exact commit the tests ran on is pushed. Trailers and the ledger record who, why and how sure." },
 ];
@@ -259,7 +257,7 @@ const PRODUCTS = [
 	{ name: "Durable Objects", role: "One coordinator per repo: intents, queue, the trunk lease" },
 	{ name: "Agents SDK", role: "Coding agents with durable, resumable tool loops" },
 	{ name: "Workflows", role: "Each batch, with retried steps" },
-	{ name: "Containers", role: "Agent workspaces and merge boxes, internet off" },
+	{ name: "Containers", role: "Workspaces and merge boxes: Node, Rust, Python, Go, scanners" },
 	{ name: "Artifacts", role: "Trunk, a fork per change, mirrors, the ledger" },
 	{ name: "Workers AI", role: "Kimi, GLM and DeepSeek write and review code" },
 	{ name: "Clef", role: "Calibrated decisions: land, send back, ask" },
@@ -342,40 +340,11 @@ export function Join() {
 						</li>
 					))}
 				</ul>
-				<OpenRepo />
+				<div className="cut bg-[#141417] p-6 ring-1 ring-honey/35 sm:p-8">
+					<RepoForm />
+				</div>
 			</div>
 		</Section>
 	);
 }
 
-function OpenRepo() {
-	const [name, setName] = useState("shop");
-	const [error, setError] = useState<string | null>(null);
-	const [busy, setBusy] = useState(false);
-	const submit = async (e: FormEvent) => {
-		e.preventDefault();
-		setBusy(true);
-		setError(null);
-		try {
-			await api.openRepo(name);
-			location.assign(`/r/${encodeURIComponent(name)}`);
-		} catch (err) {
-			setError((err as Error).message);
-			setBusy(false);
-		}
-	};
-	return (
-		<form onSubmit={submit} className="cut bg-[#141417] p-6 ring-1 ring-honey/35 sm:p-8">
-			<h3 className="font-display text-2xl font-semibold text-wax">Open a repository</h3>
-			<p className="mt-2 text-kumo-subtle">Creates the trunk and its ledger if they don't exist, then opens its dashboard. Writes need this deployment's access token.</p>
-			<div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end">
-				<div className="flex-1">
-					<Input label="Repository name" value={name} onChange={(e) => setName(e.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_\-]{1,40}" required error={error ?? undefined} />
-				</div>
-				<Button type="submit" variant="primary" loading={busy}>
-					Open repository
-				</Button>
-			</div>
-		</form>
-	);
-}

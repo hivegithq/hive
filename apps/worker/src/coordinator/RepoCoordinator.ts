@@ -1,4 +1,4 @@
-import { agentOf, landing, mergeBoxOf, simOf } from "../bindings.ts";
+import { agentOf, landing, mergeBoxOf, plannerOf, simOf } from "../bindings.ts";
 import { Agent, type Connection } from "agents";
 import { adviseOnOverlap, judgeRace, type OverlapAction } from "../decide/policy.ts";
 import type {
@@ -15,6 +15,9 @@ import type {
 } from "../domain/types.ts";
 import { authenticatedRemote, changeRepo, head, ledgerRepo, repoHost } from "../repo/index.ts";
 import { detectOverlaps, type ReferenceGraph } from "./overlap.ts";
+import { type PlannedGoal, validatePlan } from "./plans.ts";
+import { repoPath } from "../agent/paths.ts";
+import { PROBE_FILES, planEvidence } from "../evidence/plan.ts";
 import { selectBatch } from "../landing/batch.ts";
 import { INTENT_SCHEMA, IntentStore, toIntent, touched } from "./intents.ts";
 import { ForkPool } from "./forks.ts";
@@ -37,11 +40,23 @@ export interface LandingParams {
 export interface RepoSettings {
 	decider: "clef" | "evidence"; // evidence: deterministic checks decide, no model calls
 	batchMax: number; // changes stacked and verified together per landing
+	security: boolean; // also run the security scan; findings a change introduces fail it (hive.json can turn it on too)
 }
 
-const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16 };
+const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false };
 
 const LANDING_TIMEOUT_MS = 20 * 60 * 1000;
+const cleanPath = (p: string) => {
+	try {
+		return repoPath(p);
+	} catch {
+		return p;
+	}
+};
+
+// Planning reads a lot of code: GLM 5.3 has a 1M-token context.
+const PLANNER_MODEL = "@cf/zai-org/glm-5.3";
+
 const MAX_LANDING_RESTARTS = 3;
 const PIPELINE_DEPTH = 2;
 type AgentKind = "builtin" | "mcp" | "cli" | "sim";
@@ -208,6 +223,11 @@ export class RepoCoordinator extends Agent<Env> {
 	// Waking an agent's Durable Object lets it recover an interrupted fiber (deploys, restarts).
 	async wakeAgents() {
 		await this.reviveStalledLandings();
+		// Plans whose sub-goals were unblocked while nobody was looking (a deploy, an eviction).
+		for (const r of this.db.exec("SELECT key FROM meta WHERE key LIKE 'plan:%'").toArray()) {
+			const goalId = String(r.key).slice(5);
+			if (["planned", "in_progress"].includes(this.goal(goalId)?.status ?? "")) await this.advancePlan(goalId).catch((e) => console.warn("advance plan failed", e));
+		}
 		const rows = this.db
 			.exec("SELECT c.agent_id FROM changes c JOIN agents a ON a.id = c.agent_id WHERE c.status IN ('drafting','bounced') AND a.kind = 'builtin'")
 			.toArray();
@@ -272,6 +292,33 @@ export class RepoCoordinator extends Agent<Env> {
 		return { trunk: trunk.remote, ledger: ledger.remote };
 	}
 
+	// What the merge queue will check, read from trunk's manifests (no container needed).
+	async checkPlan() {
+		const host = repoHost(this.env);
+		const files = new Set(await host.listFiles(this.repo, "main").catch(() => [] as string[]));
+		const found: Record<string, string> = {};
+		for (const f of PROBE_FILES.filter((p) => files.has(p))) found[f] = (await host.readFile(this.repo, "main", f)) ?? "";
+		return planEvidence(found, { security: this.settings().security });
+	}
+
+	// Run the checks on trunk, in a merge box of its own.
+	async checkTrunk() {
+		return mergeBoxOf(this.ctx.exports, `${this.repo}:checks`).checkTrunk({ repo: this.repo, security: this.settings().security });
+	}
+
+	// Import an existing repository into this (new, empty) trunk.
+	async importFrom(input: { url: string; branch?: string; token?: string }) {
+		await this.init();
+		if ((await repoHost(this.env).log(this.repo, { limit: 1 }).catch(() => [])).length > 0) {
+			throw new Error(`${this.repo} already has commits; import into a new repository`);
+		}
+		this.log("hive", `importing ${input.url}${input.branch ? ` (${input.branch})` : ""}`);
+		const result = await mergeBoxOf(this.ctx.exports, `${this.repo}:import`).importRepo({ repo: this.repo, ...input });
+		this.log("hive", `imported ${result.commits} commits, ${result.files} files; trunk at ${result.head.slice(0, 8)}`);
+		await this.onTrunkPush(result.head, []);
+		return result;
+	}
+
 	// ── Goals ────────────────────────────────────────────────────────────────
 
 	createGoal(input: { title: string; description: string; parentId?: string }): Goal {
@@ -301,6 +348,93 @@ export class RepoCoordinator extends Agent<Env> {
 		this.db.exec("UPDATE goals SET status = ? WHERE id = ?", status, goalId);
 		const goal = this.goal(goalId);
 		if (goal) this.emit({ type: "goal", goal });
+		// A landed sub-goal may unblock its siblings, or complete its parent.
+		if (goal?.parentId && status === "achieved") this.ctx.waitUntil(this.advancePlan(goal.parentId).catch((e) => console.warn("advance plan failed", e)));
+	}
+
+	// ── Plans ────────────────────────────────────────────────────────────────
+
+	// A planner breaks a big goal into sub-goals; Hive runs them as their dependencies land.
+	async plan(goalId: string, opts: { model?: string; agentModel?: string; maxParallel?: number } = {}) {
+		const goal = this.goal(goalId);
+		if (!goal) throw new Error(`unknown goal ${goalId}`);
+		if (!["open", "planning"].includes(goal.status)) throw new Error(`goal ${goalId} is ${goal.status}`);
+		const settings = {
+			model: opts.model ?? PLANNER_MODEL,
+			agentModel: opts.agentModel ?? this.env.CODER_MODEL,
+			maxParallel: Math.max(1, Math.min(32, opts.maxParallel ?? 6)),
+		};
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", `plan:${goalId}`, JSON.stringify(settings));
+		this.setGoalStatus(goalId, "planning");
+		const plannerId = id("p");
+		this.log(plannerId, `planning "${goal.title}" with ${settings.model}`);
+		await plannerOf(this.ctx.exports, plannerId).start({ repo: this.repo, goalId, model: settings.model });
+		return { plannerId, ...settings };
+	}
+
+	// What a planner needs to look around: trunk's files and the code graph's symbols.
+	planningContext(goalId: string) {
+		const goal = this.goal(goalId);
+		if (!goal) throw new Error(`unknown goal ${goalId}`);
+		return { goal, index: this.indexStatus() };
+	}
+
+	referencesTo(path: string, name: string): { path: string; name: string }[] {
+		return this.db
+			.exec("SELECT from_path, from_name FROM refs WHERE to_path = ? AND to_name = ? LIMIT 50", path, name)
+			.toArray()
+			.map((r) => ({ path: String(r.from_path), name: String(r.from_name) }));
+	}
+
+	// The planner's proposal: sub-goals with dependencies (by key). Validated, then started.
+	async applyPlan(goalId: string, plan: { summary: string; subgoals: PlannedGoal[] }): Promise<{ goals: string[] }> {
+		const parent = this.goal(goalId);
+		if (!parent) throw new Error(`unknown goal ${goalId}`);
+		const problem = validatePlan(plan.subgoals);
+		if (problem) throw new Error(problem);
+		const ids = new Map<string, string>();
+		this.ctx.storage.transactionSync(() => {
+			for (const s of plan.subgoals) {
+				const paths = s.paths?.length ? `\n\nLikely files: ${s.paths.join(", ")}` : "";
+				const g = this.createGoal({ title: s.title, description: `${s.description}${paths}\n\nPart of "${parent.title}": ${plan.summary}`, parentId: goalId });
+				ids.set(s.key, g.id);
+			}
+			for (const s of plan.subgoals) for (const d of s.dependsOn ?? []) this.db.exec("INSERT OR IGNORE INTO goal_deps VALUES (?, ?)", ids.get(s.key)!, ids.get(d)!);
+		});
+		this.setGoalStatus(goalId, "planned");
+		this.log("hive", `"${parent.title}" planned as ${plan.subgoals.length} sub-goals`);
+		await this.advancePlan(goalId);
+		return { goals: [...ids.values()] };
+	}
+
+	planFailed(goalId: string, reason: string) {
+		this.setGoalStatus(goalId, "open");
+		this.log("hive", `planning failed: ${reason.slice(0, 300)}`);
+	}
+
+	// Start every sub-goal whose dependencies have all landed, up to the plan's parallelism; mark
+	// the parent achieved when every sub-goal is.
+	async advancePlan(goalId: string) {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = ?", `plan:${goalId}`).toArray()[0];
+		if (!row) return;
+		const { agentModel, maxParallel } = JSON.parse(String(row.value)) as { agentModel: string; maxParallel: number };
+		const children = this.db.exec("SELECT id, status FROM goals WHERE parent_id = ? ORDER BY created_at", goalId).toArray();
+		if (children.length === 0) return;
+		const status = new Map(children.map((c) => [String(c.id), String(c.status)]));
+		if ([...status.values()].every((s) => s === "achieved" || s === "abandoned")) {
+			if (this.goal(goalId)?.status !== "achieved") this.setGoalStatus(goalId, "achieved");
+			return;
+		}
+		if (this.goal(goalId)?.status === "planned") this.setGoalStatus(goalId, "in_progress");
+		let running = [...status.values()].filter((s) => s === "in_progress" || s === "racing").length;
+		for (const [childId, s] of status) {
+			if (running >= maxParallel) break;
+			if (s !== "open") continue;
+			const deps = this.db.exec("SELECT depends_on FROM goal_deps WHERE goal_id = ?", childId).toArray().map((r) => String(r.depends_on));
+			if (!deps.every((d) => status.get(d) === "achieved")) continue;
+			await this.assign(childId, agentModel);
+			running++;
+		}
 	}
 
 	goal(goalId: string): Goal | null {
@@ -452,9 +586,12 @@ export class RepoCoordinator extends Agent<Env> {
 
 	// ── Intents ──────────────────────────────────────────────────────────────
 
-	async declareIntent(changeId: string, input: { summary: string; paths: string[]; symbols: SymbolRef[] }): Promise<IntentResult> {
+	async declareIntent(changeId: string, raw: { summary: string; paths: string[]; symbols: SymbolRef[] }): Promise<IntentResult> {
 		const change = this.change(changeId);
 		if (!change) throw new Error(`unknown change ${changeId}`);
+		// Paths as the code graph knows them (relative to the repository root): agents sometimes send
+		// their workspace path, which would never match anyone else's intent.
+		const input = { ...raw, paths: [...new Set(raw.paths.map(cleanPath))], symbols: raw.symbols.map((s) => ({ ...s, path: cleanPath(s.path) })) };
 		// A change holds one live intent; re-declaring replaces it (scope narrowed or widened).
 		this.intents.release(changeId, now());
 
@@ -1041,6 +1178,8 @@ export class RepoCoordinator extends Agent<Env> {
 			queue: this.queueOrder(),
 			decisions: this.db.exec("SELECT * FROM decisions ORDER BY created_at DESC LIMIT 50").toArray().map(toDecision),
 			agents: this.db.exec("SELECT * FROM agents").toArray().map((r) => ({ id: String(r.id), kind: String(r.kind), model: String(r.model), trust: Number(r.trust) })),
+			// Planned sub-goals' dependencies: [goal, the goal it waits for].
+			goalDeps: this.db.exec("SELECT goal_id, depends_on FROM goal_deps LIMIT 2000").toArray().map((r) => [String(r.goal_id), String(r.depends_on)] as [string, string]),
 		};
 	}
 }

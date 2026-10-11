@@ -9,7 +9,7 @@ import { coordinatorOf } from "../bindings.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "0.1.0" });
+	const server = new McpServer({ name: "hive", version: "1.1.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -36,6 +36,26 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 			inputSchema: { repo: z.string(), path: z.string() },
 		},
 		async ({ repo, path }) => text(await coordinator(repo).symbolsIn(path)),
+	);
+
+	server.registerTool(
+		"hive_import",
+		{
+			description:
+				"Import an existing repository (GitHub or any https git server) into a new Hive repo. Its default branch becomes trunk's main. A token is only needed for private repositories and is not stored.",
+			inputSchema: { url: z.string().url(), repo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{1,40}$/), branch: z.string().optional(), token: z.string().optional() },
+		},
+		async ({ url, repo, branch, token }) => text({ repo, ...(await coordinator(repo).importFrom({ url, branch, token })) }),
+	);
+
+	server.registerTool(
+		"hive_plan",
+		{
+			description:
+				"Have a planner break a big goal (e.g. 'fix the security issues', 'port this to Rust') into sub-goals with dependencies. Hive then starts agents on the sub-goals as their dependencies land, up to maxParallel at once.",
+			inputSchema: { repo: z.string(), goal: z.string().describe("goal id"), agentModel: z.string().optional(), maxParallel: z.number().int().min(1).max(32).optional() },
+		},
+		async ({ repo, goal, agentModel, maxParallel }) => text(await coordinator(repo).plan(goal, { agentModel, maxParallel })),
 	);
 
 	server.registerTool(

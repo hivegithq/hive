@@ -20,7 +20,7 @@ export interface StackResult {
 export type PushResult = { ok: true; commit: string } | { ok: false; reason: string };
 
 export interface EvidenceRun {
-	kind: "test" | "typecheck" | "build";
+	kind: "setup" | "typecheck" | "lint" | "build" | "test" | "check" | "security";
 	command: string;
 	ok: boolean;
 	output: string;

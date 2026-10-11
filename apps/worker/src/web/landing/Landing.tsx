@@ -8,6 +8,7 @@ import { HiveMark, Wordmark } from "../ui/Logo.tsx";
 import { Section } from "../ui/Section.tsx";
 import { VERSION } from "../version.ts";
 import { BatchDemo } from "./BatchDemo.tsx";
+import { AnyCodebase, SecurityAndPlans } from "./codebase.tsx";
 import { Join, Lifecycle, Overlaps, Problem, Race, Record, Stack } from "./sections.tsx";
 
 export const GITHUB = "https://github.com/karanbalaji/hive";
@@ -57,6 +58,7 @@ export function Landing() {
 			<Proof />
 			<Problem />
 			<Lifecycle />
+			<AnyCodebase />
 			<Section id="batches" title="Find the broken change without testing them one by one">
 				<p className="mb-10 max-w-2xl text-lg text-kumo-subtle">
 					Hive stacks queued changes on trunk and tests the stack once. When a batch fails, it checks trunk on its own, then splits the batch and keeps every half that passes. This
@@ -64,6 +66,7 @@ export function Landing() {
 				</p>
 				<BatchDemo />
 			</Section>
+			<SecurityAndPlans />
 			<Overlaps />
 			<Race />
 			<Record />
@@ -77,9 +80,10 @@ export function Landing() {
 function Nav() {
 	const links = [
 		["How it works", "#lifecycle"],
-		["Batches", "#batches"],
+		["Any codebase", "#codebase"],
+		["Security", "#security"],
+		["Plans", "#plans"],
 		["Proof", "#proof"],
-		["Built on Cloudflare", "#stack"],
 	];
 	return (
 		<header className="fixed inset-x-0 top-0 z-30 border-b border-white/5 bg-night/70 backdrop-blur-md">
@@ -97,7 +101,7 @@ function Nav() {
 				<a href={GITHUB} className="ml-auto text-kumo-subtle transition-colors hover:text-wax md:ml-0" aria-label="Source on GitHub">
 					<GithubLogoIcon size={22} />
 				</a>
-				<LinkButton href={`/r/${LIVE_REPO}`} className="hidden sm:block" variant="primary" size="sm" icon={<HiveMark size={16} />}>
+				<LinkButton href={`/r/${LIVE_REPO}`} className="hidden sm:block" variant="primary" size="sm" icon={<HiveMark size={16} className="block shrink-0" />}>
 							Open the live hive
 						</LinkButton>
 			</nav>
@@ -121,15 +125,15 @@ function Hero() {
 						<span className="text-honey text-glow">One trunk.</span>
 					</h1>
 					<p className="mt-7 max-w-xl text-lg leading-relaxed text-kumo-default sm:text-xl">
-						Hive is version control for AI agents working at the same time. Every change gets its own repository, says what it will touch before it writes code, and lands only on
-						tested evidence and a calibrated decision. All of it runs on Cloudflare.
+						Hive is version control for AI agents working at the same time. Bring any repository: every change gets its own fork, says what it will touch before it writes
+						code, and lands only when its tests, security scan and a calibrated decision say so. All of it runs on Cloudflare.
 					</p>
 					<div className="mt-9 flex flex-wrap gap-3">
 						<LinkButton href={`/r/${LIVE_REPO}`} variant="primary" size="lg" icon={ArrowRightIcon}>
 							Watch 2,000 agents land
 						</LinkButton>
-						<LinkButton href="#batches" variant="secondary" size="lg">
-							Try the merge queue
+						<LinkButton href="#join" variant="secondary" size="lg">
+							Import your repository
 						</LinkButton>
 					</div>
 				</motion.div>

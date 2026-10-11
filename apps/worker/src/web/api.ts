@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Change, Decision, Evaluation, Evidence, Goal, HiveEvent, Intent, Overlap } from "../domain/types.ts";
+import type { EvidencePlan } from "../evidence/plan.ts";
+import type { EvidenceRun } from "../landing/types.ts";
 
 export interface Snapshot {
 	repo: string;
@@ -10,7 +12,17 @@ export interface Snapshot {
 	queue: { changeId: string; position: number }[];
 	decisions: Decision[];
 	agents: { id: string; kind: string; model: string; trust: number }[];
+	goalDeps?: [string, string][];
 }
+
+export interface RepoSettings {
+	decider: "clef" | "evidence";
+	batchMax: number;
+	security: boolean;
+}
+
+export type { EvidencePlan } from "../evidence/plan.ts";
+export type { EvidenceRun } from "../landing/types.ts";
 
 export interface TrunkCommit {
 	hash: string;
@@ -80,11 +92,19 @@ async function call<T>(method: string, path: string, body?: unknown, retried = f
 
 export const api = {
 	openRepo: (name: string) => call<{ name: string }>("POST", "/api/repos", { name }),
+	importRepo: (input: { url: string; name?: string; branch?: string; token?: string }) =>
+		call<{ name: string; head: string; commits: number; files: number }>("POST", "/api/repos/import", input),
 	snapshot: (repo: string) => call<Snapshot>("GET", `/api/repos/${repo}`),
 	trunk: (repo: string) => call<TrunkCommit[]>("GET", `/api/repos/${repo}/trunk?limit=40`),
 	change: (repo: string, id: string) => call<ChangeDetail>("GET", `/api/repos/${repo}/changes/${id}`),
 	createGoal: (repo: string, title: string, description: string) => call<Goal>("POST", `/api/repos/${repo}/goals`, { title, description }),
 	assign: (repo: string, goalId: string, model: string) => call<Change>("POST", `/api/repos/${repo}/goals/${goalId}/assign`, { model }),
+	settings: (repo: string) => call<RepoSettings>("GET", `/api/repos/${repo}/settings`),
+	setSettings: (repo: string, patch: Partial<RepoSettings>) => call<RepoSettings>("POST", `/api/repos/${repo}/settings`, patch),
+	checkPlan: (repo: string) => call<EvidencePlan>("GET", `/api/repos/${repo}/checks/plan`),
+	runChecks: (repo: string) => call<{ commit: string; plan: EvidencePlan; runs: EvidenceRun[]; ms: number }>("POST", `/api/repos/${repo}/checks`),
+	plan: (repo: string, goalId: string, opts: { agentModel?: string; maxParallel?: number }) =>
+		call<{ plannerId: string }>("POST", `/api/repos/${repo}/goals/${goalId}/plan`, opts),
 	race: (repo: string, goalId: string, models: string[]) => call("POST", `/api/repos/${repo}/goals/${goalId}/race`, { models }),
 	decide: (repo: string, changeId: string, outcome: "land" | "bounce", note?: string) =>
 		call("POST", `/api/repos/${repo}/changes/${changeId}/decision`, { outcome, by: "dashboard", note }),

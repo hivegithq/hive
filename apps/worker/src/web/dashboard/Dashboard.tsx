@@ -1,22 +1,26 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Checkbox } from "@cloudflare/kumo/components/checkbox";
+import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Empty } from "@cloudflare/kumo/components/empty";
 import { Input, InputArea } from "@cloudflare/kumo/components/input";
 import { Loader } from "@cloudflare/kumo/components/loader";
 import { Radio } from "@cloudflare/kumo/components/radio";
 import { Select } from "@cloudflare/kumo/components/select";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
-import { CopyIcon, GitBranchIcon, GitCommitIcon, PlusIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
+import { CopyIcon, DownloadSimpleIcon, GitBranchIcon, GitCommitIcon, PlusIcon, ShieldCheckIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { type FormEvent, useMemo, useState } from "react";
 import type { Change, ChangeStatus, Overlap } from "../../domain/types.ts";
 import { api, type LogLine, MODELS, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
 import { HiveMap, MAP_GROUPS, type MapGroup } from "../hex/HiveMap.tsx";
+import { PlanGraph } from "../hex/PlanGraph.tsx";
 import { Wordmark } from "../ui/Logo.tsx";
+import { RepoForm } from "../ui/RepoForm.tsx";
 import { VERSION } from "../version.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { ChangeDrawer } from "./ChangeDrawer.tsx";
+import { ChecksPanel } from "./ChecksPanel.tsx";
 
 const CARDS_PER_STAGE = 60;
 
@@ -32,6 +36,7 @@ const STAGES: { id: MapGroup; title: string; hint: string; statuses: ChangeStatu
 export function Dashboard({ repo }: { repo: string }) {
 	const hive = useHive(repo);
 	const [selected, setSelected] = useState<string | null>(null);
+	const [panel, setPanel] = useState<"checks" | "import" | null>(null);
 	const { snapshot } = hive;
 
 	if (!snapshot) {
@@ -47,17 +52,30 @@ export function Dashboard({ repo }: { repo: string }) {
 
 	return (
 		<div className="min-h-screen bg-night pb-14">
-			<TopBar repo={repo} snapshot={snapshot} connected={hive.connected} trunkHead={hive.trunk[0]?.hash} />
+			<TopBar repo={repo} snapshot={snapshot} connected={hive.connected} trunkHead={hive.trunk[0]?.hash} onPanel={setPanel} />
 			<div className="grid gap-px bg-white/5 xl:grid-cols-[320px_minmax(0,1fr)_320px]">
 				<GoalRail repo={repo} snapshot={snapshot} />
 				<main className="min-w-0 bg-night">
 					<Overview snapshot={snapshot} />
+					<PlanPanel snapshot={snapshot} log={hive.log} onSelect={setSelected} />
 					<Stages snapshot={snapshot} overlaps={hive.overlaps} selected={selected} onSelect={setSelected} />
 				</main>
 				<TrunkColumn trunk={hive.trunk} onSelect={setSelected} />
 			</div>
 			<Ticker log={hive.log} />
-			<AnimatePresence>{selected && <ChangeDrawer key={selected} repo={repo} changeId={selected} tick={hive.tick} onClose={() => setSelected(null)} />}</AnimatePresence>
+			<AnimatePresence>
+				{selected && <ChangeDrawer key={selected} repo={repo} changeId={selected} tick={hive.tick} onClose={() => setSelected(null)} />}
+				{panel === "checks" && <ChecksPanel key="checks" repo={repo} onClose={() => setPanel(null)} />}
+			</AnimatePresence>
+			<Dialog.Root open={panel === "import"} onOpenChange={(open) => setPanel(open ? "import" : null)}>
+				<Dialog className="w-[min(560px,calc(100vw-2rem))] bg-[#141417] p-6 ring-1 ring-honey/35">
+					<div className="mb-5 flex items-start justify-between gap-4">
+						<Dialog.Title className="font-display text-2xl font-semibold text-wax">Add a repository</Dialog.Title>
+						<Dialog.Close aria-label="Close" render={(props) => <Button {...props} variant="ghost" shape="square" icon={XIcon} aria-label="Close" />} />
+					</div>
+					<RepoForm />
+				</Dialog>
+			</Dialog.Root>
 		</div>
 	);
 }
@@ -74,7 +92,7 @@ const groupCounts = (snapshot: Snapshot): Record<MapGroup, number> => {
 	return Object.fromEntries(STAGES.map((s) => [s.id, s.statuses.reduce((n, st) => n + (c[st] ?? 0), 0)])) as Record<MapGroup, number>;
 };
 
-function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; trunkHead?: string }) {
+function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; trunkHead?: string; onPanel: (p: "checks" | "import") => void }) {
 	const g = groupCounts(props.snapshot);
 	const inFlight = g.working + g.queued + g.converging + g.attention;
 	const [clone, setClone] = useState<string | null>(null);
@@ -102,6 +120,12 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 					)}
 				</p>
 				<span className="ml-auto hidden font-mono text-xs text-kumo-subtle md:inline">v{VERSION}</span>
+				<Button variant="ghost" size="sm" icon={DownloadSimpleIcon} onClick={() => props.onPanel("import")}>
+					<span className="hidden sm:inline">Import</span>
+				</Button>
+				<Button variant="secondary" size="sm" icon={ShieldCheckIcon} onClick={() => props.onPanel("checks")}>
+					<span className="hidden sm:inline">Checks & settings</span>
+				</Button>
 				<Button variant="secondary" size="sm" icon={TerminalWindowIcon} onClick={() => api.clone(props.repo).then((r) => setClone(r.command))}>
 					Clone with git
 				</Button>
@@ -157,6 +181,52 @@ function Overview({ snapshot }: { snapshot: Snapshot }) {
 					</li>
 				))}
 			</ul>
+		</section>
+	);
+}
+
+// The latest planned goal: the planner at work, then its sub-goals as a dependency graph.
+function PlanPanel({ snapshot, log, onSelect }: { snapshot: Snapshot; log: LogLine[]; onSelect: (changeId: string) => void }) {
+	const parent = [...snapshot.goals].reverse().find((g) => g.status === "planning" || snapshot.goals.some((c) => c.parentId === g.id));
+	if (!parent) return null;
+	const children = snapshot.goals.filter((g) => g.parentId === parent.id);
+	const done = children.filter((c) => c.status === "achieved").length;
+	// A sub-goal opens its newest change.
+	const changeFor = (goalId: string) => snapshot.changes.filter((c) => c.goalId === goalId).sort((a, b) => b.createdAt - a.createdAt)[0]?.id;
+	const plannerLines = log.filter((l) => l.agentId.startsWith("p-")).slice(-4);
+	return (
+		<section className="border-b border-white/5 p-4 sm:p-6" aria-label="Plan">
+			<div className="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+				<h2 className="font-display text-lg font-semibold text-wax">Plan</h2>
+				<p className="min-w-0 truncate text-sm text-kumo-default">“{parent.title}”</p>
+				{children.length > 0 && (
+					<p className="text-sm text-kumo-subtle sm:ml-auto">
+						<span className="tabular text-honey">{done}</span> of <span className="tabular">{children.length}</span> sub-goals landed. Click one to open it.
+					</p>
+				)}
+			</div>
+			{parent.status === "planning" && children.length === 0 ? (
+				<div className="flex items-start gap-4">
+					<svg width="34" height="38" viewBox="0 0 34 38" className="animate-pulse-flare shrink-0" aria-hidden="true">
+						<polygon points="17,1 33,10 33,28 17,37 1,28 1,10" fill="rgba(246,130,31,0.25)" stroke="#f6821f" strokeWidth="1.5" />
+					</svg>
+					<div className="min-w-0">
+						<p className="text-kumo-default">The planner is reading the code and splitting the goal into sub-goals.</p>
+						<ul className="mt-2 space-y-0.5 font-mono text-xs text-kumo-subtle">
+							{plannerLines.length ? plannerLines.map((l) => <li key={`${l.at}${l.text}`}>{l.text}</li>) : <li>starting</li>}
+						</ul>
+					</div>
+				</div>
+			) : (
+				<PlanGraph
+					goals={children}
+					deps={snapshot.goalDeps ?? []}
+					onSelect={(goalId) => {
+						const id = changeFor(goalId);
+						if (id) onSelect(id);
+					}}
+				/>
+			)}
 		</section>
 	);
 }
@@ -227,7 +297,8 @@ function Stages(props: { snapshot: Snapshot; overlaps: Record<string, Overlap[]>
 function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
-	const [mode, setMode] = useState<"one" | "race">("one");
+	const [mode, setMode] = useState<"one" | "race" | "plan">("one");
+	const [parallel, setParallel] = useState(6);
 	const [models, setModels] = useState<string[]>([MODELS[0].id, MODELS[1].id, MODELS[2].id]);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -239,6 +310,7 @@ function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
 		try {
 			const goal = await api.createGoal(repo, title, description);
 			if (mode === "one") await api.assign(repo, goal.id, models[0]);
+			else if (mode === "plan") await api.plan(repo, goal.id, { agentModel: models[0], maxParallel: parallel });
 			else await api.race(repo, goal.id, models);
 			setTitle("");
 			setDescription("");
@@ -258,9 +330,10 @@ function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
 				<h2 className="font-display text-lg font-semibold text-wax">New goal</h2>
 				<Input label="What should change?" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Free shipping on orders over $50" required minLength={3} />
 				<InputArea label="Details for the agent" value={description} onValueChange={setDescription} placeholder="Acceptance criteria, edge cases, files to look at" minRows={3} />
-				<Radio.Group legend="Who works on it" orientation="horizontal" value={mode} onValueChange={(v) => setMode(v as "one" | "race")}>
+				<Radio.Group legend="Who works on it" value={mode} onValueChange={(v) => setMode(v as "one" | "race" | "plan")}>
 					<Radio.Item label="One agent" value="one" />
-					<Radio.Item label="A race" value="race" />
+					<Radio.Item label="A race between models" value="race" />
+					<Radio.Item label="Plan it first: break it into sub-goals for many agents" value="plan" />
 				</Radio.Group>
 				{mode === "race" ? (
 					<Checkbox.Group legend="Models in the race">
@@ -270,14 +343,25 @@ function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
 					</Checkbox.Group>
 				) : (
 					<Select
-						label="Model"
+						label={mode === "plan" ? "Model for the agents" : "Model"}
 						value={models[0]}
 						onValueChange={(v) => v && setModels([v as string, ...models.filter((m) => m !== v)])}
 						items={Object.fromEntries(MODELS.map((m) => [m.id, label(m)]))}
 					/>
 				)}
+				{mode === "plan" && (
+					<Input
+						label="Agents at once"
+						type="number"
+						min={1}
+						max={32}
+						value={String(parallel)}
+						onChange={(e) => setParallel(Math.max(1, Math.min(32, Number(e.target.value) || 1)))}
+						description="Sub-goals start as the ones they depend on land, up to this many at a time."
+					/>
+				)}
 				<Button type="submit" variant="primary" icon={PlusIcon} loading={busy} disabled={mode === "race" && models.length < 2} className="w-full justify-center">
-					{mode === "race" ? `Start a ${models.length}-way race` : "Start an agent"}
+					{mode === "race" ? `Start a ${models.length}-way race` : mode === "plan" ? "Plan it" : "Start an agent"}
 				</Button>
 				{error && <p className="text-sm text-kumo-danger">{error}</p>}
 			</form>
@@ -287,20 +371,46 @@ function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
 				{snapshot.goals.length === 0 ? (
 					<p className="text-sm text-kumo-subtle">No goals yet. Describe a change above and an agent will fork the repo and start.</p>
 				) : (
-					<ol className="space-y-1.5">
-						{[...snapshot.goals]
-							.reverse()
-							.slice(0, 40)
-							.map((g) => (
-								<li key={g.id} className="flex items-baseline gap-2 text-sm">
-									<span className="min-w-0 flex-1 truncate text-kumo-default">{g.title}</span>
-									<span className={g.status === "achieved" ? "text-honey" : "text-kumo-subtle"}>{g.status.replace("_", " ")}</span>
-								</li>
-							))}
-					</ol>
+					<GoalTree goals={snapshot.goals} />
 				)}
 			</section>
 		</aside>
+	);
+}
+
+const GOAL_TONE: Record<string, string> = { achieved: "text-honey", planning: "text-flare", planned: "text-flare", racing: "text-flare" };
+
+// Goals newest first, with a planned goal's sub-goals nested under it.
+function GoalTree({ goals }: { goals: Snapshot["goals"] }) {
+	const children = new Map<string, Snapshot["goals"]>();
+	for (const g of goals) if (g.parentId) children.set(g.parentId, [...(children.get(g.parentId) ?? []), g]);
+	const top = goals.filter((g) => !g.parentId || !goals.some((p) => p.id === g.parentId)).reverse().slice(0, 40);
+	const row = (g: Snapshot["goals"][number], nested: boolean) => (
+		<li key={g.id} className={`flex items-baseline gap-2 text-sm ${nested ? "border-l border-white/10 pl-3" : ""}`}>
+			<span className={`min-w-0 flex-1 truncate ${nested ? "text-kumo-subtle" : "text-kumo-default"}`}>{g.title}</span>
+			<span className={`shrink-0 ${GOAL_TONE[g.status] ?? "text-kumo-subtle"}`}>{g.status.replace("_", " ")}</span>
+		</li>
+	);
+	return (
+		<ol className="space-y-1.5">
+			{top.map((g) => {
+				const kids = children.get(g.id) ?? [];
+				const done = kids.filter((k) => k.status === "achieved").length;
+				return (
+					<li key={g.id}>
+						<ol className="space-y-1.5">
+							{row(g, false)}
+							{kids.length > 0 && (
+								<li className="pl-3 text-xs text-kumo-subtle">
+									{done} of {kids.length} sub-goals landed
+								</li>
+							)}
+							{kids.map((k) => row(k, true))}
+						</ol>
+					</li>
+				);
+			})}
+		</ol>
 	);
 }
 

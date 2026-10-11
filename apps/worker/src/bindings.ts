@@ -8,5 +8,6 @@ export const coordinatorOf = (ex: Exports, repo: string) => ex.RepoCoordinator.g
 export const agentOf = (ex: Exports, agentId: string) => ex.CodingAgent.getByName(agentId);
 export const mergeBoxOf = (ex: Exports, name: string) => ex.MergeBox.getByName(name);
 export const simOf = (ex: Exports, agentId: string) => ex.SimAgent.getByName(agentId);
+export const plannerOf = (ex: Exports, plannerId: string) => ex.PlannerAgent.getByName(plannerId);
 export const gateOf = (ex: Exports, model: string) => ex.ModelGate.getByName(model);
 export const landing = (env: Env) => env.LANDING as Workflow<LandingParams>;

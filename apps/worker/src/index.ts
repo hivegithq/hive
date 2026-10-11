@@ -9,6 +9,7 @@ export { RepoCoordinator } from "./coordinator/RepoCoordinator.ts";
 export { LandingWorkflow } from "./landing/LandingWorkflow.ts";
 export { ModelGate } from "./agent/ModelGate.ts";
 export { SimAgent } from "./agent/SimAgent.ts";
+export { PlannerAgent } from "./agent/PlannerAgent.ts";
 export { MergeBox } from "./landing/MergeBox.ts";
 export { Outbound } from "./sandbox/outbound.ts";
 
@@ -45,6 +46,36 @@ app.post("/api/repos", async (c) => {
 	const remotes = await coordinator(c.executionCtx.exports, name).init();
 	return c.json({ name, ...remotes }, 201);
 });
+
+// Import an existing repository (GitHub or any https git server) into a new Hive repo. `token` is
+// only for private repositories; it's used for this one clone and never stored.
+app.post("/api/repos/import", async (c) => {
+	const input = await body(
+		c.req.raw,
+		z.object({
+			url: z.string().url(),
+			name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{1,40}$/).optional(),
+			branch: z.string().max(200).optional(),
+			token: z.string().max(500).optional(),
+		}),
+	);
+	const name = input.name ?? repoNameFromUrl(input.url);
+	const result = await coordinator(c.executionCtx.exports, name).importFrom({ url: input.url, branch: input.branch, token: input.token });
+	return c.json({ name, ...result }, 201);
+});
+
+app.get("/api/repos/:repo/settings", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).settings()));
+app.get("/api/repos/:repo/checks/plan", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).checkPlan()));
+
+// Run the repository's checks (hive.json, or detected) on trunk: can Hive build and test it?
+app.post("/api/repos/:repo/checks", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).checkTrunk()));
+
+// "https://github.com/acme/Web-App.git" → "web-app"
+function repoNameFromUrl(url: string) {
+	const base = new URL(url).pathname.split("/").filter(Boolean).at(-1)?.replace(/\.git$/, "") ?? "repo";
+	const name = base.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+	return name.length >= 2 ? name : `repo-${name}`;
+}
 
 app.get("/api/repos/:repo", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).snapshot()));
 
@@ -86,6 +117,12 @@ app.post("/api/repos/:repo/goals/:goalId/race", async (c) => {
 });
 
 // External agents: claim a goal, declare intent, submit. Same operations as the MCP tools.
+// Break a big goal into sub-goals with a planner model; agents start on them as dependencies land.
+app.post("/api/repos/:repo/goals/:goalId/plan", async (c) => {
+	const opts = await body(c.req.raw, z.object({ model: z.string().optional(), agentModel: z.string().optional(), maxParallel: z.number().int().min(1).max(32).optional() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).plan(c.req.param("goalId"), opts), 202);
+});
+
 app.post("/api/repos/:repo/goals/:goalId/claim", async (c) => {
 	const { agentName, model } = await body(c.req.raw, z.object({ agentName: z.string(), model: z.string().default("external") }));
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).claim(c.req.param("goalId"), agentName, "cli", model), 201);
@@ -106,7 +143,7 @@ app.post("/api/repos/:repo/changes/:changeId/submit", async (c) =>
 
 // Per-repo settings: decider ("clef" | "evidence") and landing batch size.
 app.post("/api/repos/:repo/settings", async (c) => {
-	const patch = await body(c.req.raw, z.object({ decider: z.enum(["clef", "evidence"]).optional(), batchMax: z.number().int().min(1).max(256).optional() }));
+	const patch = await body(c.req.raw, z.object({ decider: z.enum(["clef", "evidence"]).optional(), batchMax: z.number().int().min(1).max(256).optional(), security: z.boolean().optional() }));
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setSettings(patch));
 });
 

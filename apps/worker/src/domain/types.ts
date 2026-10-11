@@ -1,7 +1,7 @@
 // Hive's domain model. Goal → Change → Evidence → Evaluation → Decision → Integration.
 // Evidence is deterministic (tests, builds); Evaluations are model opinions and are always labeled as such.
 
-export type GoalStatus = "open" | "in_progress" | "racing" | "achieved" | "abandoned";
+export type GoalStatus = "open" | "planning" | "planned" | "in_progress" | "racing" | "achieved" | "abandoned";
 export type ChangeStatus =
 	| "drafting" // agent is working in its fork
 	| "submitted" // pushed and waiting in the convergence queue
@@ -68,7 +68,7 @@ export interface Change {
 export interface Evidence {
 	id: string;
 	changeId: string;
-	kind: "test" | "typecheck" | "build" | "merge" | "preview";
+	kind: "setup" | "typecheck" | "lint" | "build" | "test" | "check" | "security" | "merge" | "preview";
 	command: string;
 	ok: boolean;
 	output: string; // truncated

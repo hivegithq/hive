@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Box } from "../sandbox/box.ts";
 import { sh } from "../sandbox/box.ts";
+import { repoPath } from "./paths.ts";
 
 export const REPO_DIR = "/workspace/repo";
 
@@ -12,6 +13,7 @@ export interface ToolHost {
 	drainInbox(): string[];
 	submit(message: string): Promise<string>;
 	syncTrunk(): Promise<string>;
+	runChecks(): Promise<string>;
 }
 
 const clip = (s: string, max = 12000) => (s.length > max ? `…[${s.length - max} chars elided]…\n${s.slice(-max)}` : s);
@@ -32,7 +34,7 @@ export function codingTools(host: ToolHost) {
 			description: "Read a file with line numbers. Use startLine/endLine for large files.",
 			inputSchema: z.object({ path: z.string(), startLine: z.number().int().optional(), endLine: z.number().int().optional() }),
 			execute: async ({ path, startLine, endLine }) =>
-				run(host, `nl -ba ${sh(path)} | sed -n '${startLine ?? 1},${endLine ?? 400}p'`),
+				run(host, `nl -ba ${sh(repoPath(path))} | sed -n '${startLine ?? 1},${endLine ?? 400}p'`),
 		}),
 		search: tool({
 			description: "Search the repository with ripgrep (regex).",
@@ -44,7 +46,7 @@ export function codingTools(host: ToolHost) {
 			inputSchema: z.object({ path: z.string(), oldText: z.string(), newText: z.string() }),
 			execute: async ({ path, oldText, newText }) => {
 				const files = host.box.files();
-				const full = `${REPO_DIR}/${path}`;
+				const full = `${REPO_DIR}/${repoPath(path)}`;
 				const current = await (await files.readFile(full)).text();
 				const count = current.split(oldText).length - 1;
 				if (count !== 1) return { ok: false, error: `oldText matched ${count} times; include more context so it is unique` };
@@ -53,14 +55,20 @@ export function codingTools(host: ToolHost) {
 			},
 		}),
 		write_file: tool({
-			description: "Create or overwrite a file with the given content.",
+			description: "Create or overwrite a file with the given content. Paths are relative to the repository root (e.g. test/foo.test.ts).",
 			inputSchema: z.object({ path: z.string(), content: z.string() }),
 			execute: async ({ path, content }) => {
-				const full = `${REPO_DIR}/${path}`;
+				const full = `${REPO_DIR}/${repoPath(path)}`;
 				await host.box.run(`mkdir -p "$(dirname ${sh(full)})"`);
 				await host.box.files().writeFile(full, content);
 				return { ok: true };
 			},
+		}),
+		run_checks: tool({
+			description:
+				"Run exactly the checks the convergence queue will run on your change (tests, typecheck, build, and the security scan if this repository uses one), with their output. Run it before submit.",
+			inputSchema: z.object({}),
+			execute: async () => host.runChecks(),
 		}),
 		run: tool({
 			description: "Run a shell command in the repository (tests, typecheck, build). Output is truncated.",

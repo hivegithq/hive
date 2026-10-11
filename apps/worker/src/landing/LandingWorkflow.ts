@@ -102,7 +102,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 				const stack: StackResult = top
 					? { trunk: onto!.stack.trunk, tip: top.tip, entries: [...onto!.stack.entries.filter((e) => e.ok), ...top.entries] }
 					: (await box.stack(entries([...(onto ? applied(onto.stack) : []), ...ids])))!;
-				const evidence: EvidenceRun[] = await box.evidence();
+				const evidence: EvidenceRun[] = await box.evidence({ security: settings.security });
 				return { stack, evidence };
 			});
 
@@ -230,7 +230,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 				if (first.ok) return { push: first, tips: tipsOf(final.stack) };
 				// Trunk moved (someone pushed directly) or the container restarted. Restack and re-verify once.
 				const again = await box.stack(entries(approved));
-				if (!again || !again.entries.every((e) => e.ok) || !evidenceOk(await box.evidence())) {
+				if (!again || !again.entries.every((e) => e.ok) || !evidenceOk(await box.evidence({ security: settings.security }))) {
 					return { push: { ok: false, reason: "trunk moved and the batch no longer verifies" }, tips: {} };
 				}
 				return { push: await box.push(again.tip), tips: tipsOf(again) };

@@ -1,5 +1,7 @@
 // SQLite schema for a RepoCoordinator (one per trunk repo). JSON columns hold arrays/maps.
 export const SCHEMA = [
+	// A planned goal's sub-goals start only when the sub-goals they depend on have landed.
+	`CREATE TABLE IF NOT EXISTS goal_deps (goal_id TEXT NOT NULL, depends_on TEXT NOT NULL, PRIMARY KEY (goal_id, depends_on))`,
 	`CREATE TABLE IF NOT EXISTS goals (
 		id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
 		status TEXT NOT NULL, parent_id TEXT, created_at INTEGER NOT NULL)`,

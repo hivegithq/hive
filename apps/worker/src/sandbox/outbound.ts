@@ -43,7 +43,17 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 			return upstream;
 		}
 
-		if (policy.hosts.includes(url.hostname)) return fetch(request);
+		if (policy.hosts.includes(url.hostname)) {
+			// Git over HTTP to an allowed host (an import from GitHub, say) gets the same treatment as
+			// Artifacts traffic: a buffered body and an uncompressed response, so packs pass intact.
+			if (/\/(info\/refs|git-upload-pack|git-receive-pack)$/.test(url.pathname)) {
+				const headers = new Headers(request.headers);
+				headers.set("accept-encoding", "identity");
+				const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
+				return fetch(url.toString(), { method: request.method, headers, body, redirect: "manual" });
+			}
+			return fetch(request);
+		}
 		return deny(`${url.hostname} is not on this sandbox's allowlist`);
 	}
 

@@ -23,11 +23,16 @@ Hive replaces branches and pull requests with primitives designed for many concu
   asks a person.
 - Everything (intents, evidence, reviews, decisions, full agent transcripts) is recorded **in git**,
   next to the code.
+- **Any codebase**: import from GitHub, and Hive checks each change in the repository's own language
+  (Node, Rust, Python, Go, or whatever `hive.json` says), with an optional **security scan** that
+  fails changes introducing vulnerabilities.
+- **Big goals get a plan**: a planner splits "fix the security issues" or "port this to Rust" into
+  sub-goals with dependencies, and Hive runs agents on them in parallel as dependencies land.
 
 **Live:** <https://hive.kabadigitalinc.workers.dev>. Reads are public; changes need the
 deployment's access token.
 
-**Version 1.0.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/karanbalaji/hive/releases).
+**Version 1.1.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/karanbalaji/hive/releases).
 
 ---
 
@@ -39,7 +44,9 @@ deployment's access token.
 - [Intents and the three kinds of overlap](#intents-and-the-three-kinds-of-overlap)
 - [The convergence queue](#the-convergence-queue)
 - [Decisions: calibrated, not pass/fail](#decisions-calibrated-not-passfail)
+- [Evidence, in any language](#evidence-in-any-language)
 - [Race mode](#race-mode)
+- [Plans: big goals, many agents](#plans-big-goals-many-agents)
 - [The ledger](#the-ledger)
 - [Security model](#security-model)
 - [Ways in: dashboard, MCP, CLI, git](#ways-in-dashboard-mcp-cli-git)
@@ -343,6 +350,51 @@ agent's trust by 0.02.
 
 ---
 
+## Evidence, in any language
+
+Evidence is whatever proves the repository still works. A repository can say exactly, in a
+`hive.json` at its root; otherwise Hive detects the usual commands from the manifests it finds:
+
+| Found | Setup | Checks |
+|---|---|---|
+| `package.json` | `npm ci` (or `pnpm`/`yarn` from the lockfile) | its `typecheck`, `build` and `test` scripts |
+| `Cargo.toml` | `cargo fetch` | `cargo build --all-targets`, `cargo test` |
+| `pyproject.toml`, `requirements.txt`, `setup.py` | a virtualenv with the project and `pytest` | `pytest` |
+| `go.mod` | `go mod download` | `go vet`, `go build`, `go test` |
+
+```json
+{
+  "setup": ["make deps"],
+  "checks": { "test": "make test", "lint": "make lint", "format": "make fmt-check" },
+  "security": true
+}
+```
+
+`setup` and `checks` replace what was detected (each independently); setup re-runs only when the
+files it depends on change. **The same plan runs everywhere**: agents call `run_checks` in their
+own container and see exactly what the merge queue will run. `POST /api/repos/:repo/checks` runs it
+on trunk, which is the first thing to do after an import. A broken `hive.json` is reported as a
+failing check, not silently ignored.
+
+### Security evidence
+
+With `"security": true` in `hive.json`, or the repository setting `security`, every batch also
+runs three scanners: **gitleaks** (secrets), **osv-scanner** (known-vulnerable dependencies, from
+lockfiles) and **Semgrep** (risky code, its default rules baked into the image). Findings are
+compared with **trunk's**:
+
+- a finding the change **introduces** fails it, like a failing test, and the culprit search
+  isolates it within a batch;
+- findings already on trunk don't block anyone, so an existing codebase isn't frozen by its
+  history;
+- findings the change **resolves** are listed, which is how a security fix shows its work.
+
+Findings are fingerprinted by tool, rule, file and the offending text (dependencies by advisory
+and package, not version), so moving code around doesn't create "new" findings, and upgrading to a
+version that still has an advisory doesn't hide it.
+
+---
+
 ## Race mode
 
 For goals where the approach is uncertain, Hive fans one goal out to several models in parallel
@@ -362,6 +414,27 @@ flowchart LR
     J -->|winner| Q[Convergence queue → trunk]
     J -->|others| A[Archived with transcripts]
 ```
+
+---
+
+## Plans: big goals, many agents
+
+A goal like *"find and fix the security vulnerabilities"* or *"port this service to Rust"* is too
+big for one agent. Plan it first (`POST /api/repos/:repo/goals/:goal/plan`, the dashboard's
+**Plan it first**, or `hive_plan` over MCP):
+
+1. A **planner** (GLM 5.3 by default: a 1M-token context for reading code) explores trunk through
+   the Artifacts binding and Hive's code graph (files, symbols, who references what). It needs
+   no container.
+2. It proposes **sub-goals with dependencies**, each one coherent change that keeps trunk's checks
+   green and names the test that proves it. Hive validates the plan (known keys, no cycles) and
+   sends a rejected one back to the planner.
+3. Hive starts an agent on every sub-goal whose dependencies have landed, up to `maxParallel` at a
+   time, and starts the next ones as each lands. The parent goal is achieved when all of them are.
+
+The planner's brief encodes how such work lands safely: security fixes each come with a test that
+fails before the fix; ports pin current behaviour with tests both versions can run, then move one
+module at a time; parallel sub-goals touch different code.
 
 ---
 
@@ -447,6 +520,15 @@ Motion. Hive's own visual language is the honeycomb: every hexagon carries infor
   their intent and overlap markers. Click one for its evidence, review, Clef's probabilities, and
   to land, send back, or pick a race winner. Trunk history runs down the right and agent activity
   along the bottom.
+- **Plans** appear under the map as a live dependency graph: the planner's progress while it reads
+  the code, then each sub-goal as a hex that turns orange when an agent takes it and honey when it
+  lands. Click one to open its change.
+- **Checks & settings** shows what Hive will run for the repository (detected languages, setup,
+  checks, the security scan), runs it all on trunk on demand, and holds the repository's settings:
+  the security scan, who decides (Clef, or the checks alone) and batch size.
+- **Security results** in a change read as findings introduced, resolved and unchanged, each with
+  its tool, rule and location.
+- **Import** from the top bar brings in another repository without leaving the dashboard.
 
 ### MCP (Claude Code, Codex, any agent)
 
@@ -459,7 +541,9 @@ claude mcp add --transport http hive https://hive.kabadigitalinc.workers.dev/mcp
 |---|---|
 | `hive_status` | Goals, changes in flight, live intents, queue |
 | `hive_symbols` | Symbols Hive knows in a file, for declaring intent |
+| `hive_import` | Import a repository from GitHub or any https git server |
 | `hive_create_goal` | Create a goal |
+| `hive_plan` | Plan a big goal into sub-goals that agents work on as dependencies land |
 | `hive_claim` | Fork trunk for you; returns a clone command (1-hour write token) and a read-only trunk remote |
 | `hive_declare_intent` | Declare symbols before editing; returns overlaps and advice |
 | `hive_submit` | Enter the convergence queue |
@@ -484,6 +568,20 @@ hive show                             # evidence, review, decision
 `--from-diff` snapshots your working tree with `git stash create` (nothing is touched), indexes it
 and the merge-base with the same tree-sitter code the cloud uses, and declares exactly the symbols
 that changed.
+
+### Import a repository
+
+Bring any existing repository in, from GitHub or any https git server:
+
+```bash
+curl -X POST $H/api/repos/import -H "authorization: Bearer $HIVE_TOKEN" \
+  -H 'content-type: application/json' -d '{"url":"https://github.com/dtolnay/itoa"}'
+```
+
+Its default branch (whatever it's called) becomes trunk's `main`, with full history. For a
+private repository, pass `"token"`: it's sent to the source as a header for that one clone and
+never stored, logged or written to disk. The landing page's form and `hive_import` over MCP do
+the same.
 
 ### Plain git
 
@@ -579,6 +677,8 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`.
 | Method | Path | |
 |---|---|---|
 | `POST` | `/api/repos` | Create a repo (trunk + ledger) |
+| `POST` | `/api/repos/import` | Import a repository: `url`, optional `name`, `branch`, `token` (private repos; never stored) |
+| `POST` | `/api/repos/:repo/checks` | Run the repository's checks (and security scan, if on) on trunk |
 | `GET` | `/api/repos/:repo` | Snapshot: goals, changes, intents, queue, decisions, agents |
 | `GET` | `/api/repos/:repo/trunk` | Trunk log with parsed trailers |
 | `GET` | `/api/repos/:repo/index` | Semantic index status |
@@ -586,6 +686,7 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`.
 | `POST` | `/api/repos/:repo/goals` | Create a goal |
 | `POST` | `/api/repos/:repo/goals/:goal/assign` | Start a built-in agent (`model` optional) |
 | `POST` | `/api/repos/:repo/goals/:goal/race` | Race several models (`models`) |
+| `POST` | `/api/repos/:repo/goals/:goal/plan` | Plan a big goal into sub-goals (`model`, `agentModel`, `maxParallel`) |
 | `POST` | `/api/repos/:repo/goals/:goal/claim` | External agent claims a goal |
 | `POST` | `/api/repos/:repo/changes/:change/intent` | Declare intent |
 | `POST` | `/api/repos/:repo/changes/:change/submit` | Submit to the queue |
@@ -594,10 +695,11 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`.
 | `POST` | `/api/repos/:repo/changes/:change/restart` | Restart a built-in agent |
 | `POST` | `/api/repos/:repo/changes/:change/abandon` | Archive a change, release its intent |
 | `POST` | `/api/repos/:repo/races/:group/winner` | A person picks the race winner |
-| `POST` | `/api/repos/:repo/settings` | `decider` (`clef` or `evidence`), `batchMax` (1–256) |
+| `POST` | `/api/repos/:repo/settings` | `decider` (`clef` or `evidence`), `batchMax` (1–256), `security` |
 | `POST` | `/api/repos/:repo/loadtest` | Spawn simulated agents: `agents`, `waveSize`, `sharedRate`, `brokenRate` |
 | `GET` | `/api/repos/:repo/stats` | Landings per minute, queue wait, fork and intent-check latency, batch sizes |
 | `GET` | `/api/agents/:agent/transcript` | Agent transcript |
+| `GET` | `/api/sims/:agent` | A simulated agent's state |
 | `WS` | `/agents/coordinator/:repo` | Live events (snapshot, then every change, intent, decision, log line) |
 | `POST` | `/mcp` | MCP (streamable HTTP) |
 
@@ -723,6 +825,37 @@ fetch, stack and test a batch. Fork creation is bounded by Artifacts' one-fork-a
 source repository; mirrors multiply that by 32. The coordinator is one Durable Object per
 repository, which is why intent checks stretch to seconds at the p95 under 2,000 agents.
 
+**1.1.0: any codebase, security, plans** (all in production):
+
+- **Import and checks in three languages.** `dtolnay/itoa` (Rust, 329 commits, imported in 35 s),
+  `pypa/sampleproject` (Python) and `google/uuid` (Go) imported from GitHub, and their trunk checks
+  passed: `cargo build` and `cargo test`; `pytest` in a fresh virtualenv; `go vet`, `go build`,
+  `go test`, with dependencies fetched through the egress gateway.
+- **A Rust change, end to end.** On `itoa`, a Kimi K2.7 agent added a test comparing
+  `Buffer::format` with `to_string()` for every integer type's extremes; the merge box ran
+  `cargo build` and `cargo test`; Clef landed it. A stock clone of trunk passes all 12 tests.
+- **A security goal, planned and fixed by agents.** On `vulnshop` (an order service seeded with six planted
+  vulnerabilities: SQL injection, path traversal, shell injection, `eval`, a hard-coded payment
+  key, prototype pollution through an old `lodash`), one goal, *"find and fix the security
+  vulnerabilities"*, with the security scan on:
+  - **The plan.** GLM 5.3 read the code for about five minutes and proposed seven sub-goals, one
+    per vulnerability plus the dependency upgrade. It found the **SQL injection that none of the
+    scanners flagged**, and every sub-goal named the attack its test had to stop
+    (`ada' OR '1'='1`, `../package.json`, `constructor.constructor(...)`).
+  - **The work.** Six Kimi K2.7 agents started at once; the seventh started when a slot freed. Each
+    change was batched, tested and scanned against trunk. Clef landed three on its own (P(land)
+    about 0.88) and sent four to a person: all four had passed every check, but scored just under
+    the trust-adjusted bar. Reviewing them found three correct and one wrong: the dependency
+    upgrade had put its new test in `workspace/repo/test/`, where it never ran. Sent back with
+    that note, the agent moved it and it landed.
+  - **The result.** A stock clone of trunk passes 18 of 18 tests (six original, twelve new
+    security tests). Scanned against the original commit, the changes resolve **6 of the 9
+    scanner findings** and introduce none. The other 3 were `lodash` advisories the planner's
+    target version (4.17.21) still has (its training data was older than the fix in 4.18). The
+    scan kept reporting them as "unchanged", so a one-line follow-up goal sent one agent to
+    upgrade to 4.18.1; its scan showed all 3 resolved and Clef landed it. **All 9 findings
+    resolved, none introduced, every test passing.**
+
 **Also verified:**
 
 - **External agents.** A CLI user claimed a goal; `hive intent --from-diff` found exactly
@@ -775,6 +908,13 @@ Real runs found real problems. Each fix is in the code with a test or a comment.
 | Forcing git protocol v1 corrupted fetches through the egress proxy ("bad pack header") | Default protocol; the gateway asks for identity encoding and buffers bodies |
 | A container's egress policy is fixed at first interception | One static, pattern-based policy per box (`repo.*` read, own fork write); a changed policy restarts the box |
 | Hundreds of agents on one model hit rate limits together | `ModelGate`: a per-model AIMD limiter every agent acquires before a model step |
+| Artifacts' native import keeps the source's default branch (often `master`), and forks copy only the default branch | Import clones in a container and pushes to a fresh trunk as `main`; a private repo's token is a per-command header |
+| Every scan of an existing codebase found its old issues, so a security gate would block everyone | Security findings are compared with trunk's: only introduced findings fail; resolved ones are credited |
+| A dependency still vulnerable after an upgrade showed as both "introduced" and "resolved" | Dependency findings are fingerprinted by advisory and package, not version |
+| gitleaks scanned `node_modules` in the change but not in trunk's fresh checkout, so dependencies looked like new secrets | Dependency and build directories are excluded from the secret scan |
+| An agent wrote a test to `workspace/repo/test/…`: it never ran and would have added a stray directory (found in review, sent back) | File tools take paths relative to the repository root, strip a workspace prefix, and refuse paths outside it |
+| Agents declared intents as `/workspace/repo/src/db.ts`, which never matches the code graph's `src/db.ts`, so overlaps would go unnoticed | The coordinator normalizes every intent's paths, whichever client sent them |
+| Splitting the dashboard into lazily loaded routes meant a page open across a deploy asked for chunks that no longer existed | A route whose code fails to load reloads the page once to pick up the new build |
 
 ---
 
