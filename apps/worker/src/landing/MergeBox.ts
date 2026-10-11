@@ -65,6 +65,8 @@ while read -r id fork; do
     tip=$next
   else
     excerpt=$(for f in $(git diff --name-only --diff-filter=U); do printf '%s\\n' "$f"; grep -n -A8 -B2 '^<<<<<<<' "$f" | head -60; printf '\\036'; done | base64 -w0)
+    # Not a content conflict: say what git said instead.
+    [ -z "$excerpt" ] && excerpt=$( { printf '(git)\\n'; tail -c 1500 /tmp/hive-pick.log; printf '\\036'; } | base64 -w0)
     git cherry-pick --abort >/dev/null 2>&1; git reset -q --hard "$tip"
     printf 'CONFLICT\\t%s\\t%s\\n' "$id" "$excerpt"
   fi
@@ -141,10 +143,22 @@ export class MergeBox extends DurableObject<Env> {
 	}
 
 	// The container running, under its policy, with trunk checked out. Cheap when it already is.
-	private async ready(): Promise<BoxConfig> {
+	// Many calls arrive at once (per-change checks run in parallel); they share one setup, and the
+	// setup runs only after the container (re)starts, since it writes .git/config.
+	private readying: Promise<BoxConfig> | null = null;
+	private setUp = false;
+
+	private ready(): Promise<BoxConfig> {
+		this.readying ??= this.doReady().finally(() => {
+			this.readying = null;
+		});
+		return this.readying;
+	}
+
+	private async doReady(): Promise<BoxConfig> {
 		const c = await this.cfg();
 		// A static, pattern-based policy: the same for every batch this box ever runs.
-		await this.box.ensure({
+		const started = await this.box.ensure({
 			repos: [
 				{ name: c.repo, scope: c.canPush ? "write" : "read" },
 				{ name: `${c.repo}.m-*`, scope: c.canPush ? "write" : "read" },
@@ -153,8 +167,11 @@ export class MergeBox extends DurableObject<Env> {
 			],
 			hosts: ["registry.npmjs.org"],
 		});
+		if (started) this.setUp = false;
+		if (this.setUp) return c;
 		const r = await this.box.run(
 			`set -e
+			rm -f ${DIR}/.git/config.lock
 			if [ ! -d ${DIR}/.git ]; then git clone -q ${sh(c.trunkRemote)} ${DIR}; fi
 			cd ${DIR}
 			git config gc.auto 0; git config maintenance.auto false
@@ -162,6 +179,7 @@ export class MergeBox extends DurableObject<Env> {
 			{ timeoutMs: 10 * 60 * 1000 },
 		);
 		if (r.exitCode !== 0) throw new Error(`merge box setup failed: ${r.stderr || r.stdout}`);
+		this.setUp = true;
 		return c;
 	}
 

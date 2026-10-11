@@ -42,7 +42,8 @@ export class Box {
 	// costs one container restart, the price of never running with a stale policy).
 	private policyKey: string | null = null;
 
-	async ensure(policy: OutboundPolicy) {
+	// Returns true when it had to (re)start the container, so callers know to set it up again.
+	async ensure(policy: OutboundPolicy): Promise<boolean> {
 		const c = this.container;
 		const key = JSON.stringify(policy);
 		if (c.running && this.policyKey !== key) {
@@ -51,7 +52,7 @@ export class Box {
 			// Never carry on in the old container: it has the wrong policy (or instance size).
 			if (c.running) throw new Error("container did not stop for a restart; retry");
 		}
-		if (this.policyKey === key && c.running) return;
+		if (this.policyKey === key && c.running) return false;
 		this.policyKey = key;
 		if (!c.running) {
 			c.start({ image: c.images.sandbox, enableInternet: false, instance: this.instance });
@@ -61,6 +62,7 @@ export class Box {
 		await c.interceptAllOutboundHttp(gateway);
 		await c.interceptOutboundHttps("*", gateway);
 		await c.setInactivityTimeout(20 * 60 * 1000);
+		return true;
 	}
 
 	// start() returns before the container can run commands; wait for a trivial exec to succeed.
