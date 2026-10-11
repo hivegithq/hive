@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { containerRemote, repoHost } from "../repo/index.ts";
 import { Box, sh } from "../sandbox/box.ts";
+import { UNION_SCRIPT } from "./union.ts";
 
 const DIR = "/workspace/trunk";
 // Fork fetches are mostly round trips, not bandwidth, so they parallelize well.
@@ -25,8 +26,25 @@ cd ${"$"}{DIR:-/workspace/trunk}
 git cherry-pick --abort >/dev/null 2>&1
 git fetch -q origin main
 git checkout -q -f -B land origin/main && git clean -qfd
+printf 'TRUNK\\t%s\\n' "$(git rev-parse HEAD)"
+# ONTO: continue from an already-verified stack (a commit made earlier in this container).
+if [ -n "${"$"}{ONTO:-}" ]; then
+  git checkout -q -f -B land "$ONTO" 2>/dev/null || { printf 'NOBASE\\n'; exit 0; }
+fi
 tip=$(git rev-parse HEAD)
-printf 'TRUNK\\t%s\\n' "$tip"
+# Cherry-pick a range; when it stops on conflicts that are purely additive, keep both sides and go on.
+pick() {
+  git cherry-pick --allow-empty --keep-redundant-commits "$1" >/tmp/hive-pick.log 2>&1 && return 0
+  while :; do
+    u=$(git diff --name-only --diff-filter=U)
+    [ -z "$u" ] && return 1
+    node /tmp/hive-union.cjs $u || return 1
+    git add -- $u
+    unioned="$unioned$u
+"
+    GIT_EDITOR=true git cherry-pick --continue >/tmp/hive-pick.log 2>&1 && return 0
+  done
+}
 while read -r id fork; do
   [ -z "$id" ] && continue
   ref="$fork/main"
@@ -34,10 +52,11 @@ while read -r id fork; do
   if [ -z "$base" ] || [ "$(git rev-list --count "$base..$ref" 2>/dev/null || echo 0)" = "0" ]; then
     printf 'EMPTY\\t%s\\n' "$id"; continue
   fi
-  if git cherry-pick --allow-empty --keep-redundant-commits "$base..$ref" >/tmp/hive-pick.log 2>&1; then
+  unioned=""
+  if pick "$base..$ref"; then
     next=$(git rev-parse HEAD)
     files=$(git diff --name-only "$tip" "$next" | base64 -w0)
-    printf 'OK\\t%s\\t%s\\t%s\\t%s\\n' "$id" "$tip" "$next" "$files"
+    printf 'OK\\t%s\\t%s\\t%s\\t%s\\t%s\\n' "$id" "$tip" "$next" "$files" "$(printf '%s' "$unioned" | base64 -w0)"
     tip=$next
   else
     excerpt=$(for f in $(git diff --name-only --diff-filter=U); do printf '%s\\n' "$f"; grep -n -A8 -B2 '^<<<<<<<' "$f" | head -60; printf '\\036'; done | base64 -w0)
@@ -53,7 +72,7 @@ export interface StackEntry {
 }
 
 export type Stacked =
-	| { changeId: string; ok: true; prev: string; tip: string; files: string[] }
+	| { changeId: string; ok: true; prev: string; tip: string; files: string[]; unioned?: string[] } // unioned: additive conflicts resolved
 	| { changeId: string; ok: false; conflicts: { path: string; excerpt: string }[] }
 	| { changeId: string; ok: false; empty: true };
 
@@ -146,10 +165,13 @@ export class MergeBox extends DurableObject<Env> {
 	// Stack each change's own commits (merge-base..fork) onto trunk, in order. Changes that don't
 	// apply are skipped and reported with conflict excerpts; the rest carry on. The whole loop runs
 	// as one script in the container: one round trip per batch instead of several per change.
-	async stack(entries: StackEntry[]): Promise<StackResult> {
+	// With `onto`, the changes go on top of that commit (an earlier verified stack in this
+	// container) instead of trunk; returns null if the container no longer has it.
+	async stack(entries: StackEntry[], onto?: string): Promise<StackResult | null> {
 		await this.box.files().writeFile("/tmp/hive-stack.sh", STACK_SCRIPT);
+		await this.box.files().writeFile("/tmp/hive-union.cjs", UNION_SCRIPT);
 		await this.box.files().writeFile("/tmp/hive-stack.in", entries.map((e) => `${e.changeId} ${e.fork}`).join("\n") + "\n");
-		const r = await this.run("bash /tmp/hive-stack.sh < /tmp/hive-stack.in", 10 * 60 * 1000);
+		const r = await this.run(`${onto ? `ONTO=${sh(onto)} ` : ""}bash /tmp/hive-stack.sh < /tmp/hive-stack.in`, 10 * 60 * 1000);
 		if (r.exitCode !== 0) throw new Error(`stacking failed: ${r.stderr || r.stdout}`);
 		const b64 = (x: string) => (x ? new TextDecoder().decode(Uint8Array.from(atob(x), (c) => c.charCodeAt(0))) : "");
 		let trunk = "";
@@ -157,9 +179,13 @@ export class MergeBox extends DurableObject<Env> {
 		const out: Stacked[] = [];
 		for (const line of r.stdout.split("\n")) {
 			const [tag, ...f] = line.split("\t");
-			if (tag === "TRUNK") trunk = tip = f[0];
-			else if (tag === "OK") {
-				out.push({ changeId: f[0], ok: true, prev: f[1], tip: f[2], files: b64(f[3]).split("\n").filter(Boolean) });
+			if (tag === "NOBASE") return null;
+			if (tag === "TRUNK") {
+				trunk = f[0];
+				tip = onto ?? f[0];
+			} else if (tag === "OK") {
+				const unioned = b64(f[4] ?? "").split("\n").filter(Boolean);
+				out.push({ changeId: f[0], ok: true, prev: f[1], tip: f[2], files: b64(f[3]).split("\n").filter(Boolean), ...(unioned.length ? { unioned } : {}) });
 				tip = f[2];
 			} else if (tag === "EMPTY") out.push({ changeId: f[0], ok: false, empty: true });
 			else if (tag === "CONFLICT") {

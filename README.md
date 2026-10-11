@@ -263,36 +263,51 @@ Containers (classes, impls, traits) are hashed with their members cut out. Addin
 
 ## The convergence queue
 
-There's no merge button. Submitted changes enter a queue that **only the coordinator drains, one
-landing at a time**, so trunk always has a single writer.
+There's no merge button. Submitted changes enter a queue that **only the coordinator drains**, so
+trunk always has a single writer. It drains in **batches** (the Bors/Zuul idea): stack many
+changes on trunk, verify the stack once, land everything that's good in one push.
 
 ```mermaid
 flowchart TD
-    S[Submitted changes] --> O{Order}
-    O -->|touch nothing anyone<br/>else is touching| D1[Disjoint first]
+    S[Submitted changes] --> O{"Pick a batch (≤ batchMax)"}
+    O -->|touch nothing another<br/>picked change touches| D1[Disjoint first]
     O -->|overlap| D2[Then FIFO]
     D1 --> R
     D2 --> R
-    R["Rebase onto trunk<br/>git + mergiraf merge driver<br/>base = merge-base(trunk, fork)"] -->|unresolvable conflict| B1[Bounce with conflict excerpt<br/>or escalate on attempt 3]
-    R -->|clean| RF[hive-merge referential]
-    RF --> EV["Evidence: typecheck, test, build<br/>(whatever package.json declares)"]
-    EV --> RV["Review: written by DeepSeek V4 Pro<br/>score by Clef (0–4 rubric)"]
+    R["Stack each change on trunk<br/>cherry-pick merge-base..fork<br/>mergiraf driver, additive conflicts kept both ways"] -->|unresolvable conflict| B1[Bounce with conflict excerpt<br/>or escalate on attempt 3]
+    R -->|applied| EV["Evidence on the whole stack<br/>typecheck, test, build"]
+    EV -->|red| BL{"Trunk alone red?"}
+    BL -->|yes| TR[Blame no one,<br/>requeue, wait for a fix]
+    BL -->|no| DC["Divide and conquer:<br/>keep halves that pass,<br/>split halves that fail"]
+    DC --> EV
+    EV -->|green| RV["Per change: referential check,<br/>review (DeepSeek V4 Pro), Clef"]
     RV --> DEC{"Clef decision<br/>land / bounce / escalate"}
-    DEC -->|land| P["Fast-forward push to trunk<br/>(rebase once more if trunk moved)"]
+    DEC -->|land| P["Push the verified tip<br/>(one fast-forward for the whole batch)"]
     DEC -->|bounce| B2[Back to the agent with<br/>failing output + concerns]
     DEC -->|escalate| H[Needs you]
-    P --> L[Reindex · ledger · trust +0.02 · next]
+    P --> L[Reindex · ledger · trust · refresh mirrors · next batch]
 ```
 
-- **Structural rebase.** [mergiraf](https://mergiraf.org) is installed as git's merge driver for
-  about 30 languages, so conflicts that are only textual (imports, adjacent members, reordered
-  fields) resolve themselves.
+- **Batches, verified once.** A batch of n changes that all pass costs one stack and one test
+  run. If it fails, Hive first runs trunk on its own: a red trunk blames nobody. Otherwise it
+  splits the batch, keeps every half that passes and recurses into halves that don't, so k broken
+  changes in n cost about k·log₂(n) extra runs and **every good change in the batch still lands**.
+- **What lands is what was tested.** The push is the exact commit the evidence ran on, never a
+  re-stack.
+- **Pipelined.** Two batches are in flight, each in its own merge container. While one holds the
+  trunk lease to verify and push, the next is fetching its forks.
+- **Structural rebase.** [mergiraf](https://mergiraf.org) is git's merge driver for about 30
+  languages, so conflicts that are only textual (imports, adjacent members, reordered fields)
+  resolve themselves.
+- **Hot files.** When many agents append to one registry, index or changelog, every pair of them
+  conflicts: both inserted at the end of the file. If every conflict hunk in a change is purely
+  additive (the diff3 base is empty), Hive keeps both insertions, trunk's first. Anything that
+  edited existing lines is still a conflict, and the tests still run on the result.
 - **Bounces carry context.** The agent gets the failing command output, the conflict excerpts,
-  any referential conflicts, and the reviewer's concerns. It fixes the change (`sync_trunk`
-  rebases its fork) and resubmits. The attempt count shows on its strip.
+  any referential conflicts, and the reviewer's concerns. It fixes the change and resubmits.
 - **No infinite loops.** On the third attempt, a change that would bounce again goes to a person.
-- **Durable.** Each landing is a Workflow with retried steps. A heartbeat in the coordinator
-  restarts any landing that errored or stalled.
+- **Durable.** Each batch is a Workflow with retried steps. A heartbeat in the coordinator
+  restarts batches that errored or stalled (at most three times) and requeues anything stranded.
 
 ---
 

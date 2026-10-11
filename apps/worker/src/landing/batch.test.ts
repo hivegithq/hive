@@ -4,8 +4,11 @@ import { type Attempt, type AttemptFn, findLandable, selectBatch } from "./batch
 // A fake stack: every change applies except `conflicting`; evidence fails if the stack contains `broken`.
 function fakeAttempt(opts: { conflicting?: string[]; broken?: string[]; redTrunk?: boolean }) {
 	const labels: string[] = [];
-	const fn: AttemptFn = async (label, ids) => {
+	const picks: number[] = []; // cherry-picks per attempt
+	const fn: AttemptFn = async (label, more, onto) => {
 		labels.push(label);
+		picks.push(more.length);
+		const ids = [...(onto ? onto.stack.entries.filter((e) => e.ok).map((e) => e.changeId) : []), ...more];
 		const entries = ids.map((changeId) =>
 			opts.conflicting?.includes(changeId)
 				? { changeId, ok: false as const, conflicts: [{ path: "x.ts", excerpt: "<<<<<<<" }] }
@@ -16,7 +19,7 @@ function fakeAttempt(opts: { conflicting?: string[]; broken?: string[]; redTrunk
 		const attempt: Attempt = { stack: { trunk: "t0", tip: "tip", entries }, evidence: [{ kind: "test", command: "npm test", ok, output: ok ? "" : "fail" }] };
 		return attempt;
 	};
-	return { fn, labels };
+	return { fn, labels, picks };
 }
 
 const ids = (n: number) => Array.from({ length: n }, (_, i) => `c${i}`);
@@ -55,6 +58,14 @@ describe("findLandable", () => {
 		const r = await findLandable(fakeAttempt({ broken: ["c2", "c9"] }).fn, ids(16));
 		const stacked = r.attempt!.stack.entries.filter((e) => e.ok).map((e) => e.changeId);
 		expect(stacked).toEqual(r.land);
+	});
+
+	it("builds on verified stacks instead of re-picking them", async () => {
+		const { fn, picks } = fakeAttempt({ broken: ["c100"] });
+		const r = await findLandable(fn, ids(128));
+		expect(r.land).toHaveLength(127);
+		// Re-stacking from trunk every time would cost ~128 picks per attempt; halving costs ~2n in total.
+		expect(picks.reduce((a, b) => a + b, 0)).toBeLessThan(3 * 128);
 	});
 
 	it("every culprit position is found, every good change lands", async () => {

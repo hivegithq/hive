@@ -10,8 +10,10 @@ export interface Attempt {
 	evidence: EvidenceRun[];
 }
 
-// Stack `changeIds` (in order) on trunk and gather evidence for the result.
-export type AttemptFn = (label: string, changeIds: string[]) => Promise<Attempt>;
+// Stack `changeIds` (in order) and gather evidence for the result. With `onto` (an attempt that
+// verified), stack them on top of it rather than on trunk: its changes are already known good, so
+// they needn't be cherry-picked again. Either way the returned stack covers onto's changes too.
+export type AttemptFn = (label: string, changeIds: string[], onto: Attempt | null) => Promise<Attempt>;
 
 type Conflicted = Extract<Stacked, { conflicts: unknown }>;
 
@@ -32,12 +34,12 @@ export async function findLandable(attempt: AttemptFn, changeIds: string[]): Pro
 	const empty: string[] = [];
 	const culprits: BatchOutcome["culprits"] = [];
 	let accepted: string[] = [];
-	let verified: Attempt | null = null;
+	let verified: Attempt | null = null; // the attempt whose applied changes are exactly `accepted`
 	let n = 0;
 
 	// Run an attempt and drop any change that no longer applies (e.g. it built on a culprit).
 	const run = async (candidates: string[]) => {
-		const a = await attempt(`#${++n} ${accepted.length}+${candidates.length}`, [...accepted, ...candidates]);
+		const a = await attempt(`#${++n} ${accepted.length}+${candidates.length}`, candidates, verified);
 		for (const e of a.stack.entries) {
 			if (e.ok || !candidates.includes(e.changeId)) continue;
 			if ("conflicts" in e) conflicted.push(e);
@@ -67,13 +69,13 @@ export async function findLandable(attempt: AttemptFn, changeIds: string[]): Pro
 		}
 	};
 
-	const { a: first, kept } = await run(changeIds);
+	const { a: first, kept } = await run(changeIds); // verified is null: straight onto trunk
 	if (evidenceOk(first.evidence)) {
 		accepted = kept;
 		verified = kept.length ? first : null;
 	} else {
 		// Before blaming anyone, check trunk on its own. If it's already red, every change would look guilty.
-		const baseline = await attempt(`#${++n} baseline`, []);
+		const baseline = await attempt(`#${++n} baseline`, [], null);
 		if (!evidenceOk(baseline.evidence)) {
 			return { attempt: null, land: [], conflicted, empty, culprits: [], requeue: kept, trunkRed: { commit: baseline.stack.trunk, evidence: baseline.evidence } };
 		}

@@ -6,10 +6,10 @@ Hive is one Cloudflare Worker plus a container image. Everything stateful is a D
                        ┌──────────────────────────── Worker (Hono API + dashboard + /mcp) ─────────────────────────────┐
   dashboard ── WS ──▶  │  RepoCoordinator (DO, one per trunk repo)                                                     │
   hive CLI ── REST ──▶ │    goals · changes · intents · semantic graph · convergence queue · ledger · decisions        │
-  Claude Code ─ MCP ─▶ │    the only writer to trunk, one landing at a time                                            │
+  Claude Code ─ MCP ─▶ │    the only writer to trunk: batched landings, one trunk lease                                │
                        │        │ start / bounce / land                     │ create                                    │
                        │        ▼                                           ▼                                           │
-                       │  CodingAgent (Agent DO, one per change)      LandingWorkflow (Workflows, one per landing)     │
+                       │  CodingAgent (Agent DO, one per change)      LandingWorkflow (Workflows, one per batch)       │
                        │    model loop on Workers AI, in a fiber        rebase → referential → evidence → review →     │
                        │    checkpointed every step                     Clef decision → push trunk / bounce / escalate │
                        │        │ exec                                      │ RPC                                       │
@@ -53,9 +53,11 @@ coordinator verifies the fork's head with the binding. Trunk subscribes to push 
 human pushing with plain git still triggers a reindex.
 
 **A single writer to trunk.** Artifacts doesn't document compare-and-swap ref updates, so
-Hive doesn't rely on them. The coordinator lets exactly one landing workflow run at a time, and
-the merge box's push is a plain fast-forward that fails if trunk moved underneath it, in which
-case it rebases once more.
+Hive doesn't rely on them. Up to two batch workflows run at once so fork fetching overlaps, but
+only the holder of the coordinator's trunk lease verifies and pushes. The push is a plain
+fast-forward of the exact commit the evidence ran on. If trunk moved anyway (a person pushed
+with plain git), the push fails, and the batch is restacked and re-verified once before
+anything lands.
 
 **Credentials never enter a container.** Containers start with internet off. Every HTTP(S)
 request goes through the `Outbound` entrypoint with a per-sandbox policy: which repos, read

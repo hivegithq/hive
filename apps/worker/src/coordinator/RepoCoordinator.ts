@@ -155,12 +155,13 @@ export class RepoCoordinator extends Agent<Env> {
 		const statusCounts = Object.fromEntries(
 			this.db.exec("SELECT status, COUNT(*) AS n FROM changes WHERE created_at >= ? GROUP BY status", sinceMs).toArray().map((r) => [String(r.status), Number(r.n)]),
 		);
-		// Time from a change's creation (fork) and from its submission to its landing decision.
+		// Time from a change's creation (fork) and from its submission to its landing decision. The
+		// latest 'land' decision is the landing itself (a person's approval is an earlier one).
 		const landed = this.db
 			.exec(
-				`SELECT c.created_at AS created, c.submitted_at AS submitted, d.created_at AS landed_at FROM changes c
+				`SELECT c.created_at AS created, c.submitted_at AS submitted, MAX(d.created_at) AS landed_at FROM changes c
 				 JOIN decisions d ON d.change_id = c.id AND d.outcome = 'land'
-				 WHERE c.status = 'landed' AND c.created_at >= ?`,
+				 WHERE c.status = 'landed' AND c.created_at >= ? GROUP BY c.id`,
 				sinceMs,
 			)
 			.toArray()

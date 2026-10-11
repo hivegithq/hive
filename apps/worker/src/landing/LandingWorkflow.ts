@@ -89,9 +89,14 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			}
 		}
 
-		const attempt: AttemptFn = (label, ids) =>
+		const applied = (s: StackResult) => s.entries.filter((e) => e.ok).map((e) => e.changeId);
+		const attempt: AttemptFn = (label, ids, onto) =>
 			step.do(`stack and verify: ${label}`, RETRY, async () => {
-				const stack: StackResult = await box.stack(entries(ids));
+				// On top of the verified stack when the container still has it; else everything from trunk.
+				const top = onto ? await box.stack(entries(ids), onto.stack.tip) : null;
+				const stack: StackResult = top
+					? { trunk: onto!.stack.trunk, tip: top.tip, entries: [...onto!.stack.entries.filter((e) => e.ok), ...top.entries] }
+					: (await box.stack(entries([...(onto ? applied(onto.stack) : []), ...ids])))!;
 				const evidence: EvidenceRun[] = await box.evidence();
 				return { stack, evidence };
 			});
@@ -204,7 +209,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		// If some changes were turned down, the approved ones must be verified without them.
 		let final = passing;
 		if (approved.length > 0 && approved.length < outcome.land.length) {
-			final = await attempt(`approved ${approved.length}`, approved);
+			final = await attempt(`approved ${approved.length}`, approved, null);
 			const allApplied = final.stack.entries.every((e) => e.ok);
 			if (!allApplied || !evidenceOk(final.evidence)) {
 				const retry = approved;
@@ -220,7 +225,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 				if (first.ok) return { push: first, tips: tipsOf(final.stack) };
 				// Trunk moved (someone pushed directly) or the container restarted. Restack and re-verify once.
 				const again = await box.stack(entries(approved));
-				if (!again.entries.every((e) => e.ok) || !evidenceOk(await box.evidence())) {
+				if (!again || !again.entries.every((e) => e.ok) || !evidenceOk(await box.evidence())) {
 					return { push: { ok: false, reason: "trunk moved and the batch no longer verifies" }, tips: {} };
 				}
 				return { push: await box.push(again.tip), tips: tipsOf(again) };
