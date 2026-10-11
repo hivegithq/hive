@@ -175,7 +175,7 @@ export class MergeBox extends DurableObject<Env> {
 		await this.ctx.storage.put("config", c);
 		const prepStart = Date.now();
 		await this.ready();
-		console.log(`merge box: ready in ${Date.now() - prepStart}ms`);
+		console.log(`merge box: ready in ${Date.now() - prepStart}ms (${(await this.run("nproc")).stdout.trim()} vCPU)`);
 		const r = await this.run(
 			`git cherry-pick --abort 2>/dev/null; git rebase --abort 2>/dev/null
 			# Thousands of stale fork refs slow every fetch.
@@ -190,21 +190,25 @@ export class MergeBox extends DurableObject<Env> {
 	async fetchForks(forks: string[]): Promise<{ unavailable: { fork: string; error: string }[] }> {
 		const c = await this.ready();
 		if (forks.length === 0) return { unavailable: [] };
-		await this.box.files().writeFile("/tmp/hive-forks", forks.map((name) => `${name} ${this.sibling(c, name)}`).join("\n") + "\n");
-		await this.box.files().writeFile("/tmp/hive-fetch-one.sh", FETCH_ONE);
+		// Calls can overlap (per-change checks run in parallel), so each gets its own files.
+		const tag = crypto.randomUUID().slice(0, 8);
+		await this.box.files().writeFile(`/tmp/hive-forks-${tag}`, forks.map((name) => `${name} ${this.sibling(c, name)}`).join("\n") + "\n");
+		await this.box.files().writeFile(`/tmp/hive-fetch-one-${tag}.sh`, FETCH_ONE);
 		const fetchStart = Date.now();
-		const f = await this.run(`xargs -P ${FETCH_PARALLELISM} -L 1 bash /tmp/hive-fetch-one.sh < /tmp/hive-forks`, 10 * 60 * 1000);
-		const unavailable = f.stdout
-			.split("\n")
-			.filter((l) => l.startsWith("FAIL\t"))
-			.map((l) => {
-				const [, fork, err] = l.split("\t");
-				return { fork, error: err ? new TextDecoder().decode(Uint8Array.from(atob(err), (ch) => ch.charCodeAt(0))).trim().slice(-500) : "unknown" };
+		const f = await this.run(`xargs -P ${FETCH_PARALLELISM} -L 1 bash /tmp/hive-fetch-one-${tag}.sh < /tmp/hive-forks-${tag}; rm -f /tmp/hive-forks-${tag} /tmp/hive-fetch-one-${tag}.sh`, 10 * 60 * 1000);
+		const lines = f.stdout.split("\n").map((l) => l.split("\t"));
+		const fetched = new Set(lines.filter(([t]) => t === "MS").map(([, fork]) => fork));
+		const failed = new Map(lines.filter(([t]) => t === "FAIL").map(([, fork, err]) => [fork, err] as const));
+		// A fork with no result at all (the script itself failed) counts as unavailable too.
+		const unavailable = forks
+			.filter((fork) => !fetched.has(fork))
+			.map((fork) => {
+				const err = failed.get(fork);
+				return { fork, error: err ? new TextDecoder().decode(Uint8Array.from(atob(err), (ch) => ch.charCodeAt(0))).trim().slice(-500) : `no result: ${(f.stderr || f.stdout).slice(-200)}` };
 			});
-		const ms = f.stdout
-			.split("\n")
-			.filter((l) => l.startsWith("MS\t"))
-			.map((l) => Number(l.split("\t")[2]))
+		const ms = lines
+			.filter(([t]) => t === "MS")
+			.map(([, , v]) => Number(v))
 			.sort((a, b) => a - b);
 		console.log(
 			`merge box: fetched ${ms.length}/${forks.length} forks in ${Date.now() - fetchStart}ms` + (ms.length ? ` (each p50 ${ms[ms.length >> 1]}ms, max ${ms.at(-1)}ms)` : ""),

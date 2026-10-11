@@ -47,7 +47,9 @@ export class Box {
 		const key = JSON.stringify(policy);
 		if (c.running && this.policyKey !== key) {
 			await c.destroy().catch(() => {});
-			for (let i = 0; i < 50 && c.running; i++) await new Promise((r) => setTimeout(r, 200));
+			for (let i = 0; i < 300 && c.running; i++) await new Promise((r) => setTimeout(r, 200));
+			// Never carry on in the old container: it has the wrong policy (or instance size).
+			if (c.running) throw new Error("container did not stop for a restart; retry");
 		}
 		if (this.policyKey === key && c.running) return;
 		this.policyKey = key;
