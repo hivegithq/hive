@@ -9,7 +9,7 @@ import { coordinatorOf } from "../bindings.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.2.0" });
+	const server = new McpServer({ name: "hive", version: "1.2.1" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -53,9 +53,16 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 		{
 			description:
 				"Have a planner break a big goal (e.g. 'fix the security issues', 'port this to Rust') into sub-goals with dependencies. Hive then starts agents on the sub-goals as their dependencies land, up to maxParallel at once.",
-			inputSchema: { repo: z.string(), goal: z.string().describe("goal id"), agentModel: z.string().optional(), maxParallel: z.number().int().min(1).max(32).optional() },
+			inputSchema: {
+				repo: z.string(),
+				goal: z.string().describe("goal id"),
+				model: z.string().optional().describe("planner model (default GLM 5.3)"),
+				agentModels: z.array(z.string()).min(1).max(8).optional().describe("models for the sub-goals' agents, used in turn"),
+				agentModel: z.string().optional().describe("one model for every sub-goal (same as agentModels with one entry)"),
+				maxParallel: z.number().int().min(1).max(32).optional(),
+			},
 		},
-		async ({ repo, goal, agentModel, maxParallel }) => text(await coordinator(repo).plan(goal, { agentModel, maxParallel })),
+		async ({ repo, goal, model, agentModels, agentModel, maxParallel }) => text(await coordinator(repo).plan(goal, { model, agentModels, agentModel, maxParallel })),
 	);
 
 	server.registerTool(

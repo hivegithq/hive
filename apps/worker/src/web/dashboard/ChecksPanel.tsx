@@ -8,6 +8,7 @@ import { PlayIcon, XIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { api, type EvidencePlan, type EvidenceRun, type RepoSettings, type Snapshot } from "../api.ts";
+import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
 import { EvidenceList } from "./Evidence.tsx";
 
 // What the merge queue checks in this repository, a way to run it on trunk, and the settings
@@ -18,6 +19,7 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 	const [result, setResult] = useState<{ commit: string; runs: EvidenceRun[]; ms: number } | null>(null);
 	const [running, setRunning] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const canWrite = useCanWrite();
 
 	const load = () => {
 		api.checkPlan(repo).then(setPlan, (e) => setError(e.message));
@@ -136,9 +138,11 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 				<section>
 					<div className="mb-3 flex items-center gap-3">
 						<h3 className="font-display text-sm font-semibold tracking-wide text-honey">Run on trunk</h3>
-						<Button className="ml-auto" size="sm" variant="primary" icon={PlayIcon} loading={running} onClick={run}>
-							Run checks
-						</Button>
+						{canWrite && (
+							<Button className="ml-auto" size="sm" variant="primary" icon={PlayIcon} loading={running} onClick={run}>
+								Run checks
+							</Button>
+						)}
 					</div>
 					{running ? (
 						<p className="flex items-center gap-3 text-sm text-kumo-subtle">
@@ -177,6 +181,7 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 
 				<section className="space-y-5">
 					<h3 className="font-display text-sm font-semibold tracking-wide text-honey">Settings</h3>
+					{!canWrite && <SignInToAct what="run checks or change these settings" />}
 					{!settings ? (
 						<Loader />
 					) : (
@@ -184,11 +189,13 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 							<Switch
 								label="Security scan: changes that introduce a secret, a vulnerable dependency or a risky pattern are sent back"
 								checked={settings.security}
+								disabled={!canWrite}
 								onCheckedChange={(v) => save({ security: v })}
 							/>
 							<Select
 								label="Who decides to land"
 								value={settings.decider}
+								disabled={!canWrite}
 								onValueChange={(v) => v && save({ decider: v as RepoSettings["decider"] })}
 								items={{ clef: "Clef, on evidence and a review", evidence: "The checks alone (no model calls)" }}
 							/>
@@ -198,6 +205,7 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 								min={1}
 								max={256}
 								defaultValue={String(settings.batchMax)}
+								disabled={!canWrite}
 								onBlur={(e) => {
 									const n = Number(e.target.value);
 									if (n >= 1 && n <= 256 && n !== settings.batchMax) save({ batchMax: n });

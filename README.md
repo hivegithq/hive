@@ -35,7 +35,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.2.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.2.1.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 
 ---
 
@@ -678,7 +678,7 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`. Also at <https://hivegit.dev/d
 | `POST` | `/api/repos/:repo/goals` | Create a goal |
 | `POST` | `/api/repos/:repo/goals/:goal/assign` | Start a built-in agent (`model` optional) |
 | `POST` | `/api/repos/:repo/goals/:goal/race` | Race several models (`models`) |
-| `POST` | `/api/repos/:repo/goals/:goal/plan` | Plan a big goal into sub-goals (`model`, `agentModel`, `maxParallel`) |
+| `POST` | `/api/repos/:repo/goals/:goal/plan` | Plan a big goal into sub-goals (`model`, `agentModels` used in turn, `maxParallel`) |
 | `POST` | `/api/repos/:repo/goals/:goal/claim` | External agent claims a goal |
 | `POST` | `/api/repos/:repo/changes/:change/intent` | Declare intent |
 | `POST` | `/api/repos/:repo/changes/:change/submit` | Submit to the queue |

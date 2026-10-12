@@ -31,3 +31,20 @@ export function validatePlan(subgoals: PlannedGoal[]): string | null {
 	for (const s of subgoals) if (visit(s.key)) return `dependency cycle through ${s.key}`;
 	return null;
 }
+
+// How a plan's agents are set up. Older plans stored a single agentModel.
+export interface PlanSettings {
+	model: string;
+	agentModels: string[];
+	maxParallel: number;
+}
+
+export function readPlanSettings(raw: string, fallbackModel: string): PlanSettings {
+	const s = JSON.parse(raw) as Partial<PlanSettings> & { agentModel?: string };
+	const agentModels = s.agentModels?.length ? s.agentModels : [s.agentModel ?? fallbackModel];
+	return { model: s.model ?? "", agentModels, maxParallel: s.maxParallel ?? 6 };
+}
+
+// Sub-goals take the plan's agent models in turn (by their order in the plan), so a plan with
+// several models spreads its work across all of them.
+export const modelForSubgoal = (agentModels: string[], index: number) => agentModels[index % agentModels.length];

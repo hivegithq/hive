@@ -166,7 +166,12 @@ app.post("/api/repos/:repo/goals/:goalId/race", async (c) => {
 // External agents: claim a goal, declare intent, submit. Same operations as the MCP tools.
 // Break a big goal into sub-goals with a planner model; agents start on them as dependencies land.
 app.post("/api/repos/:repo/goals/:goalId/plan", async (c) => {
-	const opts = await body(c.req.raw, z.object({ model: z.string().optional(), agentModel: z.string().optional(), maxParallel: z.number().int().min(1).max(32).optional() }));
+	const opts = await body(c.req.raw, z.object({
+			model: z.string().optional(),
+			agentModel: z.string().optional(),
+			agentModels: z.array(z.string()).min(1).max(8).optional(),
+			maxParallel: z.number().int().min(1).max(32).optional(),
+		}),);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).plan(c.req.param("goalId"), opts), 202);
 });
 

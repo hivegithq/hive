@@ -4,6 +4,22 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-12
+
+### Changed
+- **The dashboard is read-only until you sign in.** Signed out, the goal panel explains what agents
+  do and offers the waitlist; Import, Clone with git, Run checks, settings, land / send back and
+  race picks ask you to sign in first instead of failing on submit.
+- **A goal composer that explains itself:** One agent, Race models, Plan and split, each with what
+  it does. The button says what will happen ("Start Kimi K2.7 Code", "Start a 3-model race",
+  "Plan it with GLM 5.3"). If the goal is created but no agent starts, it says so.
+- **Plans use several models.** Choose the planner and any number of agent models; sub-goals take
+  them in turn. `agentModels` on `POST …/plan` and `hive_plan` (`agentModel` still works).
+
+### Added
+- Docs: [Goals, races & plans](https://hivegit.dev/docs/dashboard), how a change lands and how to
+  read the map.
+
 ## [1.2.0] - 2026-10-12
 
 Anyone can now find out how to use Hive, and do it: watch the public demo, run it on a laptop,
@@ -124,6 +140,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.2.1]: https://github.com/hivegithq/hive/releases/tag/v1.2.1
 [1.2.0]: https://github.com/hivegithq/hive/releases/tag/v1.2.0
 [1.1.0]: https://github.com/hivegithq/hive/releases/tag/v1.1.0
 [1.0.0]: https://github.com/hivegithq/hive/releases/tag/v1.0.0

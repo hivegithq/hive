@@ -8,6 +8,7 @@ import type { Decision } from "../../domain/types.ts";
 import { api, type ChangeDetail, modelLabel } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
 import { EvidenceList } from "./Evidence.tsx";
+import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
 
 const OUTCOME_COPY: Record<Decision["outcome"], string> = {
 	land: "Landed on trunk",
@@ -74,6 +75,7 @@ export function ChangeDrawer(props: { repo: string; changeId: string; tick: numb
 
 function Body({ detail, busy, error, act, repo }: { detail: ChangeDetail; busy: boolean; error: string | null; act: (fn: () => Promise<unknown>) => void; repo: string }) {
 	const { change, intent, evidence, evaluations, decisions } = detail;
+	const canWrite = useCanWrite();
 	const review = evaluations.at(-1);
 	const decision = decisions.at(-1);
 	return (
@@ -82,14 +84,18 @@ function Body({ detail, busy, error, act, repo }: { detail: ChangeDetail; busy: 
 				<section className="cut-sm bg-alarm/10 p-4 ring-1 ring-alarm/40">
 					<h3 className="font-display text-lg font-semibold text-wax">Hive needs your call</h3>
 					<p className="mt-1 text-sm text-kumo-subtle">Hive won't land or retry this on its own: Clef wasn't sure, or the change kept failing. The reason is below. Tests still run before anything lands.</p>
-					<div className="mt-4 flex gap-2">
-						<Button variant="primary" icon={CheckIcon} loading={busy} onClick={() => act(() => api.decide(repo, change.id, "land"))}>
-							Land it
-						</Button>
-						<Button variant="secondary" disabled={busy} onClick={() => act(() => api.decide(repo, change.id, "bounce", "Sent back from the dashboard."))}>
-							Send back
-						</Button>
-					</div>
+					{canWrite ? (
+						<div className="mt-4 flex gap-2">
+							<Button variant="primary" icon={CheckIcon} loading={busy} onClick={() => act(() => api.decide(repo, change.id, "land"))}>
+								Land it
+							</Button>
+							<Button variant="secondary" disabled={busy} onClick={() => act(() => api.decide(repo, change.id, "bounce", "Sent back from the dashboard."))}>
+								Send back
+							</Button>
+						</div>
+					) : (
+						<SignInToAct className="mt-4" what="land or send back changes" />
+					)}
 				</section>
 			)}
 
@@ -97,9 +103,13 @@ function Body({ detail, busy, error, act, repo }: { detail: ChangeDetail; busy: 
 				<section className="cut-sm bg-flare/10 p-4 ring-1 ring-flare/40">
 					<h3 className="font-display text-lg font-semibold text-wax">Waiting for the other racers</h3>
 					<p className="mt-1 text-sm text-kumo-subtle">The judge picks once every lane finishes. You can pick this one now instead.</p>
-					<Button className="mt-4" variant="primary" loading={busy} onClick={() => act(() => api.pickWinner(repo, change.race!.group, change.id))}>
-						Pick as winner
-					</Button>
+					{canWrite ? (
+						<Button className="mt-4" variant="primary" loading={busy} onClick={() => act(() => api.pickWinner(repo, change.race!.group, change.id))}>
+							Pick as winner
+						</Button>
+					) : (
+						<SignInToAct className="mt-4" what="pick a race's winner" />
+					)}
 				</section>
 			)}
 

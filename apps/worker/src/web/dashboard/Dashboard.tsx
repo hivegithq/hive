@@ -1,18 +1,14 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
-import { Checkbox } from "@cloudflare/kumo/components/checkbox";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Empty } from "@cloudflare/kumo/components/empty";
-import { Input, InputArea } from "@cloudflare/kumo/components/input";
 import { Loader } from "@cloudflare/kumo/components/loader";
-import { Radio } from "@cloudflare/kumo/components/radio";
-import { Select } from "@cloudflare/kumo/components/select";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
-import { CopyIcon, DownloadSimpleIcon, GitBranchIcon, GitCommitIcon, PlusIcon, ShieldCheckIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
+import { CopyIcon, DownloadSimpleIcon, GitBranchIcon, GitCommitIcon, ShieldCheckIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "motion/react";
-import { type FormEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Change, ChangeStatus, Overlap } from "../../domain/types.ts";
-import { api, type LogLine, MODELS, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
+import { api, type LogLine, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
 import { HiveMap, MAP_GROUPS, type MapGroup } from "../hex/HiveMap.tsx";
 import { PlanGraph } from "../hex/PlanGraph.tsx";
 import { Wordmark } from "../ui/Logo.tsx";
@@ -21,7 +17,8 @@ import { VERSION } from "../version.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { ChangeDrawer } from "./ChangeDrawer.tsx";
 import { ChecksPanel } from "./ChecksPanel.tsx";
-import { Account } from "../ui/Account.tsx";
+import { Account, SignInToAct, useCanWrite, useGuard } from "../ui/Account.tsx";
+import { GoalComposer } from "./GoalComposer.tsx";
 
 const CARDS_PER_STAGE = 60;
 
@@ -98,6 +95,7 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 	const inFlight = g.working + g.queued + g.converging + g.attention;
 	const [clone, setClone] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+	const guard = useGuard();
 	return (
 		<header className="sticky top-0 z-30 border-b border-white/5 bg-night/80 backdrop-blur-md">
 			<div className="flex h-14 items-center gap-4 px-4">
@@ -129,13 +127,13 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 						</Badge>
 					</button>
 				)}
-				<Button variant="ghost" size="sm" icon={DownloadSimpleIcon} onClick={() => props.onPanel("import")}>
+				<Button variant="ghost" size="sm" icon={DownloadSimpleIcon} onClick={guard(() => props.onPanel("import"))}>
 					<span className="hidden sm:inline">Import</span>
 				</Button>
 				<Button variant="secondary" size="sm" icon={ShieldCheckIcon} onClick={() => props.onPanel("checks")}>
 					<span className="hidden sm:inline">Checks & settings</span>
 				</Button>
-				<Button variant="secondary" size="sm" icon={TerminalWindowIcon} onClick={() => api.clone(props.repo).then((r) => setClone(r.command))}>
+				<Button variant="secondary" size="sm" icon={TerminalWindowIcon} onClick={guard(() => api.clone(props.repo).then((r) => setClone(r.command), () => {}))}>
 					Clone with git
 				</Button>
 				<Account compact />
@@ -305,76 +303,24 @@ function Stages(props: { snapshot: Snapshot; overlaps: Record<string, Overlap[]>
 }
 
 function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
-	const [title, setTitle] = useState("");
-	const [description, setDescription] = useState("");
-	const [mode, setMode] = useState<"one" | "race" | "plan">("one");
-	const [parallel, setParallel] = useState(6);
-	const [models, setModels] = useState<string[]>([MODELS[0].id, MODELS[1].id, MODELS[2].id]);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	const submit = async (e: FormEvent) => {
-		e.preventDefault();
-		setBusy(true);
-		setError(null);
-		try {
-			const goal = await api.createGoal(repo, title, description);
-			if (mode === "one") await api.assign(repo, goal.id, models[0]);
-			else if (mode === "plan") await api.plan(repo, goal.id, { agentModel: models[0], maxParallel: parallel });
-			else await api.race(repo, goal.id, models);
-			setTitle("");
-			setDescription("");
-		} catch (err) {
-			setError((err as Error).message);
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	const toggle = (id: string) => setModels((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]));
-	const label = (m: (typeof MODELS)[number]) => (m.paid ? m.label : `${m.label} (free tier)`);
-
+	const canWrite = useCanWrite();
 	return (
 		<aside className="space-y-8 bg-night p-5" aria-label="Goals">
-			<form onSubmit={submit} className="space-y-4">
-				<h2 className="font-display text-lg font-semibold text-wax">New goal</h2>
-				<Input label="What should change?" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Free shipping on orders over $50" required minLength={3} />
-				<InputArea label="Details for the agent" value={description} onValueChange={setDescription} placeholder="Acceptance criteria, edge cases, files to look at" minRows={3} />
-				<Radio.Group legend="Who works on it" value={mode} onValueChange={(v) => setMode(v as "one" | "race" | "plan")}>
-					<Radio.Item label="One agent" value="one" />
-					<Radio.Item label="A race between models" value="race" />
-					<Radio.Item label="Plan it first: break it into sub-goals for many agents" value="plan" />
-				</Radio.Group>
-				{mode === "race" ? (
-					<Checkbox.Group legend="Models in the race">
-						{MODELS.map((m) => (
-							<Checkbox key={m.id} label={label(m)} checked={models.includes(m.id)} onCheckedChange={() => toggle(m.id)} />
-						))}
-					</Checkbox.Group>
-				) : (
-					<Select
-						label={mode === "plan" ? "Model for the agents" : "Model"}
-						value={models[0]}
-						onValueChange={(v) => v && setModels([v as string, ...models.filter((m) => m !== v)])}
-						items={Object.fromEntries(MODELS.map((m) => [m.id, label(m)]))}
-					/>
-				)}
-				{mode === "plan" && (
-					<Input
-						label="Agents at once"
-						type="number"
-						min={1}
-						max={32}
-						value={String(parallel)}
-						onChange={(e) => setParallel(Math.max(1, Math.min(32, Number(e.target.value) || 1)))}
-						description="Sub-goals start as the ones they depend on land, up to this many at a time."
-					/>
-				)}
-				<Button type="submit" variant="primary" icon={PlusIcon} loading={busy} disabled={mode === "race" && models.length < 2} className="w-full justify-center">
-					{mode === "race" ? `Start a ${models.length}-way race` : mode === "plan" ? "Plan it" : "Start an agent"}
-				</Button>
-				{error && <p className="text-sm text-kumo-danger">{error}</p>}
-			</form>
+			{canWrite ? (
+				<GoalComposer repo={repo} />
+			) : (
+				<div className="space-y-4">
+					<h2 className="font-display text-lg font-semibold text-wax">Put agents to work</h2>
+					<p className="text-sm leading-relaxed text-kumo-subtle">
+						Describe a goal and choose how agents take it on: one model, a race between models, or a plan split across many agents. Every change gets its own fork and lands
+						only on passing checks and Clef's decision.
+					</p>
+					<SignInToAct what="start agents on this repository" />
+					<a href="/docs/dashboard" className="block text-xs text-kumo-subtle underline-offset-4 hover:text-honey hover:underline">
+						How goals, races and plans work
+					</a>
+				</div>
+			)}
 
 			<section>
 				<h2 className="mb-3 font-display text-lg font-semibold text-wax">Goals</h2>

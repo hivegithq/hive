@@ -15,7 +15,7 @@ import type {
 } from "../domain/types.ts";
 import { authenticatedRemote, changeRepo, head, ledgerRepo, parseTrailers, repoHost } from "../repo/index.ts";
 import { detectOverlaps, type ReferenceGraph } from "./overlap.ts";
-import { type PlannedGoal, validatePlan } from "./plans.ts";
+import { modelForSubgoal, type PlannedGoal, type PlanSettings, readPlanSettings, validatePlan } from "./plans.ts";
 import { repoPath } from "../agent/paths.ts";
 import { PROBE_FILES, planEvidence } from "../evidence/plan.ts";
 import { selectBatch } from "../landing/batch.ts";
@@ -403,13 +403,14 @@ export class RepoCoordinator extends Agent<Env> {
 	// ── Plans ────────────────────────────────────────────────────────────────
 
 	// A planner breaks a big goal into sub-goals; Hive runs them as their dependencies land.
-	async plan(goalId: string, opts: { model?: string; agentModel?: string; maxParallel?: number } = {}) {
+	async plan(goalId: string, opts: { model?: string; agentModel?: string; agentModels?: string[]; maxParallel?: number } = {}) {
 		const goal = this.goal(goalId);
 		if (!goal) throw new Error(`unknown goal ${goalId}`);
 		if (!["open", "planning"].includes(goal.status)) throw new Error(`goal ${goalId} is ${goal.status}`);
-		const settings = {
+		const agentModels = [...new Set(opts.agentModels?.length ? opts.agentModels : [opts.agentModel ?? this.env.CODER_MODEL])];
+		const settings: PlanSettings = {
 			model: opts.model ?? PLANNER_MODEL,
-			agentModel: opts.agentModel ?? this.env.CODER_MODEL,
+			agentModels,
 			maxParallel: Math.max(1, Math.min(32, opts.maxParallel ?? 6)),
 		};
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", `plan:${goalId}`, JSON.stringify(settings));
@@ -465,7 +466,7 @@ export class RepoCoordinator extends Agent<Env> {
 	async advancePlan(goalId: string) {
 		const row = this.db.exec("SELECT value FROM meta WHERE key = ?", `plan:${goalId}`).toArray()[0];
 		if (!row) return;
-		const { agentModel, maxParallel } = JSON.parse(String(row.value)) as { agentModel: string; maxParallel: number };
+		const { agentModels, maxParallel } = readPlanSettings(String(row.value), this.env.CODER_MODEL);
 		const children = this.db.exec("SELECT id, status FROM goals WHERE parent_id = ? ORDER BY created_at", goalId).toArray();
 		if (children.length === 0) return;
 		const status = new Map(children.map((c) => [String(c.id), String(c.status)]));
@@ -475,12 +476,13 @@ export class RepoCoordinator extends Agent<Env> {
 		}
 		if (this.goal(goalId)?.status === "planned") this.setGoalStatus(goalId, "in_progress");
 		let running = [...status.values()].filter((s) => s === "in_progress" || s === "racing").length;
+		const order = [...status.keys()];
 		for (const [childId, s] of status) {
 			if (running >= maxParallel) break;
 			if (s !== "open") continue;
 			const deps = this.db.exec("SELECT depends_on FROM goal_deps WHERE goal_id = ?", childId).toArray().map((r) => String(r.depends_on));
 			if (!deps.every((d) => status.get(d) === "achieved")) continue;
-			await this.assign(childId, agentModel);
+			await this.assign(childId, modelForSubgoal(agentModels, order.indexOf(childId)));
 			running++;
 		}
 	}

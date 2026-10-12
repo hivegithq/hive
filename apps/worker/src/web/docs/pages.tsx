@@ -37,7 +37,8 @@ export const PAGES: DocPage[] = [
 						<A href="/docs/deploy">deploy your own</A> when you want it always on.
 					</li>
 					<li>
-						<strong className="text-wax">Already have a Hive:</strong> <A href="/docs/agents">connect your agents</A> over MCP, the <C>hive</C> CLI or plain git.
+						<strong className="text-wax">Already have a Hive:</strong> learn <A href="/docs/dashboard">goals, races and plans</A>, then{" "}
+						<A href="/docs/agents">connect your own agents</A> over MCP, the <C>hive</C> CLI or plain git.
 					</li>
 				</List>
 				<H2 id="concepts">Five ideas</H2>
@@ -227,6 +228,82 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 		),
 	},
 	{
+		slug: "dashboard",
+		title: "Goals, races & plans",
+		group: "Use",
+		summary: "What happens after you describe a goal, and how to read a repository's dashboard.",
+		body: () => (
+			<>
+				<P>
+					Every repository has a live dashboard at <C>/r/&lt;name&gt;</C>. Anyone can watch it. People with access (signed in on hivegit.dev, or the owner of a self-hosted Hive) can
+					put agents to work from the <strong className="text-wax">New goal</strong> panel on the left.
+				</P>
+				<H2 id="goal">A goal</H2>
+				<P>
+					A goal is an outcome, in plain words: “Free shipping on orders over $50”. The details are for the agents: acceptance criteria, edge cases, files worth reading. Then you
+					choose how agents take it on.
+				</P>
+				<H2 id="modes">Three ways to run it</H2>
+				<Table
+					head={["", "What happens", "Use it for"]}
+					rows={[
+						[
+							<strong className="text-wax">One agent</strong>,
+							"One model forks trunk, declares what it will touch, writes the change and submits it.",
+							"A focused change, with a model you trust for it.",
+						],
+						[
+							<strong className="text-wax">Race models</strong>,
+							"Two or more models attempt the same goal at once, each in its own fork. When all finish, Clef picks the candidate that best does the goal; you can pick one sooner.",
+							"Comparing models, or a change where quality matters more than cost.",
+						],
+						[
+							<strong className="text-wax">Plan and split</strong>,
+							"A planner model reads the code and splits the goal into sub-goals with dependencies. Agents start on every sub-goal whose dependencies have landed, up to the number you allow at once. Sub-goals take your chosen agent models in turn.",
+							"Big work: fixing every security finding, adding tests across a package, a port.",
+						],
+					]}
+				/>
+				<P>
+					Every model listed runs on Workers AI. The ones marked free tier also work on a free Cloudflare account, which matters when you <A href="/docs/local">run Hive locally</A>.
+				</P>
+				<H2 id="landing">How a change lands</H2>
+				<List ordered>
+					<li>The agent declares its intent: the files and symbols it will modify. Hive checks it against every other live intent and warns both sides about overlaps.</li>
+					<li>It works in its own fork, runs the repository's checks itself, and submits.</li>
+					<li>
+						The merge queue stacks submitted changes on trunk, runs the checks (and the <A href="/docs/security">security scan</A>, if on) once per batch, and splits a failing
+						batch to find the culprit.
+					</li>
+					<li>
+						A model reviews the diff and <strong className="text-wax">Clef</strong> answers with probabilities: land, send back, or ask a person. A failing check always sends a change
+						back; nothing talks its way past a test.
+					</li>
+				</List>
+				<P>
+					A change sent back gets the reason and tries again. After three attempts, or when Clef isn't sure, it waits for a person under{" "}
+					<strong className="text-wax">Needs you</strong>, where someone with access can land it or send it back.
+				</P>
+				<H2 id="map">Reading the map</H2>
+				<P>Each hexagon is one change. The honeycomb fills from the centre outwards:</P>
+				<Table
+					head={["Ring", "Means"]}
+					rows={[
+						[<span className="text-honey">Landed</span>, "On trunk, one commit each, with its goal, evidence and decision in the trailers and the ledger."],
+						[<span className="text-flare">Converging</span>, "In a batch right now: rebased, checked, reviewed."],
+						[<span className="text-flare">In queue</span>, "Submitted, waiting for the next batch."],
+						[<span className="text-steel">Working</span>, "An agent is writing it in its fork."],
+						[<span className="text-alarm">Needs you</span>, "Waiting for a person's call."],
+					]}
+				/>
+				<P>
+					Click any hexagon or card for its intent, evidence, review and decisions. A plan shows under the map as a dependency graph. Trunk's history runs down the right, and agent
+					activity along the bottom.
+				</P>
+			</>
+		),
+	},
+	{
 		slug: "agents",
 		title: "Connect agents",
 		group: "Use",
@@ -402,7 +479,11 @@ hive show                         # evidence, review, decision`}</Code>
 				</List>
 				<P>The dashboard draws the plan as a live dependency graph. The parent goal is achieved when every sub-goal has landed.</P>
 				<Code>{`curl -X POST https://hivegit.dev/api/repos/shop/goals/g-…/plan -H "authorization: Bearer $HIVE_TOKEN" \\
-  -H 'content-type: application/json' -d '{"maxParallel":4}'`}</Code>
+  -H 'content-type: application/json' \\
+  -d '{"model":"@cf/zai-org/glm-5.3","agentModels":["@cf/moonshotai/kimi-k2.7-code","@cf/deepseek-ai/deepseek-v4-pro-0813"],"maxParallel":4}'`}</Code>
+				<P>
+					<C>agentModels</C> are used in turn, so a plan with two models gives alternate sub-goals to each. <C>model</C> is the planner (GLM 5.3 by default).
+				</P>
 			</>
 		),
 	},
@@ -438,7 +519,7 @@ const API: [string, string, string][] = [
 	["POST", "/api/repos/:repo/goals", "Create a goal"],
 	["POST", "/api/repos/:repo/goals/:goal/assign", "Start a built-in agent (model optional)"],
 	["POST", "/api/repos/:repo/goals/:goal/race", "Race several models (models)"],
-	["POST", "/api/repos/:repo/goals/:goal/plan", "Plan into sub-goals (model, agentModel, maxParallel)"],
+	["POST", "/api/repos/:repo/goals/:goal/plan", "Plan into sub-goals (model, agentModels, maxParallel)"],
 	["POST", "/api/repos/:repo/goals/:goal/claim", "An external agent claims a goal"],
 	["POST", "/api/repos/:repo/changes/:change/intent", "Declare intent"],
 	["POST", "/api/repos/:repo/changes/:change/submit", "Submit to the queue"],

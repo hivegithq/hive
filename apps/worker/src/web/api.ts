@@ -101,7 +101,7 @@ export const api = {
 	setSettings: (repo: string, patch: Partial<RepoSettings>) => call<RepoSettings>("POST", `/api/repos/${repo}/settings`, patch),
 	checkPlan: (repo: string) => call<EvidencePlan>("GET", `/api/repos/${repo}/checks/plan`),
 	runChecks: (repo: string) => call<{ commit: string; plan: EvidencePlan; runs: EvidenceRun[]; ms: number }>("POST", `/api/repos/${repo}/checks`),
-	plan: (repo: string, goalId: string, opts: { agentModel?: string; maxParallel?: number }) =>
+	plan: (repo: string, goalId: string, opts: { model?: string; agentModel?: string; agentModels?: string[]; maxParallel?: number }) =>
 		call<{ plannerId: string }>("POST", `/api/repos/${repo}/goals/${goalId}/plan`, opts),
 	race: (repo: string, goalId: string, models: string[]) => call("POST", `/api/repos/${repo}/goals/${goalId}/race`, { models }),
 	decide: (repo: string, changeId: string, outcome: "land" | "bounce", note?: string) =>
