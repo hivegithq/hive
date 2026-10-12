@@ -13,7 +13,7 @@ import type {
 	Overlap,
 	SymbolRef,
 } from "../domain/types.ts";
-import { authenticatedRemote, changeRepo, head, ledgerRepo, repoHost } from "../repo/index.ts";
+import { authenticatedRemote, changeRepo, head, ledgerRepo, parseTrailers, repoHost } from "../repo/index.ts";
 import { detectOverlaps, type ReferenceGraph } from "./overlap.ts";
 import { type PlannedGoal, validatePlan } from "./plans.ts";
 import { repoPath } from "../agent/paths.ts";
@@ -53,6 +53,15 @@ const cleanPath = (p: string) => {
 		return p;
 	}
 };
+
+export interface TrunkChecks {
+	commit: string;
+	at: number;
+	ok: boolean;
+	languages: string[];
+	source: string;
+	runs: { kind: string; command: string; ok: boolean }[];
+}
 
 // Planning reads a lot of code: GLM 5.3 has a 1M-token context.
 const PLANNER_MODEL = "@cf/zai-org/glm-5.3";
@@ -223,6 +232,7 @@ export class RepoCoordinator extends Agent<Env> {
 	// Waking an agent's Durable Object lets it recover an interrupted fiber (deploys, restarts).
 	async wakeAgents() {
 		await this.reviveStalledLandings();
+		await this.noticeTrunkPushes().catch((e) => console.warn("trunk check failed", e));
 		// Plans whose sub-goals were unblocked while nobody was looking (a deploy, an eviction).
 		for (const r of this.db.exec("SELECT key FROM meta WHERE key LIKE 'plan:%'").toArray()) {
 			const goalId = String(r.key).slice(5);
@@ -301,9 +311,47 @@ export class RepoCoordinator extends Agent<Env> {
 		return planEvidence(found, { security: this.settings().security });
 	}
 
-	// Run the checks on trunk, in a merge box of its own.
+	// Run the checks on trunk, in a merge box of its own. The outcome is kept so dashboards can show it.
 	async checkTrunk() {
-		return mergeBoxOf(this.ctx.exports, `${this.repo}:checks`).checkTrunk({ repo: this.repo, security: this.settings().security });
+		const r = await mergeBoxOf(this.ctx.exports, `${this.repo}:checks`).checkTrunk({ repo: this.repo, security: this.settings().security });
+		const kept: TrunkChecks = {
+			commit: r.commit,
+			at: now(),
+			ok: r.runs.every((x) => x.ok),
+			languages: r.plan.languages,
+			source: r.plan.source,
+			runs: r.runs.map((x) => ({ kind: x.kind, command: x.command, ok: x.ok })),
+		};
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('trunk_checks', ?)", JSON.stringify(kept));
+		this.emit({ type: "checks", checks: kept } as unknown as HiveEvent);
+		return r;
+	}
+
+	trunkChecks(): TrunkChecks | null {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'trunk_checks'").toArray()[0];
+		return row ? (JSON.parse(String(row.value)) as TrunkChecks) : null;
+	}
+
+	// The repository in a few numbers, for Hive-wide stats.
+	summary() {
+		const byModel = this.db
+			.exec("SELECT model, status, COUNT(*) AS n FROM changes GROUP BY model, status")
+			.toArray()
+			.map((r) => ({ model: String(r.model), status: String(r.status), n: Number(r.n) }));
+		const sum = (f: (r: { model: string; status: string }) => boolean) => byModel.filter(f).reduce((a, r) => a + r.n, 0);
+		const ai = (r: { model: string }) => r.model !== "sim";
+		return {
+			repo: this.repo,
+			changes: sum(() => true),
+			landed: sum((r) => r.status === "landed"),
+			aiChanges: sum(ai),
+			aiLanded: sum((r) => ai(r) && r.status === "landed"),
+			models: [...new Set(byModel.filter(ai).map((r) => r.model))],
+			goals: Number(this.db.exec("SELECT COUNT(*) AS n FROM goals").one().n),
+			plans: Number(this.db.exec("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'plan:%'").one().n),
+			batches: Number(this.db.exec("SELECT COUNT(*) AS n FROM metrics WHERE name = 'batch_size'").one().n),
+			checks: this.trunkChecks(),
+		};
 	}
 
 	// Import an existing repository into this (new, empty) trunk.
@@ -549,6 +597,22 @@ export class RepoCoordinator extends Agent<Env> {
 		const fresh = (await head(repoHost(this.env), this.repo)) ?? "";
 		if (fresh) this.setTrunkHead(fresh);
 		return fresh;
+	}
+
+	// Pushes to trunk from outside Hive (a person with plain git) arrive as Artifacts events when a
+	// queue subscription is set up; without one, the heartbeat notices them here.
+	private async noticeTrunkPushes() {
+		const known = this.db.exec("SELECT value FROM meta WHERE key = 'trunk_head'").toArray()[0];
+		if (!known) return; // nothing landed or forked yet: nothing to compare with
+		const log = await repoHost(this.env).log(this.repo, { limit: 20 });
+		const latest = log[0]?.hash;
+		if (!latest || latest === String(known.value)) return;
+		const fresh = [];
+		for (const c of log) {
+			if (c.hash === String(known.value)) break;
+			fresh.push({ id: c.hash, trailers: parseTrailers(c.message) });
+		}
+		await this.onTrunkPush(latest, fresh);
 	}
 
 	private setTrunkHead(commit: string) {
@@ -1178,6 +1242,7 @@ export class RepoCoordinator extends Agent<Env> {
 			queue: this.queueOrder(),
 			decisions: this.db.exec("SELECT * FROM decisions ORDER BY created_at DESC LIMIT 50").toArray().map(toDecision),
 			agents: this.db.exec("SELECT * FROM agents").toArray().map((r) => ({ id: String(r.id), kind: String(r.kind), model: String(r.model), trust: Number(r.trust) })),
+			trunkChecks: this.trunkChecks(),
 			// Planned sub-goals' dependencies: [goal, the goal it waits for].
 			goalDeps: this.db.exec("SELECT goal_id, depends_on FROM goal_deps LIMIT 2000").toArray().map((r) => [String(r.goal_id), String(r.depends_on)] as [string, string]),
 		};

@@ -7,12 +7,12 @@ import { Switch } from "@cloudflare/kumo/components/switch";
 import { PlayIcon, XIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { api, type EvidencePlan, type EvidenceRun, type RepoSettings } from "../api.ts";
+import { api, type EvidencePlan, type EvidenceRun, type RepoSettings, type Snapshot } from "../api.ts";
 import { EvidenceList } from "./Evidence.tsx";
 
 // What the merge queue checks in this repository, a way to run it on trunk, and the settings
 // that shape landing.
-export function ChecksPanel({ repo, onClose }: { repo: string; onClose: () => void }) {
+export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snapshot["trunkChecks"]; onClose: () => void }) {
 	const [plan, setPlan] = useState<EvidencePlan | null>(null);
 	const [settings, setSettings] = useState<RepoSettings | null>(null);
 	const [result, setResult] = useState<{ commit: string; runs: EvidenceRun[]; ms: number } | null>(null);
@@ -151,6 +151,24 @@ export function ChecksPanel({ repo, onClose }: { repo: string; onClose: () => vo
 								<span className="font-mono text-kumo-default">{result.commit.slice(0, 8)}</span> in {Math.round(result.ms / 1000)} s.
 							</p>
 							<EvidenceList runs={result.runs.map((r, i) => ({ ...r, id: String(i) }))} />
+						</div>
+					) : last ? (
+						<div className="space-y-2">
+							<p className="text-sm text-kumo-subtle">
+								Last run {new Date(last.at).toLocaleString()} at <span className="font-mono text-kumo-default">{last.commit.slice(0, 8)}</span>:{" "}
+								<span className={last.ok ? "text-honey" : "text-alarm"}>{last.ok ? "everything passed" : "something failed"}</span>.
+							</p>
+							<ul className="space-y-1">
+								{last.runs.map((r) => (
+									<li key={r.command} className="cut-sm flex items-center gap-2 bg-black/30 px-3 py-1.5 ring-1 ring-white/5">
+										<Badge variant={r.ok ? "success" : "error"} appearance="dot">
+											{r.ok ? "passed" : "failed"}
+										</Badge>
+										<span className="w-14 shrink-0 text-xs text-honey">{r.kind}</span>
+										<span className="truncate font-mono text-xs text-kumo-default">{r.command}</span>
+									</li>
+								))}
+							</ul>
 						</div>
 					) : (
 						<p className="text-sm text-kumo-subtle">Check that Hive can build and test trunk, for instance right after an import.</p>

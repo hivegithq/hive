@@ -1,4 +1,5 @@
 import { type ComponentType, lazy, Suspense } from "react";
+import { TokenDialogHost } from "./ui/TokenDialog.tsx";
 
 // A route's code, loaded on demand. After a deploy, a page loaded earlier asks for chunks that no
 // longer exist: reload once to pick up the new build (a session flag stops a reload loop).
@@ -26,12 +27,20 @@ function route<T extends ComponentType<any>>(load: () => Promise<T>) {
 	});
 }
 
-// "/" explains Hive and shows its numbers; "/r/<repo>" is that repository's live hive. Each route
+// "/" explains Hive and shows its numbers; "/r/<repo>" is that repository's live hive; "/docs" is
+// how to use it. Each route
 // loads only its own code.
 const Dashboard = route(() => import("./dashboard/Dashboard.tsx").then((m) => m.Dashboard));
 const Landing = route(() => import("./landing/Landing.tsx").then((m) => m.Landing));
+const Docs = route(() => import("./docs/Docs.tsx").then((m) => m.Docs));
 
 export function App() {
 	const repo = location.pathname.match(/^\/r\/([^/]+)/)?.[1];
-	return <Suspense fallback={<div className="min-h-screen bg-night" />}>{repo ? <Dashboard repo={decodeURIComponent(repo)} /> : <Landing />}</Suspense>;
+	const docs = /^\/docs(\/|$)/.test(location.pathname);
+	return (
+		<>
+			<Suspense fallback={<div className="min-h-screen bg-night" />}>{repo ? <Dashboard repo={decodeURIComponent(repo)} /> : docs ? <Docs /> : <Landing />}</Suspense>
+			<TokenDialogHost />
+		</>
+	);
 }

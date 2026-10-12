@@ -4,7 +4,42 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-12
+
+Anyone can now find out how to use Hive, and do it: watch the public demo, run it on a laptop,
+deploy their own with one command, and connect agents.
+
+### Added
+- **Docs at [hivegit.dev/docs](https://hivegit.dev/docs):** get started, the live demo, running
+  locally, deploying your own, connecting agents (MCP, CLI, git), repositories and `hive.json`,
+  the security scan, plans, and the API reference.
+- **`pnpm self-host`** deploys your own Hive: checks Node, git, Docker and the Cloudflare login,
+  creates the Artifacts namespace and queue, generates the access token, deploys, and prints the
+  next steps. Safe to rerun. `HIVE_DOMAIN` serves it on your domain (DNS records added),
+  `HIVE_WORKER_NAME` and `HIVE_NAMESPACE` run several Hives on one account.
+- **`pnpm start`** runs Hive locally: devhost and the Worker together, after checking what's
+  needed.
+- **The `hive` CLI as a download:** `curl -fsSL https://hivegit.dev/install.sh | sh` installs a
+  checksum-verified release build for macOS or Linux (arm64 and x86_64). Releases build them in
+  GitHub Actions; `cargo install --git https://github.com/hivegithq/hive hive-cli` also works.
+- Landing page: a **Get started** section (the three paths, the MCP command, the CLI installer)
+  replaces the import form, and live totals for the whole deployment (`GET /api/hive/stats`).
+- Dashboard: a checks badge in the top bar, and the last trunk check run in Checks & settings.
+- CI: typecheck, Worker tests and `cargo test` on every push and pull request.
+- An issue form for requesting access to the public demo.
+
 ### Changed
+- **The public demo is read-only without a token, and says so.** A write without the token opens
+  a dialog that explains why, links to running your own and to requesting access, and takes a
+  token, instead of a bare browser prompt.
+- **MCP reads are public:** `initialize`, `tools/list`, `hive_status`, `hive_symbols` and
+  `hive_change` work without the token, as REST reads always have. Other tools answer with how to
+  get write access.
+- **Trunk pushes made outside Hive are noticed without setup:** the coordinator's heartbeat
+  compares trunk's head with the last one it saw, so the per-repository Artifacts → Queue
+  subscription is now optional (it only makes that instant).
+- The Worker's routes, name and namespace come from the environment, so the repository deploys
+  anywhere without edits.
 - Hive lives at **hivegit.dev** (the workers.dev address keeps working).
 
 ## [1.1.0] - 2026-10-11
@@ -87,5 +122,6 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.2.0]: https://github.com/hivegithq/hive/releases/tag/v1.2.0
 [1.1.0]: https://github.com/hivegithq/hive/releases/tag/v1.1.0
 [1.0.0]: https://github.com/hivegithq/hive/releases/tag/v1.0.0

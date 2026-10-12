@@ -1,0 +1,66 @@
+name: Release CLI
+
+# Builds the hive CLI for macOS and Linux and attaches it to the GitHub release for the tag.
+# https://hivegit.dev/install.sh downloads these.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach binaries to (e.g. v1.2.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked -p hive-cli --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf hive-${{ matrix.target }}.tar.gz hive
+          if command -v sha256sum >/dev/null; then sha256sum hive-${{ matrix.target }}.tar.gz; else shasum -a 256 hive-${{ matrix.target }}.tar.gz; fi > hive-${{ matrix.target }}.tar.gz.sha256
+          mv hive-${{ matrix.target }}.tar.gz* "$GITHUB_WORKSPACE/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hive-${{ matrix.target }}
+          path: hive-${{ matrix.target }}.tar.gz*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --notes "See CHANGELOG.md."
+          gh release upload "$TAG" hive-*.tar.gz hive-*.tar.gz.sha256 --clobber -R "$GITHUB_REPOSITORY"

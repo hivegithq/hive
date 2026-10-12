@@ -29,11 +29,13 @@ Hive replaces branches and pull requests with primitives designed for many concu
 - **Big goals get a plan**: a planner splits "fix the security issues" or "port this to Rust" into
   sub-goals with dependencies, and Hive runs agents on them in parallel as dependencies land.
 
-**Live:** <https://hivegit.dev>. Reads are public; changes need the deployment's access token.
+**Live:** <https://hivegit.dev>, a public read-only demo. **Docs:** <https://hivegit.dev/docs>.
+Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm self-host`
+([getting started](https://hivegit.dev/docs)).
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.1.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.2.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 
 ---
 
@@ -494,8 +496,9 @@ flowchart LR
   injects a short-lived, repo-scoped Artifacts token. A prompt-injected agent can't exfiltrate a
   credential it never had, and can't push anywhere but its own fork (merge boxes get write access
   to trunk only when landing).
-- **API writes need a token.** Mutating endpoints and `/mcp` require `HIVE_TOKEN`; reads (dashboard,
-  trunk, ledger, transcripts) are public. Only the coordinator's event stream is routable; agents
+- **API writes need a token.** Mutating endpoints and MCP's write tools require `HIVE_TOKEN`; reads
+  (dashboard, trunk, ledger, transcripts, and MCP's `hive_status`, `hive_symbols`, `hive_change`)
+  are public. Only the coordinator's event stream is routable; agents
   and merge boxes aren't exposed.
 - **Facts beat opinions.** A model's review can't override failing evidence, and every decision
   is recorded with who made it (`clef-flash`, `hive:merge`, or `human:<name>`).
@@ -554,7 +557,7 @@ claude mcp add --transport http hive https://hivegit.dev/mcp \
 ### `hive` CLI (Rust)
 
 ```sh
-cargo build --release -p hive-cli
+curl -fsSL https://hivegit.dev/install.sh | sh    # macOS and Linux; or: cargo install --git https://github.com/hivegithq/hive hive-cli
 export HIVE_URL=https://hivegit.dev HIVE_REPO=shop HIVE_TOKEN=…
 
 hive status
@@ -575,70 +578,56 @@ that changed.
 Bring any existing repository in, from GitHub or any https git server:
 
 ```bash
+H=https://hivegit.dev    # or your own Hive
 curl -X POST $H/api/repos/import -H "authorization: Bearer $HIVE_TOKEN" \
   -H 'content-type: application/json' -d '{"url":"https://github.com/dtolnay/itoa"}'
 ```
 
 Its default branch (whatever it's called) becomes trunk's `main`, with full history. For a
 private repository, pass `"token"`: it's sent to the source as a header for that one clone and
-never stored, logged or written to disk. The landing page's form and `hive_import` over MCP do
-the same.
+never stored, logged or written to disk. The dashboard's **Add a repository** and `hive_import`
+over MCP do the same.
 
 ### Plain git
 
-**Clone with git** on the dashboard (or `POST /api/repos/:repo/clone`) gives a one-hour clone URL
-for trunk or the ledger. Trunk is ordinary git, so any client works.
+**Clone with git** on the dashboard (or `POST /api/repos/:repo/clone`, which needs the token)
+gives a one-hour clone URL for trunk or the ledger. Trunk is ordinary git, so any client works.
 
 ---
 
 ## Running it
 
-### Locally, no paid plan needed
-
-Artifacts has no local simulation, so `tools/devhost` stands in for it. It's a small Node server
-with the same operations (create, fork, log, read, tokens), real git smart-HTTP via
-`git http-backend`, and Artifacts-shaped push events. Workers AI always runs remotely; on the
-free plan, use the free models (`gpt-oss-120b`, `qwen3.8-27b`, `nemotron-3-120b`).
-
-Requirements: Node 22+, pnpm, Docker, Rust, and [`cf`](https://developers.cloudflare.com/) logged
-in (`cf auth login`).
+The [docs](https://hivegit.dev/docs) walk through each path. In short:
 
 ```sh
-pnpm install
-pnpm devhost                  # terminal 1: Artifacts stand-in on :8788
-pnpm dev                      # terminal 2: Worker + dashboard on :5173 (builds the sandbox image first)
-node demo/seed.ts             # create "shop" and push the demo store as trunk
+git clone https://github.com/hivegithq/hive && cd hive && pnpm install
+pnpm --filter @hive/worker exec cf auth login   # once
+
+pnpm start         # locally: devhost (an Artifacts stand-in) on :8788, the Worker on :5173
+pnpm self-host     # or deploy your own Hive to your Cloudflare account (Workers Paid)
 ```
 
-Then open <http://localhost:5173/r/shop>, or:
+**Locally** ([docs](https://hivegit.dev/docs/local)) needs Node 22+, git, Docker and a free
+Cloudflare account (Workers AI always runs remotely; the free models work). Artifacts has no
+local simulation, so `tools/devhost` stands in for it: the same operations (create, fork, log,
+tokens), real git smart-HTTP via `git http-backend`, and Artifacts-shaped push events. Then:
 
 ```sh
+node demo/seed.ts             # create "shop" and push the demo store as trunk; open /r/shop
 node demo/swarm.ts            # six concurrent goals that collide in all three ways
 node demo/race.ts             # three models race on one goal
 node tools/watch.ts shop      # stream coordinator events in the terminal
 ```
 
-### Deploy to Cloudflare (Workers Paid)
+**Deploying** ([docs](https://hivegit.dev/docs/deploy)) with `pnpm self-host` is idempotent: it
+checks the prerequisites, creates the Artifacts namespace and queue, generates the access token
+into `.hive-token` and sets it as the `HIVE_TOKEN` secret, builds the sandbox image and deploys.
+`HIVE_DOMAIN=example.com` also serves Hive on your domain; `HIVE_WORKER_NAME` runs a second Hive
+on one account. Trunk pushes made outside Hive are noticed by the coordinator's heartbeat within
+a minute; an Artifacts → Queue subscription for the repository makes that instant (optional).
 
-```sh
-cf artifacts namespaces create --namespace hive
-cf queues create --queue-name hive-repo-events
-openssl rand -hex 24 > .hive-token
-node -e 'require("fs").writeFileSync("apps/worker/.secrets.json", JSON.stringify({HIVE_TOKEN: require("fs").readFileSync(".hive-token","utf8").trim()}))'
-cd apps/worker && cf deploy --secrets-file .secrets.json
-```
-
-Optionally, send trunk pushes made outside Hive to the queue, so they trigger a reindex. Hive also
-reindexes on its own whenever the index is behind trunk:
-
-```sh
-cf queues subscriptions create --body '{"name":"hive-shop-pushes","enabled":true,
-  "source":{"type":"artifacts.repo","namespace":"hive","repo_name":"shop"},
-  "destination":{"type":"queues.queue","queue_id":"<queue id>"},"events":["pushed"]}'
-```
-
-Then run the demos against the deployment with `HIVE_TOKEN=$(cat .hive-token)` and the URL as the
-second argument.
+There's no Deploy to Cloudflare button yet: Hive is configured for the `cf` CLI rather than
+wrangler, needs an Artifacts namespace first, and builds its containers with Docker.
 
 ### Configuration
 
@@ -657,7 +646,7 @@ second argument.
 No model calls, so it costs only Workers, Containers and Artifacts usage:
 
 ```bash
-export HIVE_TOKEN=... H=https://<your-worker>.workers.dev
+export HIVE_TOKEN=$(cat .hive-token) H=https://<your-hive>   # your workers.dev URL or domain
 SEED=seed-load node demo/seed.ts load1 $H                     # a repo whose tests check every agent's module
 curl -X POST $H/api/repos/load1/settings -H "authorization: Bearer $HIVE_TOKEN" \
   -H 'content-type: application/json' -d '{"decider":"evidence","batchMax":128}'
@@ -673,7 +662,7 @@ model review and a Clef decision, which is right for real agents and pointless f
 
 ## API reference
 
-Writes need `Authorization: Bearer <HIVE_TOKEN>`.
+Writes need `Authorization: Bearer <HIVE_TOKEN>`. Also at <https://hivegit.dev/docs/api>.
 
 | Method | Path | |
 |---|---|---|

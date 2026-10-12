@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Change, Decision, Evaluation, Evidence, Goal, HiveEvent, Intent, Overlap } from "../domain/types.ts";
 import type { EvidencePlan } from "../evidence/plan.ts";
 import type { EvidenceRun } from "../landing/types.ts";
+import { askForToken } from "./ui/TokenDialog.tsx";
 
 export interface Snapshot {
 	repo: string;
@@ -13,6 +14,7 @@ export interface Snapshot {
 	decisions: Decision[];
 	agents: { id: string; kind: string; model: string; trust: number }[];
 	goalDeps?: [string, string][];
+	trunkChecks?: { commit: string; at: number; ok: boolean; languages: string[]; source: string; runs: { kind: string; command: string; ok: boolean }[] } | null;
 }
 
 export interface RepoSettings {
@@ -75,7 +77,7 @@ async function call<T>(method: string, path: string, body?: unknown, retried = f
 	if (token && method !== "GET") headers.authorization = `Bearer ${token}`;
 	const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
 	if (res.status === 401 && !retried) {
-		const entered = window.prompt("This Hive needs its access token to make changes.");
+		const entered = await askForToken();
 		if (entered) {
 			try {
 				localStorage.setItem(TOKEN_KEY, entered.trim());

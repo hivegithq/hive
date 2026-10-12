@@ -6,13 +6,13 @@ import { useEffect, useState } from "react";
 import { HiveCanvas } from "../hex/HiveCanvas.tsx";
 import { HiveMark, Wordmark } from "../ui/Logo.tsx";
 import { Section } from "../ui/Section.tsx";
+import { useHiveStats } from "../stats.ts";
+import { GITHUB, LIVE_REPO } from "../links.ts";
 import { VERSION } from "../version.ts";
 import { BatchDemo } from "./BatchDemo.tsx";
 import { AnyCodebase, SecurityAndPlans } from "./codebase.tsx";
-import { Join, Lifecycle, Overlaps, Problem, Race, Record, Stack } from "./sections.tsx";
+import { GetStarted, Lifecycle, Overlaps, Problem, Race, Record, Stack } from "./sections.tsx";
 
-export const GITHUB = "https://github.com/hivegithq/hive";
-export const LIVE_REPO = "scale2k";
 
 // The 2,000-agent run, as verified with a stock git clone (README, "What's been verified").
 const VERIFIED = { landed: 1987, perMinute: 125.3, escalated: 13, waitP50: 144_100, batches: 32, avgBatch: 63.3, intentP50: 137 };
@@ -71,7 +71,7 @@ export function Landing() {
 			<Race />
 			<Record />
 			<Stack />
-			<Join />
+			<GetStarted />
 			<Footer />
 		</div>
 	);
@@ -83,7 +83,8 @@ function Nav() {
 		["Any codebase", "#codebase"],
 		["Security", "#security"],
 		["Plans", "#plans"],
-		["Proof", "#proof"],
+		["Get started", "#start"],
+		["Docs", "/docs"],
 	];
 	return (
 		<header className="fixed inset-x-0 top-0 z-30 border-b border-white/5 bg-night/70 backdrop-blur-md">
@@ -98,7 +99,10 @@ function Nav() {
 						</li>
 					))}
 				</ul>
-				<a href={GITHUB} className="ml-auto text-kumo-subtle transition-colors hover:text-wax md:ml-0" aria-label="Source on GitHub">
+				<a href="/docs" className="ml-auto text-sm text-kumo-subtle transition-colors hover:text-wax md:hidden">
+					Docs
+				</a>
+				<a href={GITHUB} className="text-kumo-subtle transition-colors hover:text-wax" aria-label="Source on GitHub">
 					<GithubLogoIcon size={22} />
 				</a>
 				<LinkButton href={`/r/${LIVE_REPO}`} className="hidden sm:block" variant="primary" size="sm" icon={<HiveMark size={16} className="block shrink-0" />}>
@@ -110,10 +114,10 @@ function Nav() {
 }
 
 function Hero() {
-	const [landed, setLanded] = useState(0);
+	const stats = useHiveStats();
 	return (
 		<section className="relative flex min-h-[100svh] items-end overflow-hidden pb-16 pt-28 sm:items-center sm:pb-0">
-			<HiveCanvas className="absolute inset-0 h-full w-full" onLanded={setLanded} />
+			<HiveCanvas className="absolute inset-0 h-full w-full" />
 			{/* Keep the copy readable over the hive. */}
 			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_20%_55%,rgba(13,13,15,0.92)_0%,rgba(13,13,15,0.7)_38%,rgba(13,13,15,0)_72%)]" />
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-night to-transparent" />
@@ -132,18 +136,25 @@ function Hero() {
 						<LinkButton href={`/r/${LIVE_REPO}`} variant="primary" size="lg" icon={ArrowRightIcon}>
 							Watch 2,000 agents land
 						</LinkButton>
-						<LinkButton href="#join" variant="secondary" size="lg">
-							Import your repository
+						<LinkButton href="#start" variant="secondary" size="lg">
+							Get started
 						</LinkButton>
 					</div>
 				</motion.div>
 			</div>
-			<p className="absolute bottom-5 right-4 hidden text-right text-xs text-kumo-subtle sm:right-8 sm:block">
-				Each cell is an agent: <span className="text-steel">working</span>, <span className="text-flare">in a batch</span>, <span className="text-honey">landed</span>,{" "}
-				<span className="text-alarm">sent back</span>.
-				<br />
-				<span className="tabular">{landed.toLocaleString()}</span> landed in this illustration so far. The numbers below are real.
-			</p>
+			<div className="absolute bottom-5 right-4 hidden max-w-md text-right text-xs leading-relaxed text-kumo-subtle sm:right-8 sm:block">
+				<p>
+					An illustration: each cell is an agent, <span className="text-steel">working</span>, <span className="text-flare">in a batch</span>,{" "}
+					<span className="text-honey">landed</span> or <span className="text-alarm">sent back</span>.
+				</p>
+				{stats && (
+					<p className="mt-1">
+						For real, on this deployment: <span className="tabular text-wax">{stats.totals.landed.toLocaleString()}</span> changes landed across{" "}
+						<span className="tabular text-wax">{stats.totals.repos}</span> repositories, <span className="tabular text-wax">{stats.totals.aiLanded}</span> of them written by AI
+						agents.
+					</p>
+				)}
+			</div>
 		</section>
 	);
 }
@@ -187,7 +198,45 @@ function Proof() {
 				</a>
 				.
 			</p>
+			<HiveTotals />
 		</Section>
+	);
+}
+
+const MODEL_NAMES: Record<string, string> = {
+	"@cf/moonshotai/kimi-k2.7-code": "Kimi K2.7",
+	"@cf/zai-org/glm-5.3": "GLM 5.3",
+	"@cf/deepseek-ai/deepseek-v4-pro-0813": "DeepSeek V4 Pro",
+};
+
+// Everything on this deployment, summed live: simulated load tests and real AI-agent work.
+function HiveTotals() {
+	const stats = useHiveStats();
+	if (!stats) return null;
+	const t = stats.totals;
+	const cells = [
+		{ value: t.repos.toLocaleString(), label: "repositories" },
+		{ value: t.landed.toLocaleString(), label: "changes landed" },
+		{ value: t.aiLanded.toLocaleString(), label: "written by AI agents" },
+		{ value: t.batches.toLocaleString(), label: "batches verified" },
+		{ value: t.plans.toLocaleString(), label: "goals planned" },
+	];
+	return (
+		<div className="mt-14">
+			<h3 className="font-display text-xl font-semibold text-wax">Everything on this deployment, live</h3>
+			<dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden bg-comb-line sm:grid-cols-5">
+				{cells.map((c) => (
+					<div key={c.label} className="bg-night p-5">
+						<dt className="text-sm text-kumo-subtle">{c.label}</dt>
+						<dd className="mt-1 font-display text-3xl font-semibold text-wax tabular">{c.value}</dd>
+					</div>
+				))}
+			</dl>
+			<p className="mt-3 text-sm text-kumo-subtle">
+				Models that wrote landed code: {t.models.map((m) => MODEL_NAMES[m] ?? m.split("/").at(-1)).join(", ") || "none yet"}. Languages checked:{" "}
+				{["node", ...t.languages].filter((l, i, a) => a.indexOf(l) === i).join(", ")}. Load tests use simulated agents; everything else is real models on real code.
+			</p>
+		</div>
 	);
 }
 

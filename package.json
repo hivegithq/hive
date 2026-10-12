@@ -1,12 +1,14 @@
 {
   "name": "hive",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.1.3",
   "scripts": {
     "devhost": "DEVHOST_EVENTS_URL=http://localhost:5173/_dev/events node tools/devhost/server.ts",
+    "start": "node tools/local.ts",
+    "self-host": "node tools/self-host.ts",
     "dev": "pnpm --filter @hive/worker dev",
     "deploy": "pnpm --filter @hive/worker deploy",
     "test": "pnpm -r test",

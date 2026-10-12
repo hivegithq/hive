@@ -1,11 +1,32 @@
 import { bindings, defineConfig, defineContainer, exports, triggers } from "cf/config";
 import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 
+// Self-hosting knobs (environment variables, or git-ignored files at the repository root):
+//   HIVE_WORKER_NAME  Worker name; also prefixes the workflow, queue and containers so two Hives can
+//                     share an account (default "hive")
+//   HIVE_NAMESPACE    Artifacts namespace (default: the worker name)
+//   HIVE_DOMAIN       a domain in your account to serve on, apex and www (or a .hive-domain file);
+//                     without one, Hive serves on <name>.<account>.workers.dev only
+// The config runs in Node; declared here rather than pulling Node's types into the Worker's.
+declare const process: {
+	env: Record<string, string | undefined>;
+	cwd(): string;
+	getBuiltinModule(id: "node:fs"): { existsSync(path: string): boolean; readFileSync(path: string, encoding: "utf8"): string };
+};
+const fromFile = (name: string) => {
+	const fs = process.getBuiltinModule("node:fs");
+	const path = `${process.cwd()}/../../${name}`; // cf runs from apps/worker
+	return fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() || undefined : undefined;
+};
+const NAME = process.env.HIVE_WORKER_NAME || "hive";
+const NAMESPACE = process.env.HIVE_NAMESPACE || NAME;
+const DOMAIN = process.env.HIVE_DOMAIN || fromFile(".hive-domain");
+
 // Agent workspaces and the merge box share one image (git, mergiraf, difftastic, node, hive-merge),
 // but a Container links to exactly one Durable Object class, so each gets its own definition.
 const image = { sandbox: { dockerfile: "../../sandbox/Dockerfile", buildContext: "../.." } };
-const agentBox = defineContainer({ name: "hive-agent-box", schedulingPolicy: "durable-object", images: image });
-const mergeBox = defineContainer({ name: "hive-merge-box", schedulingPolicy: "durable-object", images: image });
+const agentBox = defineContainer({ name: `${NAME}-agent-box`, schedulingPolicy: "durable-object", images: image });
+const mergeBox = defineContainer({ name: `${NAME}-merge-box`, schedulingPolicy: "durable-object", images: image });
 
 export default defineConfig(({ mode }) => {
 	// `cf dev --mode devhost` talks to tools/devhost instead of Artifacts (no paid plan needed).
@@ -14,7 +35,7 @@ export default defineConfig(({ mode }) => {
 	return {
 		containers: [agentBox, mergeBox],
 		worker: {
-			name: "hive",
+			name: NAME,
 			compatibilityDate: "2026-09-25",
 			compatibilityFlags: ["nodejs_compat"],
 			entrypoint,
@@ -27,8 +48,8 @@ export default defineConfig(({ mode }) => {
 				ASSETS: bindings.assets(),
 				AI: bindings.ai({ dev: { remote: true } }),
 				// Artifacts has no local simulation and needs a paid plan, so devhost mode leaves it out.
-				...(local ? {} : { ARTIFACTS: bindings.artifacts({ namespace: "hive", dev: { remote: true } }) }),
-				LANDING: bindings.workflow({ name: "hive-landing", worker: "hive", exportName: "LandingWorkflow" }),
+				...(local ? {} : { ARTIFACTS: bindings.artifacts({ namespace: NAMESPACE, dev: { remote: true } }) }),
+				LANDING: bindings.workflow({ name: `${NAME}-landing`, worker: NAME, exportName: "LandingWorkflow" }),
 				REPO_HOST: bindings.text(local ? "devhost" : "artifacts"),
 				DEVHOST_URL: bindings.text("http://localhost:8788"),
 				// How containers address devhost. A made-up hostname, so every request goes through the
@@ -46,15 +67,16 @@ export default defineConfig(({ mode }) => {
 				ModelGate: exports.durableObject({ storage: "sqlite" }),
 				SimAgent: exports.durableObject({ storage: "sqlite" }),
 				PlannerAgent: exports.durableObject({ storage: "sqlite" }),
-				LandingWorkflow: exports.workflow({ name: "hive-landing" }),
+				LandingWorkflow: exports.workflow({ name: `${NAME}-landing` }),
 				Outbound: exports.worker(),
 			},
 			triggers: [
-				triggers.queue({ name: "hive-repo-events", maxBatchSize: 10, maxRetries: 5 }),
-				// hivegit.dev (proxied placeholder records in the zone point at the Worker); workers.dev stays up too.
-				...(local
+				triggers.queue({ name: `${NAME}-repo-events`, maxBatchSize: 10, maxRetries: 5 }),
+				// A custom domain (its zone needs proxied DNS records pointing at the Worker; `pnpm setup` adds
+				// them). workers.dev stays up too.
+				...(local || !DOMAIN
 					? []
-					: [triggers.fetch({ pattern: "hivegit.dev/*", zone: "hivegit.dev" }), triggers.fetch({ pattern: "www.hivegit.dev/*", zone: "hivegit.dev" })]),
+					: [triggers.fetch({ pattern: `${DOMAIN}/*`, zone: DOMAIN }), triggers.fetch({ pattern: `www.${DOMAIN}/*`, zone: DOMAIN })]),
 			],
 		},
 	};

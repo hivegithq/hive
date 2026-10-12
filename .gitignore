@@ -3,11 +3,13 @@
 .cloudflare
 .dev.vars
 .devhost
-.hive-token
+.hive-token*
 .playwright-mcp
-.secrets.json
+.secrets*.json
 .wrangler
 dist
 node_modules
 target
 worker-configuration.d.ts.bak
+.hive-domain
+.env

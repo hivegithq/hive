@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Hive docs
+    url: https://hivegit.dev/docs
+    about: Run Hive locally, deploy your own, connect agents.

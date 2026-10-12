@@ -5,6 +5,7 @@ import { parseSecurity } from "../../evidence/parse.ts";
 import type { Snapshot } from "../api.ts";
 import { hexPoints } from "../hex/geometry.ts";
 import { PLAN_LEGEND, PlanGraph } from "../hex/PlanGraph.tsx";
+import { useHiveStats } from "../stats.ts";
 import { Section } from "../ui/Section.tsx";
 
 const rise = {
@@ -22,12 +23,31 @@ const LANGUAGES = [
 	{ name: "Anything", found: "hive.json", checks: ["your setup", "your checks"] },
 ];
 
-// Production runs, verified with stock git clones of the resulting trunks.
+// Imported from GitHub in production. The live line under each comes from that repository's hive.
 const IMPORTED = [
-	{ repo: "dtolnay/itoa", lang: "Rust", detail: "329 commits in 35 s. A Kimi K2.7 agent added a test; cargo build and cargo test passed in the merge box; Clef landed it.", href: "/r/itoa" },
-	{ repo: "pypa/sampleproject", lang: "Python", detail: "pytest in a fresh virtualenv, dependencies from PyPI through the egress gateway.", href: "/r/sampleproject" },
-	{ repo: "google/uuid", lang: "Go", detail: "go vet, go build and go test, modules from the Go proxy.", href: "/r/uuid" },
+	{ repo: "dtolnay/itoa", hive: "itoa", lang: "Rust", detail: "329 commits imported in 35 s. Checks: cargo build, cargo test." },
+	{ repo: "pypa/sampleproject", hive: "sampleproject", lang: "Python", detail: "Checks: pytest in a fresh virtualenv, with the security scan on." },
+	{ repo: "google/uuid", hive: "uuid", lang: "Go", detail: "Checks: go vet, go build, go test. Its tests were planned and written by agents." },
 ];
+
+function ImportedLive({ hive }: { hive: string }) {
+	const stats = useHiveStats(30_000);
+	const r = stats?.repos.find((x) => x.repo === hive);
+	if (!r) return null;
+	const working = r.aiChanges - r.aiLanded;
+	return (
+		<p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+			<span className="text-honey">
+				{r.aiLanded} landed by agents{working > 0 ? `, ${working} in flight` : ""}
+			</span>
+			{r.checks && (
+				<span className={r.checks.ok ? "text-kumo-default" : "text-alarm"}>
+					trunk checks {r.checks.ok ? "passing" : "failing"} at <span className="font-mono">{r.checks.commit.slice(0, 7)}</span>
+				</span>
+			)}
+		</p>
+	);
+}
 
 export function AnyCodebase() {
 	return (
@@ -76,12 +96,13 @@ export function AnyCodebase() {
 				{IMPORTED.map((r) => (
 					<li key={r.repo} className="bg-night p-5">
 						<p className="flex items-baseline justify-between gap-3">
-							<a href={r.href} className="font-mono text-sm text-honey hover:underline">
+							<a href={`/r/${r.hive}`} className="font-mono text-sm text-honey hover:underline">
 								{r.repo}
 							</a>
 							<span className="text-xs text-kumo-subtle">{r.lang}</span>
 						</p>
 						<p className="mt-2 text-sm leading-relaxed text-kumo-subtle">{r.detail}</p>
+						<ImportedLive hive={r.hive} />
 					</li>
 				))}
 			</ul>

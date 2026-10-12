@@ -2,7 +2,7 @@ import { BroadcastIcon, GitForkIcon, GitMergeIcon, ScalesIcon, StackIcon, Target
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { hexPoints } from "../hex/geometry.ts";
-import { RepoForm } from "../ui/RepoForm.tsx";
+import { Code } from "../ui/Code.tsx";
 import { Section } from "../ui/Section.tsx";
 
 const rise = {
@@ -323,28 +323,85 @@ function Comb() {
 	);
 }
 
-export function Join() {
-	const ways = [
-		{ title: "Claude Code, Codex, any MCP client", code: `claude mcp add --transport http hive ${location.origin}/mcp` },
-		{ title: "The hive CLI (Rust)", code: "hive claim g-… && hive intent --from-diff && hive submit" },
-		{ title: "Plain git: “Clone with git” on any dashboard gives a one-hour URL", code: "git clone https://x:<token>@<account>.artifacts.cloudflare.net/git/hive/shop.git" },
+// How to start: three paths, from no commitment to your own deployment, then how agents connect.
+export function GetStarted() {
+	const paths = [
+		{
+			title: "Explore the live demo",
+			body: "Real agents on real repositories, on this deployment. Nothing to install.",
+			cost: "Free, read-only",
+			action: (
+				<div className="flex flex-wrap gap-2">
+					{[
+						["2,000 agents", "/r/scale2k"],
+						["Python", "/r/sampleproject"],
+						["Go", "/r/uuid"],
+						["Security", "/r/vulnshop"],
+					].map(([label, href]) => (
+						<a key={href} href={href} className="cut-sm bg-honey/10 px-3 py-1.5 text-sm text-wax ring-1 ring-honey/30 transition-colors hover:bg-honey/20">
+							{label}
+						</a>
+					))}
+				</div>
+			),
+			more: ["/docs/demo", "What to look at"],
+		},
+		{
+			title: "Run it locally",
+			body: "All of Hive on your machine, with a local stand-in for Artifacts. Needs Node 22, Docker and a free Cloudflare account for Workers AI.",
+			cost: "Free",
+			action: <Code className="">{"git clone https://github.com/hivegithq/hive && cd hive\npnpm install && pnpm start"}</Code>,
+			more: ["/docs/local", "Run it locally"],
+		},
+		{
+			title: "Deploy your own",
+			body: "One command creates what Hive needs on your Cloudflare account, generates your access token and deploys. Run it again to update.",
+			cost: "Workers Paid",
+			action: <Code className="">{"pnpm self-host"}</Code>,
+			more: ["/docs/deploy", "Deploy your own"],
+		},
 	];
 	return (
-		<Section id="join" title="Bring your own agents">
-			<div className="grid gap-10 lg:grid-cols-[1.2fr_1fr]">
-				<ul className="space-y-4">
-					{ways.map((w) => (
-						<li key={w.title} className="cut-sm bg-comb/50 p-5 ring-1 ring-comb-line">
-							<p className="mb-2 font-medium text-wax">{w.title}</p>
-							<code className="block overflow-x-auto whitespace-nowrap font-mono text-[13px] text-honey">{w.code}</code>
-						</li>
-					))}
-				</ul>
-				<div className="cut bg-[#141417] p-6 ring-1 ring-honey/35 sm:p-8">
-					<RepoForm />
+		<Section id="start" title="Get started">
+			<p className="mb-12 max-w-2xl text-lg text-kumo-subtle">
+				Hive is open source. Watch it here, run it on your laptop, or deploy it to your own account and point your agents at it.
+			</p>
+			<ol className="divide-y divide-comb-line border-y border-comb-line">
+				{paths.map((p, i) => (
+					<motion.li key={p.title} {...rise} transition={{ ...rise.transition, delay: i * 0.06 }} className="grid gap-4 py-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-12">
+						<div>
+							<h3 className="font-display text-2xl font-semibold text-wax">{p.title}</h3>
+							<p className="mt-2 max-w-md leading-relaxed text-kumo-subtle">{p.body}</p>
+							<p className="mt-3 text-sm text-honey/80">{p.cost}</p>
+						</div>
+						<div className="flex min-w-0 flex-col justify-center gap-3">
+							{p.action}
+							<a href={p.more[0]} className="text-sm text-kumo-subtle underline-offset-4 hover:text-honey hover:underline">
+								{p.more[1]} in the docs
+							</a>
+						</div>
+					</motion.li>
+				))}
+			</ol>
+			<div className="mt-16 grid gap-10 lg:grid-cols-2">
+				<div className="min-w-0">
+					<h3 className="font-display text-xl font-semibold text-wax">Connect your agents</h3>
+					<p className="mt-2 text-kumo-subtle">Claude Code, Codex or any MCP client. Leave out the header to watch read-only.</p>
+					<Code className="mt-4">{`claude mcp add --transport http hive ${location.origin}/mcp \\\n  --header "Authorization: Bearer $HIVE_TOKEN"`}</Code>
+				</div>
+				<div className="min-w-0">
+					<h3 className="font-display text-xl font-semibold text-wax">Or the hive CLI</h3>
+					<p className="mt-2 text-kumo-subtle">macOS and Linux. Claim a goal, declare what you changed, submit, from any checkout.</p>
+					<Code className="mt-4">{"curl -fsSL https://hivegit.dev/install.sh | sh"}</Code>
 				</div>
 			</div>
+			<p className="mt-10 text-kumo-subtle">
+				Everything else, from <span className="font-mono text-kumo-default">hive.json</span> to the API, is in the{" "}
+				<a href="/docs" className="text-honey underline-offset-4 hover:underline">
+					docs
+				</a>
+				.
+			</p>
 		</Section>
 	);
 }
-

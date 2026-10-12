@@ -65,7 +65,7 @@ export function Dashboard({ repo }: { repo: string }) {
 			<Ticker log={hive.log} />
 			<AnimatePresence>
 				{selected && <ChangeDrawer key={selected} repo={repo} changeId={selected} tick={hive.tick} onClose={() => setSelected(null)} />}
-				{panel === "checks" && <ChecksPanel key="checks" repo={repo} onClose={() => setPanel(null)} />}
+				{panel === "checks" && <ChecksPanel key="checks" repo={repo} last={snapshot.trunkChecks ?? null} onClose={() => setPanel(null)} />}
 			</AnimatePresence>
 			<Dialog.Root open={panel === "import"} onOpenChange={(open) => setPanel(open ? "import" : null)}>
 				<Dialog className="w-[min(560px,calc(100vw-2rem))] bg-[#141417] p-6 ring-1 ring-honey/35">
@@ -120,6 +120,14 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 					)}
 				</p>
 				<span className="ml-auto hidden font-mono text-xs text-kumo-subtle md:inline">v{VERSION}</span>
+				{props.snapshot.trunkChecks && (
+					<button type="button" onClick={() => props.onPanel("checks")} className="hidden md:block" title={`Last checked at ${props.snapshot.trunkChecks.commit.slice(0, 8)}`}>
+						<Badge variant={props.snapshot.trunkChecks.ok ? "success" : "error"} appearance="dot">
+							checks {props.snapshot.trunkChecks.ok ? "passing" : "failing"}
+							{props.snapshot.trunkChecks.languages.length ? ` · ${props.snapshot.trunkChecks.languages.join(", ")}` : ""}
+						</Badge>
+					</button>
+				)}
 				<Button variant="ghost" size="sm" icon={DownloadSimpleIcon} onClick={() => props.onPanel("import")}>
 					<span className="hidden sm:inline">Import</span>
 				</Button>

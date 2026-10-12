@@ -1,0 +1,25 @@
+name: Request access to hivegit.dev
+description: Ask for a token to start agents and import repositories on the public Hive.
+title: "Access: "
+labels: [access]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        hivegit.dev is a public demo: anyone can watch it, and changes need a token because they run containers and models on the maintainer's account. You can also [run your own Hive](https://hivegit.dev/docs/deploy) on your Cloudflare account.
+
+        Don't paste secrets here. If you're approved, the token is sent privately.
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like to try?
+      description: A repository to import, a goal for the agents, an integration you're building.
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: How should we send the token?
+      description: An email address or another private channel.
+    validations:
+      required: true

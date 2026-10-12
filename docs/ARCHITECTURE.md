@@ -105,5 +105,7 @@ back to work a bounded number of times.
 Artifacts has no local simulation and requires Workers Paid, so `cf dev --mode devhost`
 swaps in `tools/devhost`: a Node server with the same operations (create, fork, log, read,
 tokens), real git smart-HTTP via `git http-backend`, and Artifacts-shaped push events posted
-to the Worker. Containers run in local Docker and reach devhost through `host.docker.internal`.
+to the Worker. Containers run in local Docker and address devhost as `http://devhost.hive.internal`,
+a name only the outbound gateway resolves (to `DEVHOST_URL`), so local git traffic takes the same
+policy-checked path as production. `pnpm start` runs devhost and the Worker together.
 Workers AI and Clef always run remotely, including on the free plan.

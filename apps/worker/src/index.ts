@@ -18,6 +18,27 @@ const coordinator = coordinatorOf;
 
 const body = async <T extends z.ZodType>(req: Request, schema: T): Promise<z.infer<T>> => schema.parse(await req.json());
 
+// Over MCP, anyone may connect, list tools and use the read-only ones (as with GET over REST).
+// A tool that changes things needs the token; without it the call gets a JSON-RPC error that
+// says how to get write access. Not an HTTP 401: MCP clients take that as "start an OAuth login".
+const MCP_READ_TOOLS = new Set(["hive_status", "hive_symbols", "hive_change"]);
+async function refuseMcpWrite(request: Request): Promise<Response | null> {
+	if (request.method !== "POST") return null;
+	let body: unknown;
+	try {
+		body = await request.clone().json();
+	} catch {
+		return null;
+	}
+	const messages = (Array.isArray(body) ? body : [body]) as { id?: unknown; method?: string; params?: { name?: string } }[];
+	const writes = messages.filter((m) => m?.method === "tools/call" && !MCP_READ_TOOLS.has(String(m.params?.name)));
+	if (writes.length === 0) return null;
+	const message =
+		"This Hive is read-only without its access token. Pass it with --header \"Authorization: Bearer <token>\" when adding the server, or run your own Hive: https://hivegit.dev/docs/deploy";
+	const replies = writes.map((m) => ({ jsonrpc: "2.0", id: m.id ?? null, error: { code: -32001, message } }));
+	return Response.json(Array.isArray(body) ? replies : replies[0]);
+}
+
 // Writes spend money (agents, containers, model calls) and change trunk, so they need the
 // HIVE_TOKEN secret when one is set. Reads stay public: the dashboard, trunk and ledger are
 // meant to be seen. In devhost mode with no secret configured, everything is open.
@@ -62,6 +83,36 @@ app.post("/api/repos/import", async (c) => {
 	const name = input.name ?? repoNameFromUrl(input.url);
 	const result = await coordinator(c.executionCtx.exports, name).importFrom({ url: input.url, branch: input.branch, token: input.token });
 	return c.json({ name, ...result }, 201);
+});
+
+// Hive-wide numbers for the landing page: the showcase repositories summed, cached for a minute.
+const SHOWCASE = ["scale2k", "final1k", "clean1k", "swarm1k", "load1k", "load", "vulnshop", "itoa", "sampleproject", "uuid", "store", "shop"];
+app.get("/api/hive/stats", async (c) => {
+	const cache = caches.default;
+	const key = new Request(new URL("/api/hive/stats", c.req.url).toString());
+	const hit = await cache.match(key);
+	if (hit) return hit;
+	const repos = await Promise.all(SHOWCASE.map((r) => coordinator(c.executionCtx.exports, r).summary()));
+	const total = (k: "changes" | "landed" | "aiChanges" | "aiLanded" | "goals" | "plans" | "batches") => repos.reduce((n, r) => n + r[k], 0);
+	const body = {
+		repos: repos.filter((r) => r.changes > 0 || r.checks),
+		totals: {
+			repos: repos.filter((r) => r.changes > 0 || r.checks).length,
+			changes: total("changes"),
+			landed: total("landed"),
+			aiChanges: total("aiChanges"),
+			aiLanded: total("aiLanded"),
+			goals: total("goals"),
+			plans: total("plans"),
+			batches: total("batches"),
+			models: [...new Set(repos.flatMap((r) => r.models))],
+			languages: [...new Set(repos.flatMap((r) => r.checks?.languages ?? []))],
+		},
+		at: Date.now(),
+	};
+	const res = c.json(body, 200, { "cache-control": "public, max-age=60" });
+	c.executionCtx.waitUntil(cache.put(key, res.clone()));
+	return res;
 });
 
 app.get("/api/repos/:repo/settings", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).settings()));
@@ -234,7 +285,10 @@ export default {
 	async fetch(request, env, ctx) {
 		const { pathname } = new URL(request.url);
 		if (pathname === "/mcp") {
-			if (!authorized(request, env)) return Response.json({ error: "unauthorized" }, { status: 401 });
+			if (!authorized(request, env)) {
+				const refused = await refuseMcpWrite(request);
+				if (refused) return refused;
+			}
 			return handleMcp(request, env, ctx);
 		}
 		// Only the coordinator's event stream is exposed; agents and merge boxes are internal.

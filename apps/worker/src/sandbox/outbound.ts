@@ -58,7 +58,7 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 	}
 
 	// Artifacts: https://<acct>.artifacts.cloudflare.net/git/<ns>/<repo>.git/...
-	// devhost:   http://host.docker.internal:8788/git/dev/<repo>.git/...
+	// devhost:   http://devhost.hive.internal/git/dev/<repo>.git/... (DEVHOST_CONTAINER_URL)
 	private gitRepoFor(url: URL): string | null {
 		const isArtifacts = url.hostname.endsWith(".artifacts.cloudflare.net");
 		const isDevhost = this.env.REPO_HOST !== "artifacts" && url.origin === new URL(this.env.DEVHOST_CONTAINER_URL).origin;

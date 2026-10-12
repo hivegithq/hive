@@ -9,7 +9,7 @@ import { coordinatorOf } from "../bindings.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.1.0" });
+	const server = new McpServer({ name: "hive", version: "1.2.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
