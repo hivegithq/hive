@@ -93,6 +93,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	// One work loop per agent at a time; a second start while one runs is ignored,
 	// unless start() explicitly aborted the old one.
 	private running = false;
+	private cachePrefix: string | null = null; // the repository's dependency cache, once the workspace is set up
 	private abort = new AbortController();
 
 	private detach(name: string, fn: (fiber: FiberContext) => Promise<void>) {
@@ -265,7 +266,9 @@ export class CodingAgent extends Agent<Env, AgentState> {
 				{ name: change.repo, scope: "read" },
 			],
 			hosts: REGISTRY_HOSTS,
+			cache: { prefix: `${change.repo}/` },
 		});
+		this.cachePrefix = `${change.repo}/`;
 		const forkRemote = containerRemote(this.env, fork.remote);
 		const trunkRemote = containerRemote(this.env, trunk.remote);
 		const r = await this.box.run(
@@ -281,7 +284,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 		);
 		if (r.exitCode !== 0) throw new Error(`workspace setup failed: ${r.stderr || r.stdout}`);
 		// Install dependencies the way the merge box will; failures surface again in run_checks.
-		await runSetup(this.shell(), await readPlan(this.shell()));
+		await runSetup(this.shell(), await readPlan(this.shell()), this.cachePrefix);
 	}
 
 	private shell() {
@@ -297,7 +300,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 		const { security } = await this.coordinator.settings();
 		await this.box.run("git fetch -q trunk main 2>/dev/null; true", { cwd: REPO_DIR });
 		const base = (await this.box.run("git merge-base HEAD trunk/main 2>/dev/null || git rev-parse HEAD", { cwd: REPO_DIR })).stdout.trim();
-		const { plan, runs } = await gatherEvidence(this.shell(), { security, baseRef: base });
+		const { plan, runs } = await gatherEvidence(this.shell(), { security, baseRef: base, cachePrefix: this.cachePrefix });
 		if (plan.source === "none" && runs.length === 0) return describePlan(plan);
 		const lines = runs.map((r) => (r.ok ? `PASS ${r.kind}: ${r.command}` : `FAIL ${r.kind}: ${r.command}\n${r.output.slice(-3000)}`));
 		const failed = runs.filter((r) => !r.ok).length;

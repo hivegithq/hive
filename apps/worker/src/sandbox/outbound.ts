@@ -44,6 +44,24 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 			return upstream;
 		}
 
+		if (url.hostname === "cache.hive.internal") {
+			const key = decodeURIComponent(url.pathname.slice(1));
+			if (!policy.cache || !key.startsWith(policy.cache.prefix) || key.includes("..")) return deny("that cache key isn't this sandbox's");
+			if (!this.env.CACHE) return new Response("no cache bucket", { status: 404 });
+			if (request.method === "PUT") {
+				// R2 needs to know a stream's length up front; curl sends it.
+				const length = Number(request.headers.get("content-length"));
+				if (!request.body || !Number.isFinite(length) || length <= 0) return new Response("content-length required", { status: 411 });
+				const { readable, writable } = new FixedLengthStream(length);
+				const piping = request.body.pipeTo(writable);
+				await this.env.CACHE.put(key, readable);
+				await piping;
+				return new Response(null, { status: 204 });
+			}
+			const obj = await this.env.CACHE.get(key);
+			return obj ? new Response(obj.body) : new Response("not cached", { status: 404 });
+		}
+
 		if (policy.github && url.hostname === "github.com") {
 			const { owner, repo: name, hive } = policy.github;
 			const m = /^\/([^/]+)\/([^/]+?)(?:\.git)?\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(url.pathname);

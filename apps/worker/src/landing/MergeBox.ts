@@ -146,6 +146,7 @@ export class MergeBox extends DurableObject<Env> {
 				{ name: `${c.repo}.*`, scope: "read" },
 			],
 			hosts: REGISTRY_HOSTS,
+			cache: { prefix: `${c.repo}/` },
 		});
 		if (started) this.setUp = false;
 		if (this.setUp) return c;
@@ -222,7 +223,7 @@ export class MergeBox extends DurableObject<Env> {
 		await this.run("git checkout -q -f --detach origin/main && git clean -qfd");
 		const t0 = Date.now();
 		const shell = { exec: (command: string, timeoutMs?: number) => this.run(command, timeoutMs), write: (path: string, content: string) => this.box.files().writeFile(path, content) };
-		const { plan, runs } = await gatherEvidence(shell, { security: input.security, baseRef: "origin/main" });
+		const { plan, runs } = await gatherEvidence(shell, { security: input.security, baseRef: "origin/main", cachePrefix: `${input.repo}/` });
 		const head = (await this.run("git rev-parse HEAD")).stdout.trim();
 		return { commit: head, plan, runs, ms: Date.now() - t0 };
 	}
@@ -464,7 +465,7 @@ export class MergeBox extends DurableObject<Env> {
 	// Python and Go), plus the security scan compared with trunk when it's on.
 	async evidence(opts: { security?: boolean } = {}): Promise<EvidenceRun[]> {
 		const shell = { exec: (command: string, timeoutMs?: number) => this.run(command, timeoutMs), write: (path: string, content: string) => this.box.files().writeFile(path, content) };
-		const { plan, runs } = await gatherEvidence(shell, { security: opts.security, baseRef: "origin/main" });
+		const { plan, runs } = await gatherEvidence(shell, { security: opts.security, baseRef: "origin/main", cachePrefix: `${(await this.cfg()).repo}/` });
 		if (plan.source === "none") console.warn("merge box: this repository has no checks; add hive.json");
 		return runs;
 	}

@@ -10,6 +10,8 @@ export interface OutboundPolicy {
 	// One GitHub repository this sandbox may read and push, with the repository's stored token added
 	// by the gateway (looked up from Hive repo `hive`'s coordinator at request time).
 	github?: { owner: string; repo: string; hive: string };
+	// The shared dependency cache (cache.hive.internal), limited to keys under this prefix.
+	cache?: { prefix: string };
 }
 
 export type Instance = "lite" | "standard-1" | "standard-2" | "standard-3" | "standard-4";

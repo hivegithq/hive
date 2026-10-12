@@ -1,4 +1,5 @@
 import type { EvidenceRun } from "../landing/types.ts";
+import { parseSetupResult, setupScript } from "./cache.ts";
 import { type EvidencePlan, PROBE_FILES, planEvidence } from "./plan.ts";
 import { diffFindings, type Finding, SECURITY_SCRIPT, summarize } from "./security.ts";
 
@@ -26,10 +27,14 @@ export async function readPlan(sh: Shell, opts: { security?: boolean } = {}): Pr
 }
 
 // `baseRef`: the commit to compare security findings with (trunk for the merge box).
-export async function gatherEvidence(sh: Shell, opts: { security?: boolean; baseRef?: string } = {}): Promise<{ plan: EvidencePlan; runs: EvidenceRun[] }> {
+// `cachePrefix`: where this repository's dependency archives live (null: no shared cache).
+export async function gatherEvidence(
+	sh: Shell,
+	opts: { security?: boolean; baseRef?: string; cachePrefix?: string | null } = {},
+): Promise<{ plan: EvidencePlan; runs: EvidenceRun[] }> {
 	const plan = await readPlan(sh, opts);
 	const runs: EvidenceRun[] = plan.problems.map((p) => ({ kind: "check", command: "hive.json", ok: false, output: p }));
-	runs.push(...(await runSetup(sh, plan)));
+	runs.push(...(await runSetup(sh, plan, opts.cachePrefix ?? null)));
 
 	for (const c of plan.checks) {
 		const r = await sh.exec(`(${c.command}) 2>&1`, 15 * MINUTES);
@@ -40,16 +45,27 @@ export async function gatherEvidence(sh: Shell, opts: { security?: boolean; base
 	return { plan, runs };
 }
 
-// Install dependencies; each setup step re-runs only when the files it depends on change (a marker
-// keyed by the command and their contents). Returns the steps that failed.
-export async function runSetup(sh: Shell, plan: EvidencePlan): Promise<EvidenceRun[]> {
-	const failed: EvidenceRun[] = [];
+// Install dependencies. Each setup step re-runs only when the files it depends on change (a key
+// from the command, those files, the machine and the toolchain). With a cache, a box that hasn't
+// run it restores what another box installed; otherwise it installs and saves for the next one.
+// Returns a run per step that did something (or failed), saying which.
+export async function runSetup(sh: Shell, plan: EvidencePlan, cachePrefix: string | null = null): Promise<EvidenceRun[]> {
+	const runs: EvidenceRun[] = [];
 	for (const s of plan.setup) {
-		const key = `h=$( (echo ${q(s.command)}; cat ${s.keyFiles.map(q).join(" ")} 2>/dev/null) | sha1sum | cut -c1-16)`;
-		const r = await sh.exec(`${key}; m=/tmp/hive-setup-$h; [ -f $m ] && exit 0; (${s.command}) > /tmp/hive-setup.log 2>&1 && touch $m || { tail -c 6000 /tmp/hive-setup.log; exit 1; }`, 20 * MINUTES);
-		if (r.exitCode !== 0) failed.push({ kind: "setup", command: s.command, ok: false, output: tail(r.stdout + r.stderr) });
+		const keyed = await sh.exec(`(echo ${q(s.command)}; uname -m; node -v 2>/dev/null; cat ${s.keyFiles.map(q).join(" ")} 2>/dev/null) | sha1sum | cut -c1-16`);
+		const key = keyed.stdout.trim() || "nokey";
+		const r = await sh.exec(setupScript({ key, command: s.command, prefix: cachePrefix, spec: s.cache ?? null }), 20 * MINUTES);
+		if (r.exitCode !== 0) {
+			runs.push({ kind: "setup", command: s.command, ok: false, output: tail(r.stdout + r.stderr) });
+			continue;
+		}
+		const { cache, seconds } = parseSetupResult(r.stdout);
+		if (cache === "box") continue; // already set up in this box: nothing to say
+		const took = seconds === null ? "" : ` in ${seconds}s`;
+		const output = cache === "hit" ? `Restored from the dependency cache${took}.` : cache === "saved" ? `Installed${took}; cached for the next box.` : `Installed${took}.`;
+		runs.push({ kind: "setup", command: s.command, ok: true, output });
 	}
-	return failed;
+	return runs;
 }
 
 async function securityRun(sh: Shell, baseRef: string): Promise<EvidenceRun> {

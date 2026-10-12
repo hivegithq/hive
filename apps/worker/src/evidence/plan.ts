@@ -1,3 +1,4 @@
+import type { CacheSpec } from "./cache.ts";
 // What counts as evidence for a repository: the setup to run first and the checks whose exit
 // codes decide. A repo can say exactly, in hive.json at its root; otherwise Hive detects the usual
 // commands for Node, Rust, Python and Go from the manifests it finds. The same plan runs in an
@@ -21,6 +22,7 @@ export interface Check {
 export interface Setup {
 	command: string;
 	keyFiles: string[]; // setup reruns only when these change
+	cache?: CacheSpec; // what it installs, so another box can restore it instead of installing
 }
 
 export interface EvidencePlan {
@@ -36,6 +38,7 @@ export interface HiveConfig {
 	setup?: string[];
 	checks?: Record<string, string>;
 	security?: boolean;
+	cache?: string[]; // paths the setup fills, kept between boxes (relative to the repo, or absolute)
 }
 
 // Files Hive looks at (repository root only; monorepos say what they want in hive.json).
@@ -74,7 +77,8 @@ export function planEvidence(files: Record<string, string>, opts: { security?: b
 	}
 
 	const detected = detect(files);
-	const setup = config?.setup ? config.setup.map((command) => ({ command, keyFiles: ["hive.json"] })) : detected.setup;
+	const custom = config?.cache?.length ? cacheSpec(config.cache) : undefined;
+	const setup = config?.setup ? config.setup.map((command) => ({ command, keyFiles: ["hive.json", ...LOCKFILES], cache: custom })) : detected.setup;
 	const checks = config?.checks
 		? Object.entries(config.checks).map(([name, command]) => ({ kind: (KNOWN.has(name) ? name : "check") as CheckKind, name, command }))
 		: detected.checks;
@@ -90,6 +94,14 @@ export function planEvidence(files: Record<string, string>, opts: { security?: b
 	};
 }
 
+const LOCKFILES = ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.lock", "go.sum", "requirements.txt", "poetry.lock", "uv.lock", "Gemfile.lock"];
+
+// hive.json's cache paths: relative ones live in the checkout; absolute ones ($HOME/…, ~/…, /…) don't.
+function cacheSpec(paths: string[]): CacheSpec {
+	const absolute = paths.filter((p) => /^(\/|~|\$)/.test(p)).map((p) => p.replace(/^~/, "$HOME"));
+	return { local: paths.filter((p) => !absolute.includes(p) && !/^(\/|~|\$)/.test(p)), absolute };
+}
+
 function parseConfig(raw: unknown): HiveConfig {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("expected an object");
 	const c = raw as Record<string, unknown>;
@@ -97,6 +109,10 @@ function parseConfig(raw: unknown): HiveConfig {
 	if (c.setup !== undefined) {
 		if (!Array.isArray(c.setup) || !c.setup.every((s) => typeof s === "string")) throw new Error('"setup" must be a list of commands');
 		out.setup = c.setup as string[];
+	}
+	if (c.cache !== undefined) {
+		if (!Array.isArray(c.cache) || !c.cache.every((p) => typeof p === "string" && !p.includes("..") && !/[;&|`<>]/.test(p))) throw new Error('"cache" must be a list of paths');
+		out.cache = c.cache as string[];
 	}
 	if (c.checks !== undefined) {
 		if (!c.checks || typeof c.checks !== "object" || Array.isArray(c.checks) || !Object.values(c.checks).every((v) => typeof v === "string")) {
@@ -132,7 +148,11 @@ function detect(files: Record<string, string>): { languages: string[]; setup: Se
 				: has("package-lock.json")
 					? "npm ci --no-audit --no-fund"
 					: "npm install --no-audit --no-fund";
-		setup.push({ command: install, keyFiles: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"] });
+		setup.push({
+			command: install,
+			keyFiles: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
+			cache: { local: ["node_modules"], absolute: has("pnpm-lock.yaml") ? ["$(corepack pnpm store path 2>/dev/null || echo /nonexistent)"] : [] },
+		});
 		const runner = has("pnpm-lock.yaml") ? "corepack pnpm run -s" : has("yarn.lock") ? "corepack yarn run -s" : "npm run -s";
 		for (const kind of ["typecheck", "build", "test"] as const) {
 			if (scripts[kind]) checks.push({ kind, name: kind, command: `${runner} ${kind}` });
@@ -141,7 +161,7 @@ function detect(files: Record<string, string>): { languages: string[]; setup: Se
 
 	if (has("Cargo.toml")) {
 		languages.push("rust");
-		setup.push({ command: "cargo fetch --quiet", keyFiles: ["Cargo.toml", "Cargo.lock"] });
+		setup.push({ command: "cargo fetch --quiet", keyFiles: ["Cargo.toml", "Cargo.lock"], cache: { local: [], absolute: ["${CARGO_HOME:-$HOME/.cargo}/registry", "${CARGO_HOME:-$HOME/.cargo}/git"] } });
 		checks.push({ kind: "build", name: "cargo build", command: "cargo build --all-targets --quiet" });
 		checks.push({ kind: "test", name: "cargo test", command: "cargo test --quiet" });
 	}
@@ -157,6 +177,7 @@ function detect(files: Record<string, string>): { languages: string[]; setup: Se
 		setup.push({
 			command: `python3 -m venv ${PY_VENV} && ${py(deps.join(" && "))}`,
 			keyFiles: ["pyproject.toml", "requirements.txt", "requirements-dev.txt", "setup.py"],
+			cache: { local: [], absolute: [PY_VENV] },
 		});
 		// pytest exits 5 when it collects no tests: that's not a failure of the change.
 		checks.push({ kind: "test", name: "pytest", command: py("python -m pytest -q; c=$?; [ $c -eq 5 ] && exit 0; exit $c") });
@@ -164,7 +185,7 @@ function detect(files: Record<string, string>): { languages: string[]; setup: Se
 
 	if (has("go.mod")) {
 		languages.push("go");
-		setup.push({ command: "go mod download", keyFiles: ["go.mod", "go.sum"] });
+		setup.push({ command: "go mod download", keyFiles: ["go.mod", "go.sum"], cache: { local: [], absolute: ["$(go env GOMODCACHE)"] } });
 		checks.push({ kind: "build", name: "go build", command: "go build ./..." });
 		checks.push({ kind: "lint", name: "go vet", command: "go vet ./..." });
 		checks.push({ kind: "test", name: "go test", command: "go test ./..." });

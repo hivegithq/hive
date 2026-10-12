@@ -53,6 +53,8 @@ export default defineConfig(({ mode }) => {
 				// Artifacts has no local simulation and needs a paid plan, so devhost mode leaves it out.
 				...(local ? {} : { ARTIFACTS: bindings.artifacts({ namespace: NAMESPACE, dev: { remote: true } }) }),
 				LANDING: bindings.workflow({ name: `${NAME}-landing`, worker: NAME, exportName: "LandingWorkflow" }),
+				// Dependencies installed by one box, restored by the next (keyed by lockfiles).
+				CACHE: bindings.r2({ name: `${NAME}-cache` }),
 				REPO_HOST: bindings.text(local ? "devhost" : "artifacts"),
 				DEVHOST_URL: bindings.text("http://localhost:8788"),
 				// How containers address devhost. A made-up hostname, so every request goes through the

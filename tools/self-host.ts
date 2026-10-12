@@ -69,6 +69,12 @@ if (q.code === 0) ok("created");
 else if (/already (exists|taken)|11009|409/i.test(q.out)) ok("already there");
 else fail(`couldn't create the queue:\n${q.out}`);
 
+step(3, `R2 bucket "${NAME}-cache" (dependency cache shared by merge and agent boxes)`);
+const bucket = cf(["r2", "buckets", "create", "--name", `${NAME}-cache`]);
+if (bucket.code === 0) ok("created");
+else if (/already exists|10004|409/i.test(bucket.out)) ok("already there");
+else fail(`couldn't create the bucket:\n${bucket.out}`);
+
 step(4, "Access token for writes");
 let token = existsSync(TOKEN_FILE) ? readFileSync(TOKEN_FILE, "utf8").trim() : "";
 if (!token) {
