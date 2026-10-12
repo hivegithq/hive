@@ -7,6 +7,7 @@ import { decideLanding, MAX_ATTEMPTS } from "../decide/policy.ts";
 import type { Change, Goal, Intent } from "../domain/types.ts";
 import { type AttemptFn, evidenceOk, findLandable } from "./batch.ts";
 import type { EvidenceRun, PushResult, ReferentialConflict, StackEntry, StackResult } from "./MergeBox.ts";
+import { CLEF_MODEL, metered } from "../decide/clef.ts";
 
 const FETCH_CHUNK = 32;
 // A fast, free-tier model, so a busy or slow primary reviewer still leaves a written review.
@@ -294,9 +295,13 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			return { outcome: "land", confidence: 1, probabilities: { land: 1 }, rationale: "Evidence passed.", decidedBy: "hive:evidence" };
 		}
 
-		const notes = await this.review(goal.title, goal.description, intent?.summary ?? "", structuralDiff || diff, conflicts);
+		const notes = await this.review(goal.title, goal.description, intent?.summary ?? "", structuralDiff || diff, conflicts, (model, u) =>
+			coordinator.recordUsage({ model, purpose: "review", changeId: change.id, inputTokens: u.inputTokens, outputTokens: u.outputTokens }),
+		);
 		const verdict = await decideLanding(
-			this.env.AI,
+			metered(this.env.AI, (u) => {
+				coordinator.recordUsage({ model: CLEF_MODEL, purpose: "clef", changeId: change.id, inputTokens: u.input_tokens, outputTokens: u.output_tokens }).catch(() => {});
+			}),
 			{
 				goal: `${goal.title}\n${goal.description}`,
 				intent: intent?.summary ?? "",
@@ -331,7 +336,14 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 
 	// A written review. Clef supplies the calibrated score; this supplies the words. Reviewers share
 	// per-minute quotas with coding agents, so each call is bounded and falls back to a second model.
-	private async review(title: string, description: string, intent: string, diff: string, conflicts: string[]): Promise<{ summary: string; concerns: string[] }> {
+	private async review(
+		title: string,
+		description: string,
+		intent: string,
+		diff: string,
+		conflicts: string[],
+		record: (model: string, usage: { inputTokens: number; outputTokens: number }) => Promise<unknown>,
+	): Promise<{ summary: string; concerns: string[] }> {
 		const ai = createAI({ binding: this.env.AI, id: "default" });
 		const prompt = `Goal: ${title}\n${description}\n\nDeclared intent: ${intent}\n\n${conflicts.length ? `Known conflicts:\n${conflicts.join("\n")}\n\n` : ""}Diff:\n${diff.slice(0, 50000)}`;
 		const system =
@@ -347,7 +359,8 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			try {
 				const wait = await gateOf(this.ctx.exports, model).acquire();
 				if (wait > 0) await new Promise((r) => setTimeout(r, Math.min(wait, 60_000)));
-				const { text } = await generateText({ model: ai(model as WorkersAIModelId), system, prompt, timeout: { totalMs }, maxRetries });
+				const { text, totalUsage } = await generateText({ model: ai(model as WorkersAIModelId), system, prompt, timeout: { totalMs }, maxRetries });
+				await record(model, { inputTokens: totalUsage.inputTokens ?? 0, outputTokens: totalUsage.outputTokens ?? 0 }).catch(() => {});
 				try {
 					const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
 					return { summary: String(parsed.summary ?? ""), concerns: Array.isArray(parsed.concerns) ? parsed.concerns.map(String) : [] };

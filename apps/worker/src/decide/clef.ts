@@ -34,3 +34,15 @@ export async function askClef<const Qs extends Record<string, ClefQuestion>>(
 	const result = await ai.run(CLEF_MODEL, { model: "clef-flash", state, questions }, gateway ? { gateway } : undefined);
 	return result as ClefResult<Qs>;
 }
+
+// An AI binding that reports each call's token usage, for spend tracking.
+export function metered(ai: AiRunner, record: (usage: { input_tokens: number; output_tokens: number }) => void): AiRunner {
+	return {
+		async run(model, inputs, options) {
+			const result = await ai.run(model, inputs, options);
+			const usage = (result as { usage?: { input_tokens?: number; output_tokens?: number } } | null)?.usage;
+			if (usage) record({ input_tokens: usage.input_tokens ?? 0, output_tokens: usage.output_tokens ?? 0 });
+			return result;
+		},
+	};
+}

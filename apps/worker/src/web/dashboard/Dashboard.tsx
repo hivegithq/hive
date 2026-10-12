@@ -6,9 +6,10 @@ import { Loader } from "@cloudflare/kumo/components/loader";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { CopyIcon, DownloadSimpleIcon, GitBranchIcon, GitCommitIcon, ShieldCheckIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "motion/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Change, ChangeStatus, Overlap } from "../../domain/types.ts";
-import { api, type LogLine, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
+import { usd } from "../../domain/pricing.ts";
+import { api, type Costs, type LogLine, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
 import { HiveMap, MAP_GROUPS, type MapGroup } from "../hex/HiveMap.tsx";
 import { PlanGraph } from "../hex/PlanGraph.tsx";
 import { Wordmark } from "../ui/Logo.tsx";
@@ -31,8 +32,22 @@ const STAGES: { id: MapGroup; title: string; hint: string; statuses: ChangeStatu
 	{ id: "landed", title: "Landed", hint: "On trunk, with a record of why.", statuses: ["landed"] },
 ];
 
+// Spend in this repository, refreshed with the hive's activity but at most every 15 s.
+function useCosts(repo: string, tick: number) {
+	const [costs, setCosts] = useState<Costs | null>(null);
+	const last = useRef(0);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: tick is the trigger
+	useEffect(() => {
+		if (Date.now() - last.current < 15_000 && last.current) return;
+		last.current = Date.now();
+		api.costs(repo).then(setCosts, () => {});
+	}, [repo, tick]);
+	return costs;
+}
+
 export function Dashboard({ repo }: { repo: string }) {
 	const hive = useHive(repo);
+	const costs = useCosts(repo, hive.tick);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [panel, setPanel] = useState<"checks" | "import" | null>(null);
 	const { snapshot } = hive;
@@ -50,9 +65,9 @@ export function Dashboard({ repo }: { repo: string }) {
 
 	return (
 		<div className="min-h-screen bg-night pb-14">
-			<TopBar repo={repo} snapshot={snapshot} connected={hive.connected} trunkHead={hive.trunk[0]?.hash} onPanel={setPanel} />
+			<TopBar repo={repo} snapshot={snapshot} connected={hive.connected} trunkHead={hive.trunk[0]?.hash} costs={costs} onPanel={setPanel} />
 			<div className="grid gap-px bg-white/5 xl:grid-cols-[320px_minmax(0,1fr)_320px]">
-				<GoalRail repo={repo} snapshot={snapshot} />
+				<GoalRail repo={repo} snapshot={snapshot} costs={costs} />
 				<main className="min-w-0 bg-night">
 					<Overview snapshot={snapshot} />
 					<PlanPanel snapshot={snapshot} log={hive.log} onSelect={setSelected} />
@@ -90,7 +105,7 @@ const groupCounts = (snapshot: Snapshot): Record<MapGroup, number> => {
 	return Object.fromEntries(STAGES.map((s) => [s.id, s.statuses.reduce((n, st) => n + (c[st] ?? 0), 0)])) as Record<MapGroup, number>;
 };
 
-function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; trunkHead?: string; onPanel: (p: "checks" | "import") => void }) {
+function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; trunkHead?: string; costs: Costs | null; onPanel: (p: "checks" | "import") => void }) {
 	const g = groupCounts(props.snapshot);
 	const inFlight = g.working + g.queued + g.converging + g.attention;
 	const [clone, setClone] = useState<string | null>(null);
@@ -119,6 +134,11 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 					)}
 				</p>
 				<span className="ml-auto hidden font-mono text-xs text-kumo-subtle md:inline">v{VERSION}</span>
+				{props.costs && props.costs.total > 0 && (
+					<span className="hidden text-sm text-kumo-subtle lg:inline" title="Model calls and container time, at Workers AI and Containers prices">
+						<span className="tabular text-wax">{usd(props.costs.total)}</span> spent
+					</span>
+				)}
 				{props.snapshot.trunkChecks && (
 					<button type="button" onClick={() => props.onPanel("checks")} className="hidden md:block" title={`Last checked at ${props.snapshot.trunkChecks.commit.slice(0, 8)}`}>
 						<Badge variant={props.snapshot.trunkChecks.ok ? "success" : "error"} appearance="dot">
@@ -302,7 +322,7 @@ function Stages(props: { snapshot: Snapshot; overlaps: Record<string, Overlap[]>
 	);
 }
 
-function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
+function GoalRail({ repo, snapshot, costs }: { repo: string; snapshot: Snapshot; costs: Costs | null }) {
 	const canWrite = useCanWrite();
 	return (
 		<aside className="space-y-8 bg-night p-5" aria-label="Goals">
@@ -327,7 +347,7 @@ function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
 				{snapshot.goals.length === 0 ? (
 					<p className="text-sm text-kumo-subtle">No goals yet. Describe a change above and an agent will fork the repo and start.</p>
 				) : (
-					<GoalTree goals={snapshot.goals} />
+					<GoalTree goals={snapshot.goals} costs={costs} />
 				)}
 			</section>
 		</aside>
@@ -337,13 +357,19 @@ function GoalRail({ repo, snapshot }: { repo: string; snapshot: Snapshot }) {
 const GOAL_TONE: Record<string, string> = { achieved: "text-honey", planning: "text-flare", planned: "text-flare", racing: "text-flare" };
 
 // Goals newest first, with a planned goal's sub-goals nested under it.
-function GoalTree({ goals }: { goals: Snapshot["goals"] }) {
+function GoalTree({ goals, costs }: { goals: Snapshot["goals"]; costs: Costs | null }) {
 	const children = new Map<string, Snapshot["goals"]>();
 	for (const g of goals) if (g.parentId) children.set(g.parentId, [...(children.get(g.parentId) ?? []), g]);
 	const top = goals.filter((g) => !g.parentId || !goals.some((p) => p.id === g.parentId)).reverse().slice(0, 40);
 	const row = (g: Snapshot["goals"][number], nested: boolean) => (
 		<li key={g.id} className={`flex items-baseline gap-2 text-sm ${nested ? "border-l border-white/10 pl-3" : ""}`}>
 			<span className={`min-w-0 flex-1 truncate ${nested ? "text-kumo-subtle" : "text-kumo-default"}`}>{g.title}</span>
+			{costs?.byGoal[g.id] && (
+				<span className="shrink-0 tabular text-xs text-kumo-subtle" title={costs.byGoal[g.id].budget ? `Budget ${usd(costs.byGoal[g.id].budget ?? 0)}` : "Spent so far"}>
+					{usd(costs.byGoal[g.id].cost)}
+					{costs.byGoal[g.id].budget ? ` / ${usd(costs.byGoal[g.id].budget ?? 0)}` : ""}
+				</span>
+			)}
 			<span className={`shrink-0 ${GOAL_TONE[g.status] ?? "text-kumo-subtle"}`}>{g.status.replace("_", " ")}</span>
 		</li>
 	);

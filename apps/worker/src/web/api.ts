@@ -23,6 +23,21 @@ export interface RepoSettings {
 	decider: "clef" | "evidence";
 	batchMax: number;
 	security: boolean;
+	goalBudget: number | null;
+}
+
+export interface Costs {
+	total: number;
+	byModel: { model: string; cost: number; inputTokens: number; outputTokens: number; seconds: number; calls: number }[];
+	byPurpose: Record<string, number>;
+	byGoal: Record<string, { cost: number; budget: number | null }>;
+	byChange: Record<string, number>;
+	goalBudget: number | null;
+}
+
+export interface ChangeCost {
+	total: number;
+	parts: { model: string; purpose: string; cost: number; inputTokens: number; outputTokens: number; seconds: number }[];
 }
 
 export type { EvidencePlan } from "../evidence/plan.ts";
@@ -43,6 +58,7 @@ export interface ChangeDetail {
 	evidence: Evidence[];
 	evaluations: Evaluation[];
 	decisions: Decision[];
+	cost?: ChangeCost;
 }
 
 export interface LogLine {
@@ -97,7 +113,10 @@ export const api = {
 	change: (repo: string, id: string) => call<ChangeDetail>("GET", `/api/repos/${repo}/changes/${id}`),
 	diff: (repo: string, id: string) =>
 		call<{ source: string; base: string; head: string; diff: string; truncated: boolean; createdAt: number }>("GET", `/api/repos/${repo}/changes/${id}/diff`),
-	createGoal: (repo: string, title: string, description: string) => call<Goal>("POST", `/api/repos/${repo}/goals`, { title, description }),
+	createGoal: (repo: string, title: string, description: string, budget?: number) =>
+		call<Goal>("POST", `/api/repos/${repo}/goals`, { title, description, ...(budget ? { budget } : {}) }),
+	setGoalBudget: (repo: string, goalId: string, budget: number | null) => call("POST", `/api/repos/${repo}/goals/${goalId}/budget`, { budget }),
+	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
 	assign: (repo: string, goalId: string, model: string) => call<Change>("POST", `/api/repos/${repo}/goals/${goalId}/assign`, { model }),
 	settings: (repo: string) => call<RepoSettings>("GET", `/api/repos/${repo}/settings`),
 	setSettings: (repo: string, patch: Partial<RepoSettings>) => call<RepoSettings>("POST", `/api/repos/${repo}/settings`, patch),

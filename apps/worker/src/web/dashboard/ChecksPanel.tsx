@@ -200,6 +200,21 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 								items={{ clef: "Clef, on evidence and a review", evidence: "The checks alone (no model calls)" }}
 							/>
 							<Input
+								label="Default budget per goal, USD"
+								type="number"
+								min={0}
+								step="0.5"
+								defaultValue={settings.goalBudget ? String(settings.goalBudget) : ""}
+								placeholder="No limit"
+								disabled={!canWrite}
+								onBlur={(e) => {
+									const n = Number(e.target.value);
+									const next = n > 0 ? n : null;
+									if (next !== settings.goalBudget) save({ goalBudget: next });
+								}}
+								description="For goals without their own budget. A plan's budget covers all its sub-goals."
+							/>
+							<Input
 								label="Changes per batch"
 								type="number"
 								min={1}

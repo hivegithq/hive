@@ -5,11 +5,15 @@ import { ArrowSquareOutIcon, CheckIcon, XIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { Decision } from "../../domain/types.ts";
+import { usd } from "../../domain/pricing.ts";
 import { api, type ChangeDetail, modelLabel } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
 import { DiffView } from "./DiffView.tsx";
 import { EvidenceList } from "./Evidence.tsx";
 import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
+
+const PURPOSE: Record<string, string> = { agent: "Agent", review: "Review", clef: "Clef", overlap: "Overlap check", "agent-box": "Agent box", "merge-box": "Merge box" };
+const tokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 const OUTCOME_COPY: Record<Decision["outcome"], string> = {
 	land: "Landed on trunk",
@@ -220,6 +224,28 @@ function Body({
 							))}
 					</dl>
 					<p className="mt-3 text-xs text-kumo-subtle">Decided by {decision.decidedBy}.</p>
+				</Block>
+			)}
+
+			{detail.cost && detail.cost.total > 0 && (
+				<Block title={`Cost: ${usd(detail.cost.total)}`}>
+					<ul className="space-y-1 text-sm">
+						{detail.cost.parts
+							.sort((a, b) => b.cost - a.cost)
+							.map((p) => (
+								<li key={`${p.purpose}${p.model}`} className="flex items-baseline gap-3">
+									<span className="w-24 shrink-0 text-kumo-subtle">{PURPOSE[p.purpose] ?? p.purpose}</span>
+									<span className="min-w-0 flex-1 truncate text-kumo-default">
+										{p.model.startsWith("container:") ? p.model.slice(10) : modelLabel(p.model)}
+										<span className="ml-2 text-xs text-kumo-subtle">
+											{p.seconds > 0 ? `${Math.round(p.seconds / 60)} min` : `${tokens(p.inputTokens)} in, ${tokens(p.outputTokens)} out`}
+										</span>
+									</span>
+									<span className="tabular text-kumo-default">{usd(p.cost)}</span>
+								</li>
+							))}
+					</ul>
+					<p className="mt-2 text-xs text-kumo-subtle">At Workers AI and Containers list prices.</p>
 				</Block>
 			)}
 

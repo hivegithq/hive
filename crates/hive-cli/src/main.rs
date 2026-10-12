@@ -10,6 +10,7 @@
 //!        --plan --models kimi,deepseek     a planner splits it; sub-goals take the models in turn
 //!   hive land <change> / hive send-back <change> -m why    decide a change that needs you
 //!   hive checks / hive settings           what Hive runs here, and how it lands
+//!   hive cost / hive budget <goal> 5      what the work cost; cap a goal's spend
 //!   hive claim <goal> / intent / submit   do the work yourself, in your own fork
 //!
 //! Where and who: flags, then HIVE_URL / HIVE_REPO / HIVE_TOKEN, then `hive login`'s config file.
@@ -90,7 +91,17 @@ enum Cmd {
         /// With --plan: agents at once.
         #[arg(long)]
         parallel: Option<u32>,
+        /// Stop its agents once the goal (with its sub-goals) has spent this many USD.
+        #[arg(long)]
+        budget: Option<f64>,
     },
+    /// What the work cost: by model, by purpose, by goal (or one change with --change).
+    Cost {
+        #[arg(long)]
+        change: Option<String>,
+    },
+    /// Set or clear a goal's budget in USD (`none` clears it).
+    Budget { goal: String, usd: String },
     /// Start one built-in agent on an existing goal.
     Assign {
         goal: String,
@@ -147,6 +158,9 @@ enum Cmd {
         /// Changes per batch, 1-256.
         #[arg(long)]
         batch: Option<u32>,
+        /// Default budget per goal in USD (`none` for no limit).
+        #[arg(long)]
+        budget: Option<String>,
     },
     /// Clone trunk (or --ledger) with ordinary git, using a one-hour URL.
     Clone {
@@ -442,9 +456,13 @@ fn main() -> Result<()> {
             println!("imported as {name}: {} commits, {} files, trunk at {}", r["commits"], r["files"], &s(&r["head"]).chars().take(8).collect::<String>());
             println!("now the default repo. Next: `hive checks` to see Hive can build and test it.");
         }
-        Cmd::Goal { title, description, assign, race, plan, models, planner, parallel } => {
+        Cmd::Goal { title, description, assign, race, plan, models, planner, parallel, budget } => {
             let repo = repo()?;
-            let goal = api.post(&format!("/api/repos/{repo}/goals"), json!({ "title": title, "description": description }))?;
+            let mut body = json!({ "title": title, "description": description });
+            if let Some(b) = budget {
+                body["budget"] = json!(b);
+            }
+            let goal = api.post(&format!("/api/repos/{repo}/goals"), body)?;
             let id = s(&goal["id"]).to_string();
             println!("goal {id}");
             if plan {
@@ -460,6 +478,49 @@ fn main() -> Result<()> {
             } else {
                 println!("no agents yet: `hive assign {id}`, `hive race {id} --models …`, `hive plan {id}`, or `hive claim {id}` to do it yourself");
             }
+        }
+        Cmd::Cost { change } => {
+            let repo = repo()?;
+            if let Some(change) = change {
+                let d = api.get(&format!("/api/repos/{repo}/changes/{change}"))?;
+                println!("{change}: {}", money(d["cost"]["total"].as_f64().unwrap_or(0.0)));
+                for p in d["cost"]["parts"].as_array().into_iter().flatten() {
+                    let what = if p["seconds"].as_f64().unwrap_or(0.0) > 0.0 {
+                        format!("{:.0} min", p["seconds"].as_f64().unwrap_or(0.0) / 60.0)
+                    } else {
+                        format!("{} in, {} out", p["inputTokens"], p["outputTokens"])
+                    };
+                    println!("  {:<10} {:<42} {:<22} {}", s(&p["purpose"]), s(&p["model"]), what, money(p["cost"].as_f64().unwrap_or(0.0)));
+                }
+                return Ok(());
+            }
+            let c = api.get(&format!("/api/repos/{repo}/costs"))?;
+            println!("{repo}: {} spent{}", money(c["total"].as_f64().unwrap_or(0.0)), c["goalBudget"].as_f64().map(|b| format!(" (default budget {} per goal)", money(b))).unwrap_or_default());
+            println!("by model");
+            for m in c["byModel"].as_array().into_iter().flatten() {
+                println!("  {:<44} {:>8} calls  {}", s(&m["model"]), m["calls"], money(m["cost"].as_f64().unwrap_or(0.0)));
+            }
+            println!("by purpose");
+            for (k, v) in c["byPurpose"].as_object().into_iter().flatten() {
+                println!("  {k:<12} {}", money(v.as_f64().unwrap_or(0.0)));
+            }
+            let snap = api.get(&format!("/api/repos/{repo}"))?;
+            let titles: HashMap<String, String> = snap["goals"].as_array().into_iter().flatten().map(|g| (s(&g["id"]).to_string(), s(&g["title"]).to_string())).collect();
+            let mut goals: Vec<(&String, &Value)> = c["byGoal"].as_object().into_iter().flatten().collect();
+            goals.sort_by(|a, b| b.1["cost"].as_f64().partial_cmp(&a.1["cost"].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
+            if !goals.is_empty() {
+                println!("by goal (with sub-goals)");
+            }
+            for (id, g) in goals.iter().take(20) {
+                let budget = g["budget"].as_f64().map(|b| format!(" of {}", money(b))).unwrap_or_default();
+                println!("  {id:<14} {:>8}{budget}  {}", money(g["cost"].as_f64().unwrap_or(0.0)), titles.get(*id).map(String::as_str).unwrap_or(""));
+            }
+        }
+        Cmd::Budget { goal, usd } => {
+            let repo = repo()?;
+            let budget = if usd == "none" { Value::Null } else { json!(usd.trim_start_matches('$').parse::<f64>().context("budget must be a number of USD, or `none`")?) };
+            let r = api.post(&format!("/api/repos/{repo}/goals/{goal}/budget"), json!({ "budget": budget }))?;
+            println!("{goal}: budget {}, spent {}", r["budget"].as_f64().map(money).unwrap_or_else(|| "none".into()), money(r["spent"].as_f64().unwrap_or(0.0)));
         }
         Cmd::Assign { goal, model } => {
             let repo = repo()?;
@@ -545,7 +606,7 @@ fn main() -> Result<()> {
                 println!("  problem: {}", s(problem));
             }
         }
-        Cmd::Settings { security, decider, batch } => {
+        Cmd::Settings { security, decider, batch, budget } => {
             let repo = repo()?;
             let mut patch = json!({});
             if let Some(v) = security {
@@ -557,6 +618,9 @@ fn main() -> Result<()> {
             if let Some(v) = batch {
                 patch["batchMax"] = json!(v);
             }
+            if let Some(v) = budget {
+                patch["goalBudget"] = if v == "none" { Value::Null } else { json!(v.trim_start_matches('$').parse::<f64>().context("budget must be a number of USD, or `none`")?) };
+            }
             let st = if patch.as_object().is_some_and(|o| o.is_empty()) {
                 api.get(&format!("/api/repos/{repo}/settings"))?
             } else {
@@ -566,6 +630,7 @@ fn main() -> Result<()> {
             println!("  security  {}", if st["security"] == true { "on" } else { "off" });
             println!("  decider   {}", s(&st["decider"]));
             println!("  batch     {}", st["batchMax"]);
+            println!("  budget    {}", st["goalBudget"].as_f64().map(|b| format!("{} per goal", money(b))).unwrap_or_else(|| "no limit".into()));
         }
         Cmd::Clone { ledger, write } => {
             let repo = repo()?;
@@ -665,6 +730,16 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn money(n: f64) -> String {
+    if n == 0.0 {
+        "$0".into()
+    } else if n < 0.01 {
+        "<$0.01".into()
+    } else {
+        format!("${n:.2}")
+    }
 }
 
 /// HH:MM:SS, local time, without a date-time dependency.

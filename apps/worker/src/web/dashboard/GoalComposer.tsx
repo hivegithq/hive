@@ -45,6 +45,7 @@ export function GoalComposer({ repo }: { repo: string }) {
 	const [planner, setPlanner] = useState(DEFAULT_PLANNER);
 	const [crew, setCrew] = useState<string[]>([MODELS[0].id]);
 	const [parallel, setParallel] = useState(6);
+	const [budget, setBudget] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +58,7 @@ export function GoalComposer({ repo }: { repo: string }) {
 		setError(null);
 		let goalId: string | null = null;
 		try {
-			goalId = (await api.createGoal(repo, title, description)).id;
+			goalId = (await api.createGoal(repo, title, description, Number(budget) > 0 ? Number(budget) : undefined)).id;
 			if (mode === "one") await api.assign(repo, goalId, model);
 			else if (mode === "race") await api.race(repo, goalId, racers);
 			else await api.plan(repo, goalId, { model: planner, agentModels: crew, maxParallel: parallel });
@@ -140,6 +141,16 @@ export function GoalComposer({ repo }: { repo: string }) {
 				</>
 			)}
 
+			<Input
+				label="Budget in USD (optional)"
+				type="number"
+				min={0}
+				step="0.5"
+				value={budget}
+				onChange={(e) => setBudget(e.target.value)}
+				placeholder="No limit"
+				description="Agents stop when the goal, with its sub-goals, has spent this much. A person decides what's next."
+			/>
 			<Button type="submit" variant="primary" icon={PlusIcon} loading={busy} disabled={!ready} className="w-full justify-center">
 				{action}
 			</Button>

@@ -21,6 +21,14 @@ export const SCHEMA = [
 	`CREATE TABLE IF NOT EXISTS diffs (
 		change_id TEXT PRIMARY KEY, source TEXT NOT NULL, base TEXT NOT NULL, head TEXT NOT NULL,
 		diff TEXT NOT NULL, truncated INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)`,
+	// What the work cost: one row per model call (tokens) or container run (seconds).
+	`CREATE TABLE IF NOT EXISTS usage (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, model TEXT NOT NULL, purpose TEXT NOT NULL,
+		change_id TEXT, goal_id TEXT, agent_id TEXT, input_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0, seconds REAL NOT NULL DEFAULT 0, cost REAL NOT NULL)`,
+	`CREATE INDEX IF NOT EXISTS usage_by_goal ON usage (goal_id)`,
+	`CREATE INDEX IF NOT EXISTS usage_by_change ON usage (change_id)`,
+	`CREATE TABLE IF NOT EXISTS goal_budgets (goal_id TEXT PRIMARY KEY, budget REAL)`,
 	`CREATE TABLE IF NOT EXISTS evaluations (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, model TEXT NOT NULL, score REAL NOT NULL,
 		summary TEXT NOT NULL, concerns TEXT NOT NULL, created_at INTEGER NOT NULL)`,

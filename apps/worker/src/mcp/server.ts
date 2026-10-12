@@ -70,9 +70,19 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 		"hive_create_goal",
 		{
 			description: "Create a goal (a desired outcome). Claim it yourself with hive_claim, or leave it for built-in agents.",
-			inputSchema: { repo: z.string(), title: z.string(), description: z.string().default("") },
+			inputSchema: {
+				repo: z.string(),
+				title: z.string(),
+				description: z.string().default(""),
+				budget: z.number().positive().optional().describe("USD the goal (with its sub-goals) may spend before its agents stop"),
+			},
 		},
-		async ({ repo, title, description }) => text(await coordinator(repo).createGoal({ title, description })),
+		async ({ repo, title, description, budget }) => {
+			const c = coordinator(repo);
+			const goal = await c.createGoal({ title, description });
+			if (budget) await c.setGoalBudget(goal.id, budget);
+			return text({ ...goal, budget: budget ?? null });
+		},
 	);
 
 	server.registerTool(
@@ -229,12 +239,13 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 		"hive_settings",
 		{
 			description:
-				"Read a repo's settings, or change them: security (scan every batch), decider ('clef' = evidence plus a model review; 'evidence' = checks alone), batchMax (1-256). Also returns what Hive checks.",
+				"Read a repo's settings, or change them: goalBudget (default USD per goal), security (scan every batch), decider ('clef' = evidence plus a model review; 'evidence' = checks alone), batchMax (1-256). Also returns what Hive checks.",
 			inputSchema: {
 				repo: z.string(),
 				security: z.boolean().optional(),
 				decider: z.enum(["clef", "evidence"]).optional(),
 				batchMax: z.number().int().min(1).max(256).optional(),
+				goalBudget: z.number().positive().nullable().optional().describe("default USD budget per goal; null for no limit"),
 			},
 		},
 		async ({ repo, ...patch }) => {
@@ -259,6 +270,25 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 			const token = await host.token(name, write ? "write" : "read", 3600);
 			return text({ command: `git clone ${authenticatedRemote(found.remote, token)} ${name}`, expiresIn: 3600 });
 		},
+	);
+
+	server.registerTool(
+		"hive_costs",
+		{
+			description:
+				"What the work in a repo cost, at Workers AI and Containers prices: total, by model, by purpose (agent, review, clef, planner, boxes), by goal with budgets. Pass changeId for one change.",
+			inputSchema: { repo: z.string(), changeId: z.string().optional() },
+		},
+		async ({ repo, changeId }) => text(changeId ? await coordinator(repo).changeCost(changeId) : await coordinator(repo).costs()),
+	);
+
+	server.registerTool(
+		"hive_set_budget",
+		{
+			description: "Set a goal's budget in USD (covers its sub-goals), or null to remove it. Agents stop when it's reached; raise it and hive_restart to continue.",
+			inputSchema: { repo: z.string(), goal: z.string(), budget: z.number().positive().nullable() },
+		},
+		async ({ repo, goal, budget }) => text(await coordinator(repo).setGoalBudget(goal, budget)),
 	);
 
 	return server;

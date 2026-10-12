@@ -117,6 +117,8 @@ export class CodingAgent extends Agent<Env, AgentState> {
 		const detail = await this.coordinator.changeDetail(this.state.changeId);
 		if (!detail?.goal) throw new Error(`change ${this.state.changeId} not found`);
 		const { change, goal } = detail;
+		const started = Date.now();
+		let budgetHit = false;
 
 		try {
 			await this.prepareWorkspace(change);
@@ -174,6 +176,11 @@ export class CodingAgent extends Agent<Env, AgentState> {
 						stopWhen: [hasToolCall("submit"), isStepCount(MAX_STEPS - steps)],
 						// Every model call waits for its slot in the model's shared, adaptive rate gate.
 						prepareStep: async () => {
+							// Every step is checked against the goal's budget before it's paid for.
+							if (await this.coordinator.overBudget(goal.id)) {
+								budgetHit = true;
+								throw new Error("budget reached");
+							}
 							const wait = await gate.acquire();
 							if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 							return {};
@@ -183,6 +190,19 @@ export class CodingAgent extends Agent<Env, AgentState> {
 						timeout: { stepMs: 13 * 60_000, toolMs: 10.5 * 60_000 },
 						onStepEnd: (step) => {
 							steps++;
+							this.ctx.waitUntil(
+								this.coordinator
+									.recordUsage({
+										model: change.model,
+										purpose: "agent",
+										changeId: change.id,
+										goalId: goal.id,
+										agentId: this.name,
+										inputTokens: step.usage.inputTokens ?? 0,
+										outputTokens: step.usage.outputTokens ?? 0,
+									})
+									.catch(() => {}),
+							);
 							this.ctx.waitUntil(gate.report(false).catch(() => 0));
 							// v7: each step's response.messages holds only that step's messages.
 							generated.push(...step.response.messages);
@@ -201,7 +221,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 						await this.keepAliveWhile(run);
 						break;
 					} catch (err) {
-						if (!isTransient(err) || attempt >= MAX_RATE_LIMIT_RETRIES) throw err;
+						if (budgetHit || !isTransient(err) || attempt >= MAX_RATE_LIMIT_RETRIES) throw err;
 						if (/rate.?limit|429|too many/i.test(String((err as Error)?.message ?? err))) await gate.report(true);
 						const seconds = Math.round(Math.min(120, 10 * 2 ** attempt) * (0.75 + Math.random() / 2));
 						this.coordinator.log(this.name, `${change.model} unavailable (${String((err as Error)?.message ?? err).slice(0, 80)}); retrying in ${seconds}s`);
@@ -215,10 +235,19 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			this.setState({ ...this.state, phase: submitted ? "submitted" : "failed", lastError: submitted ? null : "stopped without submitting" });
 			if (!submitted) this.coordinator.log(this.name, `stopped without submitting after ${steps} steps`);
 		} catch (err) {
+			if (budgetHit) {
+				this.setState({ ...this.state, phase: "failed", lastError: "budget reached" });
+				await this.coordinator.budgetStopped(change.id);
+				return;
+			}
 			const message = err instanceof Error ? err.message : String(err);
 			this.setState({ ...this.state, phase: "failed", lastError: message });
 			this.coordinator.log(this.name, `failed: ${message}`);
 			throw err;
+		} finally {
+			// Container time for this run (the box is standard-1).
+			const seconds = (Date.now() - started) / 1000;
+			this.ctx.waitUntil(this.coordinator.recordUsage({ model: "container", purpose: "agent-box", changeId: change.id, goalId: goal.id, agentId: this.name, seconds, instance: "standard-1" }).catch(() => {}));
 		}
 	}
 

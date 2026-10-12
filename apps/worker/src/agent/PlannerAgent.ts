@@ -163,6 +163,8 @@ export class PlannerAgent extends Agent<Env, PlannerState> {
 			// Stop once a plan is accepted (a rejected one gets another try within the step budget).
 			stopWhen: [() => proposed, isStepCount(MAX_STEPS)],
 			prepareStep: async () => {
+				const over = await coordinator.overBudget(goalId);
+				if (over) throw new Error(`budget reached: $${over.spent.toFixed(2)} of $${over.limit.toFixed(2)}`);
 				const wait = await gate.acquire();
 				if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 				return {};
@@ -170,6 +172,11 @@ export class PlannerAgent extends Agent<Env, PlannerState> {
 			timeout: { stepMs: 10 * 60_000, toolMs: 5 * 60_000 },
 			onStepEnd: (step) => {
 				this.setState({ ...this.state, steps: this.state.steps + 1 });
+				this.ctx.waitUntil(
+					coordinator
+						.recordUsage({ model, purpose: "planner", goalId, agentId: this.name, inputTokens: step.usage.inputTokens ?? 0, outputTokens: step.usage.outputTokens ?? 0 })
+						.catch(() => {}),
+				);
 				const calls = step.toolCalls.map((c) => c.toolName).join(", ");
 				if (calls) coordinator.log(this.name, `→ ${calls}`);
 			},

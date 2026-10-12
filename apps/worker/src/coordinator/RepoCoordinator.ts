@@ -23,6 +23,9 @@ import { INTENT_SCHEMA, IntentStore, toIntent, touched } from "./intents.ts";
 import { ForkPool } from "./forks.ts";
 import { SCHEMA } from "./schema.ts";
 import { type LedgerFiles, writeLedger } from "../ledger/ledger.ts";
+import { containerCost, modelCost, usd } from "../domain/pricing.ts";
+import { budgetExceeded, type GoalNode, treeSpend } from "./costs.ts";
+import { CLEF_MODEL, metered } from "../decide/clef.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -41,9 +44,10 @@ export interface RepoSettings {
 	decider: "clef" | "evidence"; // evidence: deterministic checks decide, no model calls
 	batchMax: number; // changes stacked and verified together per landing
 	security: boolean; // also run the security scan; findings a change introduces fail it (hive.json can turn it on too)
+	goalBudget: number | null; // USD a goal (with its sub-goals) may spend unless it sets its own; null = no limit
 }
 
-const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false };
+const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false, goalBudget: null };
 
 const LANDING_TIMEOUT_MS = 20 * 60 * 1000;
 const cleanPath = (p: string) => {
@@ -227,6 +231,7 @@ export class RepoCoordinator extends Agent<Env> {
 	setSettings(patch: Partial<RepoSettings>): RepoSettings {
 		const next = { ...this.settings(), ...patch };
 		next.batchMax = Math.max(1, Math.min(256, Math.floor(next.batchMax)));
+		next.goalBudget = next.goalBudget === null || next.goalBudget === undefined || Number(next.goalBudget) <= 0 ? null : Number(next.goalBudget);
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('settings', ?)", JSON.stringify(next));
 		return next;
 	}
@@ -520,8 +525,14 @@ export class RepoCoordinator extends Agent<Env> {
 	async restartAgent(changeId: string): Promise<Change> {
 		const change = this.change(changeId);
 		if (!change) throw new Error(`unknown change ${changeId}`);
-		if (!["drafting", "bounced"].includes(change.status)) throw new Error(`change ${changeId} is ${change.status}, not with its agent`);
+		const budgetStop = change.status === "escalated" && this.changeDetail(changeId)?.decisions.at(-1)?.decidedBy === "hive:budget";
+		if (!["drafting", "bounced"].includes(change.status) && !budgetStop) throw new Error(`change ${changeId} is ${change.status}, not with its agent`);
 		if (!this.isBuiltin(change.agentId)) throw new Error(`${change.agentId} is an external agent; restart it yourself`);
+		if (budgetStop) {
+			const over = this.overBudget(change.goalId);
+			if (over) throw new Error(`still over budget (${usd(over.spent)} of ${usd(over.limit)}): raise it first`);
+			this.setStatus(changeId, "drafting");
+		}
 		await agentOf(this.ctx.exports, change.agentId).start({ repo: this.repo, changeId });
 		this.log(change.agentId, "restarted");
 		return change;
@@ -696,7 +707,7 @@ export class RepoCoordinator extends Agent<Env> {
 		const overlaps = detectOverlaps(intent, candidates, graph);
 		let advice: IntentResult["advice"] = null;
 		if (overlaps.length > 0) {
-			advice = await adviseOnOverlap(this.env.AI, { mine: intent.summary, overlaps }).catch((err) => {
+			advice = await adviseOnOverlap(this.clef("overlap", change.id), { mine: intent.summary, overlaps }).catch((err) => {
 				console.warn("clef overlap advice failed", err);
 				return null;
 			});
@@ -866,6 +877,7 @@ export class RepoCoordinator extends Agent<Env> {
 		// Anything this batch left converging (it shouldn't, but a crash or bug must not strand a
 		// change forever) goes back in line.
 		if (instanceId) {
+			this.recordBoxTime(instanceId);
 			this.releaseLease(instanceId);
 			const stranded = this.db.exec("SELECT id FROM changes WHERE status = 'converging' AND landing_instance = ?", instanceId).toArray();
 			for (const r of stranded) this.setStatus(String(r.id), "submitted");
@@ -904,6 +916,107 @@ export class RepoCoordinator extends Agent<Env> {
 		);
 		this.emit({ type: "evidence", evidence });
 		return evidence;
+	}
+
+	// ── Spend ────────────────────────────────────────────────────────────────
+
+	// A batch's merge box time (standard-4), shared across its changes. Once per batch.
+	private recordBoxTime(instanceId: string) {
+		const key = `boxtime:${instanceId}`;
+		if (this.db.exec("SELECT 1 FROM meta WHERE key = ?", key).toArray().length) return;
+		const rows = this.db.exec("SELECT id, landing_started FROM changes WHERE landing_instance = ?", instanceId).toArray();
+		const started = Math.min(...rows.map((r) => Number(r.landing_started ?? 0)).filter((n) => n > 0));
+		if (!rows.length || !Number.isFinite(started)) return;
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", key, String(now()));
+		const seconds = Math.max(0, (now() - started) / 1000) / rows.length;
+		for (const r of rows) this.recordUsage({ model: "container", purpose: "merge-box", changeId: String(r.id), seconds, instance: "standard-4" });
+	}
+
+	// Clef, with each call's tokens recorded against what it was deciding.
+	private clef(purpose: string, changeId: string | null, goalId: string | null = null) {
+		return metered(this.env.AI, (u) => this.recordUsage({ model: CLEF_MODEL, purpose, changeId, goalId, inputTokens: u.input_tokens, outputTokens: u.output_tokens }));
+	}
+
+	recordUsage(u: { model: string; purpose: string; changeId?: string | null; goalId?: string | null; agentId?: string | null; inputTokens?: number; outputTokens?: number; seconds?: number; instance?: string }) {
+		const inputTokens = Math.max(0, Math.round(u.inputTokens ?? 0));
+		const outputTokens = Math.max(0, Math.round(u.outputTokens ?? 0));
+		const seconds = Math.max(0, u.seconds ?? 0);
+		const cost = u.instance ? containerCost(u.instance, seconds) : modelCost(u.model, inputTokens, outputTokens);
+		const goalId = u.goalId ?? (u.changeId ? (this.change(u.changeId)?.goalId ?? null) : null);
+		this.db.exec(
+			"INSERT INTO usage (at, model, purpose, change_id, goal_id, agent_id, input_tokens, output_tokens, seconds, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			now(),
+			u.instance ? `container:${u.instance}` : u.model,
+			u.purpose,
+			u.changeId ?? null,
+			goalId,
+			u.agentId ?? null,
+			inputTokens,
+			outputTokens,
+			seconds,
+			cost,
+		);
+	}
+
+	private goalNodes(): GoalNode[] {
+		const budgets = new Map(this.db.exec("SELECT goal_id, budget FROM goal_budgets").toArray().map((r) => [String(r.goal_id), r.budget === null ? null : Number(r.budget)]));
+		return this.db
+			.exec("SELECT id, parent_id FROM goals")
+			.toArray()
+			.map((r) => ({ id: String(r.id), parentId: r.parent_id ? String(r.parent_id) : null, budget: budgets.get(String(r.id)) ?? null }));
+	}
+
+	private goalSpend(): Map<string, number> {
+		const own = new Map(this.db.exec("SELECT goal_id, SUM(cost) AS c FROM usage WHERE goal_id IS NOT NULL GROUP BY goal_id").toArray().map((r) => [String(r.goal_id), Number(r.c)]));
+		return treeSpend(this.goalNodes(), own);
+	}
+
+	setGoalBudget(goalId: string, budget: number | null) {
+		if (!this.goal(goalId)) throw new Error(`unknown goal ${goalId}`);
+		this.db.exec("INSERT OR REPLACE INTO goal_budgets VALUES (?, ?)", goalId, budget && budget > 0 ? budget : null);
+		return { goalId, budget: budget && budget > 0 ? budget : null, spent: this.goalSpend().get(goalId) ?? 0 };
+	}
+
+	// The budget this goal's work has run into, if any.
+	overBudget(goalId: string) {
+		return budgetExceeded(goalId, this.goalNodes(), this.goalSpend(), this.settings().goalBudget);
+	}
+
+	// An agent stopped by a budget: the change waits for a person, with the numbers.
+	async budgetStopped(changeId: string) {
+		const change = this.change(changeId);
+		if (!change || !["drafting", "bounced"].includes(change.status)) return;
+		const over = this.overBudget(change.goalId);
+		const why = over
+			? `Stopped at the budget: ${usd(over.spent)} spent of ${usd(over.limit)}${over.goalId === change.goalId ? "" : ` (goal ${over.goalId})`}. Raise the budget and restart the agent, or land or send back what it has.`
+			: "Stopped at the budget.";
+		this.log(change.agentId, why);
+		await this.escalated(changeId, { confidence: 1, probabilities: { escalate: 1 }, rationale: why, decidedBy: "hive:budget" });
+	}
+
+	costs() {
+		const rows = (sql: string) => this.db.exec(sql).toArray();
+		const total = Number(rows("SELECT COALESCE(SUM(cost), 0) AS c FROM usage")[0].c);
+		const byModel = rows("SELECT model, SUM(cost) AS cost, SUM(input_tokens) AS input, SUM(output_tokens) AS output, SUM(seconds) AS seconds, COUNT(*) AS calls FROM usage GROUP BY model ORDER BY cost DESC").map((r) => ({
+			model: String(r.model),
+			cost: Number(r.cost),
+			inputTokens: Number(r.input),
+			outputTokens: Number(r.output),
+			seconds: Number(r.seconds),
+			calls: Number(r.calls),
+		}));
+		const byPurpose = Object.fromEntries(rows("SELECT purpose, SUM(cost) AS c FROM usage GROUP BY purpose").map((r) => [String(r.purpose), Number(r.c)]));
+		const byChange = Object.fromEntries(rows("SELECT change_id, SUM(cost) AS c FROM usage WHERE change_id IS NOT NULL GROUP BY change_id").map((r) => [String(r.change_id), Number(r.c)]));
+		const spend = this.goalSpend();
+		const budgets = new Map(this.goalNodes().map((g) => [g.id, g.budget]));
+		const byGoal = Object.fromEntries([...spend].filter(([g, c]) => c > 0 || (budgets.get(g) ?? null) !== null).map(([g, c]) => [g, { cost: c, budget: budgets.get(g) ?? null }]));
+		return { total, byModel, byPurpose, byGoal, byChange, goalBudget: this.settings().goalBudget };
+	}
+
+	changeCost(changeId: string) {
+		const rows = this.db.exec("SELECT model, purpose, SUM(cost) AS cost, SUM(input_tokens) AS input, SUM(output_tokens) AS output, SUM(seconds) AS seconds FROM usage WHERE change_id = ? GROUP BY model, purpose", changeId).toArray();
+		const parts = rows.map((r) => ({ model: String(r.model), purpose: String(r.purpose), cost: Number(r.cost), inputTokens: Number(r.input), outputTokens: Number(r.output), seconds: Number(r.seconds) }));
+		return { total: parts.reduce((n, p) => n + p.cost, 0), parts };
 	}
 
 	recordDiff(changeId: string, d: { source: "agent" | "merge" | "cli"; base: string; head: string; diff: string }) {
@@ -1147,7 +1260,7 @@ export class RepoCoordinator extends Agent<Env> {
 		const verdict =
 			scored.length === 1
 				? { winner: scored[0].changeId, confidence: 1, probabilities: { [scored[0].changeId]: 1 } }
-				: await judgeRace(this.env.AI, `${goal.title}\n\n${goal.description}`, scored);
+				: await judgeRace(this.clef("judge", null, goal.id), `${goal.title}\n\n${goal.description}`, scored);
 
 		for (const c of finished) {
 			const won = c.id === verdict.winner;

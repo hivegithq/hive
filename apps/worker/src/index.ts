@@ -149,9 +149,24 @@ app.get("/api/repos/:repo/files", async (c) => c.json(await repoHost(c.env).list
 // ── Goals, agents, races ───────────────────────────────────────────────────
 
 app.post("/api/repos/:repo/goals", async (c) => {
-	const input = await body(c.req.raw, z.object({ title: z.string().min(3), description: z.string().default(""), parentId: z.string().optional() }));
-	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).createGoal(input), 201);
+	const input = await body(
+		c.req.raw,
+		z.object({ title: z.string().min(3), description: z.string().default(""), parentId: z.string().optional(), budget: z.number().positive().max(10_000).optional() }),
+	);
+	const coord = coordinator(c.executionCtx.exports, c.req.param("repo"));
+	const goal = await coord.createGoal(input);
+	if (input.budget) await coord.setGoalBudget(goal.id, input.budget);
+	return c.json(goal, 201);
 });
+
+// A goal's spending limit in USD, covering its sub-goals; null removes it.
+app.post("/api/repos/:repo/goals/:goalId/budget", async (c) => {
+	const { budget } = await body(c.req.raw, z.object({ budget: z.number().positive().max(10_000).nullable() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setGoalBudget(c.req.param("goalId"), budget));
+});
+
+// What the work in this repository cost: totals by model, purpose, goal and change.
+app.get("/api/repos/:repo/costs", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).costs()));
 
 app.post("/api/repos/:repo/goals/:goalId/assign", async (c) => {
 	const { model } = await body(c.req.raw, z.object({ model: z.string().optional() }));
@@ -203,7 +218,12 @@ app.post("/api/repos/:repo/changes/:changeId/submit", async (c) => {
 
 // Per-repo settings: decider ("clef" | "evidence") and landing batch size.
 app.post("/api/repos/:repo/settings", async (c) => {
-	const patch = await body(c.req.raw, z.object({ decider: z.enum(["clef", "evidence"]).optional(), batchMax: z.number().int().min(1).max(256).optional(), security: z.boolean().optional() }));
+	const patch = await body(c.req.raw, z.object({
+			decider: z.enum(["clef", "evidence"]).optional(),
+			batchMax: z.number().int().min(1).max(256).optional(),
+			security: z.boolean().optional(),
+			goalBudget: z.number().positive().max(10_000).nullable().optional(),
+		}),);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setSettings(patch));
 });
 
@@ -234,8 +254,9 @@ app.post("/api/repos/:repo/races/:group/winner", async (c) => {
 // ── Changes ────────────────────────────────────────────────────────────────
 
 app.get("/api/repos/:repo/changes/:changeId", async (c) => {
-	const detail = await coordinator(c.executionCtx.exports, c.req.param("repo")).changeDetail(c.req.param("changeId"));
-	return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
+	const coord = coordinator(c.executionCtx.exports, c.req.param("repo"));
+	const detail = await coord.changeDetail(c.req.param("changeId"));
+	return detail ? c.json({ ...detail, cost: await coord.changeCost(c.req.param("changeId")) }) : c.json({ error: "not found" }, 404);
 });
 
 // The change's diff against its base, as last recorded (by its agent, then by the merge box).
