@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { api, type EvidencePlan, type EvidenceRun, type RepoSettings, type Snapshot } from "../api.ts";
 import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
 import { EvidenceList } from "./Evidence.tsx";
+import { GitHubPanel } from "./GitHubPanel.tsx";
 
 // What the merge queue checks in this repository, a way to run it on trunk, and the settings
 // that shape landing.
@@ -230,6 +231,8 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 						</>
 					)}
 				</section>
+
+				<GitHubPanel repo={repo} canWrite={canWrite} />
 			</div>
 		</motion.aside>
 	);

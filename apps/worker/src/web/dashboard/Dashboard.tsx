@@ -354,7 +354,7 @@ function GoalRail({ repo, snapshot, costs }: { repo: string; snapshot: Snapshot;
 				{snapshot.goals.length === 0 ? (
 					<p className="text-sm text-kumo-subtle">No goals yet. Describe a change above and an agent will fork the repo and start.</p>
 				) : (
-					<GoalTree repo={repo} goals={snapshot.goals} costs={costs} issues={snapshot.goalIssues ?? {}} />
+					<GoalTree repo={repo} goals={snapshot.goals} costs={costs} issues={snapshot.goalIssues ?? {}} prs={snapshot.goalPrs ?? {}} />
 				)}
 			</section>
 		</aside>
@@ -398,7 +398,19 @@ function StartGoal({ repo, goalId, onDone }: { repo: string; goalId: string; onD
 const GOAL_TONE: Record<string, string> = { achieved: "text-honey", planning: "text-flare", planned: "text-flare", racing: "text-flare" };
 
 // Goals newest first, with a planned goal's sub-goals nested under it.
-function GoalTree({ repo, goals, costs, issues }: { repo: string; goals: Snapshot["goals"]; costs: Costs | null; issues: NonNullable<Snapshot["goalIssues"]> }) {
+function GoalTree({
+	repo,
+	goals,
+	costs,
+	issues,
+	prs,
+}: {
+	repo: string;
+	goals: Snapshot["goals"];
+	costs: Costs | null;
+	issues: NonNullable<Snapshot["goalIssues"]>;
+	prs: NonNullable<Snapshot["goalPrs"]>;
+}) {
 	const canWrite = useCanWrite();
 	const [openGoal, setOpenGoal] = useState<string | null>(null);
 	const children = new Map<string, Snapshot["goals"]>();
@@ -418,6 +430,11 @@ function GoalTree({ repo, goals, costs, issues }: { repo: string; goals: Snapsho
 				</button>
 			) : (
 				<span className={`min-w-0 flex-1 truncate ${nested ? "text-kumo-subtle" : "text-kumo-default"}`}>{g.title}</span>
+			)}
+			{prs[g.id] && (
+				<a href={prs[g.id].url} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-honey hover:underline" title="Pull request on GitHub">
+					PR #{prs[g.id].number}
+				</a>
 			)}
 			{issues[g.id] && (
 				<a href={issues[g.id].url} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-steel hover:text-honey" title={`From ${issues[g.id].ref}`}>

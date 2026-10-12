@@ -8,6 +8,7 @@ import type { Change, Goal, Intent } from "../domain/types.ts";
 import { type AttemptFn, evidenceOk, findLandable } from "./batch.ts";
 import type { EvidenceRun, PushResult, ReferentialConflict, StackEntry, StackResult } from "./MergeBox.ts";
 import { CLEF_MODEL, metered } from "../decide/clef.ts";
+import { UPSTREAM_AGENT } from "../coordinator/RepoCoordinator.ts";
 
 const FETCH_CHUNK = 32;
 // A fast, free-tier model, so a busy or slow primary reviewer still leaves a written review.
@@ -286,8 +287,9 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			return { outcome: "land", confidence: 1, probabilities: { land: 1 }, rationale: "Approved by a human reviewer.", decidedBy: "human" };
 		}
 
-		// Evidence-only repositories: deterministic checks decide, no model calls.
-		if (decider === "evidence") {
+		// Evidence-only repositories, and upstream syncs (GitHub's own commits, not an agent's):
+		// deterministic checks decide, no model calls.
+		if (decider === "evidence" || change.agentId === UPSTREAM_AGENT) {
 			await coordinator.recordEvaluation({ changeId: change.id, model: "hive:evidence", score: 1, summary: "Evidence-only repository: no model review.", concerns: conflicts });
 			if (conflicts.length) {
 				return { outcome: "escalate", confidence: 1, probabilities: { escalate: 1 }, rationale: `${conflicts.length} referential conflict(s) need a look.`, decidedBy: "hive:evidence" };

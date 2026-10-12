@@ -300,6 +300,28 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 	);
 
 	server.registerTool(
+		"hive_github",
+		{
+			description:
+				"A repo's GitHub connection: where trunk is mirrored, pull requests opened per achieved goal, the last upstream sync, any error. action 'sync' runs a sync now; 'options' sets mirror/prs/pull; 'disconnect' removes the stored token. Connect from the dashboard or CLI (it needs a token).",
+			inputSchema: {
+				repo: z.string(),
+				action: z.enum(["status", "sync", "options", "disconnect"]).default("status"),
+				mirror: z.boolean().optional(),
+				prs: z.boolean().optional(),
+				pull: z.boolean().optional(),
+			},
+		},
+		async ({ repo, action, mirror, prs, pull }) => {
+			const c = coordinator(repo);
+			if (action === "sync") await c.githubSync();
+			if (action === "options") return text(await c.setGitHubOptions({ mirror, prs, pull }));
+			if (action === "disconnect") return text(await c.disconnectGitHub());
+			return text(await c.githubStatus());
+		},
+	);
+
+	server.registerTool(
 		"hive_models",
 		{
 			description:

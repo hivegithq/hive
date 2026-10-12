@@ -7,6 +7,9 @@ export interface OutboundPolicy {
 	// Interception is registered once per container, so a policy must not need to change later.
 	repos: { name: string; scope: "read" | "write" }[];
 	hosts: string[]; // extra hosts allowed straight through, e.g. the npm registry
+	// One GitHub repository this sandbox may read and push, with the repository's stored token added
+	// by the gateway (looked up from Hive repo `hive`'s coordinator at request time).
+	github?: { owner: string; repo: string; hive: string };
 }
 
 export type Instance = "lite" | "standard-1" | "standard-2" | "standard-3" | "standard-4";

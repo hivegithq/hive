@@ -17,6 +17,7 @@ export interface Snapshot {
 	agents: { id: string; kind: string; model: string; trust: number }[];
 	goalDeps?: [string, string][];
 	goalIssues?: Record<string, { ref: string; url: string }>;
+	goalPrs?: Record<string, { number: number; url: string; state: string }>;
 	trunkChecks?: { commit: string; at: number; ok: boolean; languages: string[]; source: string; runs: { kind: string; command: string; ok: boolean }[] } | null;
 }
 
@@ -46,6 +47,32 @@ export interface ModelStats {
 	medianMinutesToLand: number | null;
 	cost: number;
 	costPerLanded: number | null;
+}
+
+export type GitHubStatus =
+	| { connected: false; pullRequests: GitHubPr[] }
+	| {
+			connected: true;
+			owner: string;
+			repo: string;
+			repoUrl: string;
+			base: string;
+			branch: string;
+			mirror: boolean;
+			prs: boolean;
+			pullRequests: GitHubPr[];
+			pull: boolean;
+			lastMirror: { at: number; head: string } | null;
+			lastPull: { at: number; count: number } | null;
+			lastRun: number | null;
+			error: string | null;
+	  };
+export interface GitHubPr {
+	goalId: string;
+	state: string;
+	number: number | null;
+	url: string | null;
+	reason: string | null;
 }
 
 export interface ChangeCost {
@@ -132,6 +159,12 @@ export const api = {
 	setGoalBudget: (repo: string, goalId: string, budget: number | null) => call("POST", `/api/repos/${repo}/goals/${goalId}/budget`, { budget }),
 	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
 	models: (repo: string) => call<ModelStats[]>("GET", `/api/repos/${repo}/models`),
+	github: (repo: string) => call<GitHubStatus>("GET", `/api/repos/${repo}/github`),
+	connectGitHub: (repo: string, input: { token: string; remote?: string; mirror: boolean; prs: boolean; pull: boolean }) =>
+		call<GitHubStatus>("POST", `/api/repos/${repo}/github`, input),
+	githubOptions: (repo: string, patch: { mirror?: boolean; prs?: boolean; pull?: boolean }) => call<GitHubStatus>("POST", `/api/repos/${repo}/github/options`, patch),
+	githubSync: (repo: string) => call<GitHubStatus>("POST", `/api/repos/${repo}/github/sync`, {}),
+	githubDisconnect: (repo: string) => call<GitHubStatus>("POST", `/api/repos/${repo}/github/disconnect`, {}),
 	importIssues: (repo: string, input: { source?: string; labels?: string[]; excludeLabels?: string[]; limit?: number; token?: string }) =>
 		call<{ source: string; open: number; alreadyImported: number; created: { goalId: string; ref: string; title: string; url: string }[] }>(
 			"POST",

@@ -12,6 +12,7 @@
 //!   hive checks / hive settings           what Hive runs here, and how it lands
 //!   hive cost / hive budget <goal> 5      what the work cost; cap a goal's spend
 //!   hive issues import [owner/repo]       open GitHub issues as goals (--assign kimi --budget 1)
+//!   hive github connect < token           mirror trunk and open a PR per landed goal
 //!   hive claim <goal> / intent / submit   do the work yourself, in your own fork
 //!
 //! Where and who: flags, then HIVE_URL / HIVE_REPO / HIVE_TOKEN, then `hive login`'s config file.
@@ -71,6 +72,11 @@ enum Cmd {
         /// Read token for a private repository; used for this clone only.
         #[arg(long)]
         source_token: Option<String>,
+    },
+    /// Send landed work back to GitHub: mirror trunk, a pull request per goal, pull upstream.
+    Github {
+        #[command(subcommand)]
+        action: GithubCmd,
     },
     /// GitHub issues as goals.
     Issues {
@@ -201,6 +207,41 @@ enum Cmd {
     },
     /// Evidence, review and decisions for a change (defaults to this checkout's change).
     Show { change: Option<String> },
+}
+
+#[derive(Subcommand)]
+enum GithubCmd {
+    /// Connect a GitHub repository (token from --github-token, GITHUB_TOKEN or stdin; it needs Contents and Pull requests, read and write).
+    Connect {
+        /// owner/repo (default: where this repo was imported from).
+        remote: Option<String>,
+        #[arg(long, env = "GITHUB_TOKEN", hide_env_values = true)]
+        github_token: Option<String>,
+        /// Don't mirror trunk to hive/main.
+        #[arg(long)]
+        no_mirror: bool,
+        /// Don't open a pull request per achieved goal.
+        #[arg(long)]
+        no_prs: bool,
+        /// Also bring GitHub's new commits in (through the merge queue), every ten minutes.
+        #[arg(long)]
+        pull: bool,
+    },
+    /// Where things stand: mirror, pull requests, upstream.
+    Status,
+    /// Sync now.
+    Sync,
+    /// Turn mirror / prs / pull on or off (on|off).
+    Options {
+        #[arg(long)]
+        mirror: Option<String>,
+        #[arg(long)]
+        prs: Option<String>,
+        #[arg(long)]
+        pull: Option<String>,
+    },
+    /// Forget the token and stop syncing.
+    Disconnect,
 }
 
 #[derive(Subcommand)]
@@ -533,6 +574,51 @@ fn main() -> Result<()> {
                 println!("agent started on {} ({})", s(&c["id"]), s(&c["model"]));
             } else {
                 println!("no agents yet: `hive assign {id}`, `hive race {id} --models …`, `hive plan {id}`, or `hive claim {id}` to do it yourself");
+            }
+        }
+        Cmd::Github { action } => {
+            let repo = repo()?;
+            let on = |v: &Option<String>| v.as_deref().map(|s| matches!(s, "on" | "true" | "yes" | "1"));
+            let st = match action {
+                GithubCmd::Connect { remote, github_token, no_mirror, no_prs, pull } => {
+                    let token = match github_token {
+                        Some(t) => t,
+                        None if !std::io::stdin().is_terminal() => {
+                            let mut buf = String::new();
+                            std::io::stdin().read_to_string(&mut buf)?;
+                            buf.trim().to_string()
+                        }
+                        None => bail!("pass the GitHub token with --github-token, GITHUB_TOKEN, or on stdin"),
+                    };
+                    api.post(&format!("/api/repos/{repo}/github"), json!({ "token": token, "remote": remote, "mirror": !no_mirror, "prs": !no_prs, "pull": pull }))?
+                }
+                GithubCmd::Status => api.get(&format!("/api/repos/{repo}/github"))?,
+                GithubCmd::Sync => {
+                    println!("syncing (mirror, pull requests, upstream)");
+                    api.post(&format!("/api/repos/{repo}/github/sync"), json!({}))?
+                }
+                GithubCmd::Options { mirror, prs, pull } => {
+                    api.post(&format!("/api/repos/{repo}/github/options"), json!({ "mirror": on(&mirror), "prs": on(&prs), "pull": on(&pull) }))?
+                }
+                GithubCmd::Disconnect => api.post(&format!("/api/repos/{repo}/github/disconnect"), json!({}))?,
+            };
+            if st["connected"] != true {
+                println!("{repo}: not connected to GitHub");
+                return Ok(());
+            }
+            let yn = |v: &Value| if v == true { "on" } else { "off" };
+            println!("{repo} ↔ {}", s(&st["repoUrl"]));
+            println!("  mirror  {} (to {})", yn(&st["mirror"]), s(&st["branch"]));
+            println!("  prs     {} (against {})", yn(&st["prs"]), s(&st["base"]));
+            println!("  pull    {}", yn(&st["pull"]));
+            if let Some(m) = st["lastMirror"].as_object() {
+                println!("  mirrored {}", &s(&m["head"]).chars().take(8).collect::<String>());
+            }
+            if !st["error"].is_null() {
+                println!("  error   {}", s(&st["error"]));
+            }
+            for p in st["pullRequests"].as_array().into_iter().flatten().take(15) {
+                println!("  {:<14} {:<9} {}", s(&p["goalId"]), s(&p["state"]), p["url"].as_str().or(p["reason"].as_str()).unwrap_or(""));
             }
         }
         Cmd::Issues { action: IssuesCmd::Import { source, label, exclude_label, limit, github_token, assign, budget } } => {

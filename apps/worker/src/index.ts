@@ -190,6 +190,35 @@ app.post("/api/repos/:repo/issues/import", async (c) => {
 	);
 });
 
+// GitHub: mirror trunk, a pull request per achieved goal, and (optionally) GitHub's new commits
+// brought in through the merge queue. The token is stored encrypted and only the egress gateway
+// ever uses it.
+app.get("/api/repos/:repo/github", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).githubStatus()));
+app.post("/api/repos/:repo/github", async (c) => {
+	const input = await body(
+		c.req.raw,
+		z.object({
+			token: z.string().min(10).max(500),
+			remote: z.string().nullish(),
+			mirror: z.boolean().optional(),
+			prs: z.boolean().optional(),
+			pull: z.boolean().optional(),
+			branch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/).optional(),
+		}),
+	);
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).connectGitHub({ ...input, remote: input.remote ?? undefined }), 201);
+});
+app.post("/api/repos/:repo/github/options", async (c) => {
+	const patch = await body(c.req.raw, z.object({ mirror: z.boolean().optional(), prs: z.boolean().optional(), pull: z.boolean().optional() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setGitHubOptions(patch));
+});
+app.post("/api/repos/:repo/github/sync", async (c) => {
+	const coord = coordinator(c.executionCtx.exports, c.req.param("repo"));
+	await coord.githubSync();
+	return c.json(await coord.githubStatus());
+});
+app.post("/api/repos/:repo/github/disconnect", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).disconnectGitHub()));
+
 // How each model has done on this repository.
 app.get("/api/repos/:repo/models", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).models()));
 

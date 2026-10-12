@@ -27,7 +27,9 @@ import { containerCost, modelCost, usd } from "../domain/pricing.ts";
 import { budgetExceeded, type GoalNode, treeSpend } from "./costs.ts";
 import { CLEF_MODEL, metered } from "../decide/clef.ts";
 import { leaderboard } from "./leaderboard.ts";
-import { goalFromIssue, listOpenIssues, parseGitHubRepo, selectIssues } from "../github/github.ts";
+import { gh, goalFromIssue, listOpenIssues, parseGitHubRepo, selectIssues, upsertPullRequest } from "../github/github.ts";
+import { type PrGoal, prBody, prTitle } from "../github/pr.ts";
+import { open as openSecret, seal as sealSecret } from "../github/secret.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -77,6 +79,27 @@ const MAX_DIFF_CHARS = 400_000;
 const MAX_LANDING_RESTARTS = 3;
 const PIPELINE_DEPTH = 2;
 type AgentKind = "builtin" | "mcp" | "cli" | "sim";
+
+// Brings GitHub's new commits in as an ordinary change (decided on evidence alone).
+export const UPSTREAM_AGENT = "hive:upstream";
+
+interface GitHubConfig {
+	owner: string;
+	repo: string;
+	base: string; // GitHub's default branch: pull requests target it, syncs read it
+	branch: string; // where trunk is mirrored
+	mirror: boolean;
+	prs: boolean;
+	pull: boolean;
+	token: string; // sealed
+	connectedAt: number;
+	lastSynced: string | null; // last upstream commit brought in
+	pendingSync: { changeId: string; upstreamHead: string } | null;
+	lastRun: number | null;
+	lastMirror: { at: number; head: string } | null;
+	lastPull: { at: number; count: number } | null;
+	error: string | null;
+}
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
 const now = () => Date.now();
 
@@ -241,6 +264,8 @@ export class RepoCoordinator extends Agent<Env> {
 	// Waking an agent's Durable Object lets it recover an interrupted fiber (deploys, restarts).
 	async wakeAgents() {
 		await this.reviveStalledLandings();
+		const gh = this.githubConfig();
+		if (gh?.pull && now() - (gh.lastRun ?? 0) > 10 * 60_000) this.ctx.waitUntil(this.githubSync().catch((e) => console.warn("github sync failed", e)));
 		await this.noticeTrunkPushes().catch((e) => console.warn("trunk check failed", e));
 		// Plans whose sub-goals were unblocked while nobody was looking (a deploy, an eviction).
 		for (const r of this.db.exec("SELECT key FROM meta WHERE key LIKE 'plan:%'").toArray()) {
@@ -959,6 +984,195 @@ export class RepoCoordinator extends Agent<Env> {
 		return { source: `${source.owner}/${source.repo}`, open: issues.length, alreadyImported: known.size, created };
 	}
 
+	// ── GitHub: mirror trunk, a pull request per goal, bring upstream in ─────
+
+	private githubConfig(): GitHubConfig | null {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'github'").toArray()[0];
+		return row ? JSON.parse(String(row.value)) : null;
+	}
+
+	private saveGithub(cfg: GitHubConfig | null) {
+		if (cfg) this.db.exec("INSERT OR REPLACE INTO meta VALUES ('github', ?)", JSON.stringify(cfg));
+		else this.db.exec("DELETE FROM meta WHERE key = 'github'");
+	}
+
+	private get secretMaster() {
+		return (this.env as { HIVE_TOKEN?: string }).HIVE_TOKEN || "hive-devhost-secret";
+	}
+
+	// For the outbound gateway only: the token, decrypted when a sandbox talks to GitHub.
+	async githubToken(): Promise<string | null> {
+		const cfg = this.githubConfig();
+		return cfg ? openSecret(this.secretMaster, cfg.token) : null;
+	}
+
+	async connectGitHub(input: { token: string; remote?: string; mirror?: boolean; prs?: boolean; pull?: boolean; branch?: string }) {
+		const target = parseGitHubRepo(input.remote ?? this.origin()?.url ?? "");
+		if (!target) throw new Error(input.remote ? `not a GitHub repository: ${input.remote}` : "which GitHub repository? pass remote (this one wasn't imported from GitHub)");
+		const info = await gh<{ default_branch: string; permissions?: { push?: boolean } }>(`/repos/${target.owner}/${target.repo}`, input.token);
+		if (!info.permissions?.push) throw new Error(`that token can't push to ${target.owner}/${target.repo}: it needs Contents and Pull requests (read and write)`);
+		// Goals already achieved get no pull request: only work from here on goes to GitHub.
+		for (const r of this.db.exec("SELECT id FROM goals WHERE status = 'achieved' AND parent_id IS NULL").toArray()) {
+			this.db.exec("INSERT OR IGNORE INTO goal_prs (goal_id, state, reason, updated_at) VALUES (?, 'skipped', 'achieved before GitHub was connected', ?)", String(r.id), now());
+		}
+		const previous = this.githubConfig();
+		const sameRepo = previous && previous.owner === target.owner && previous.repo === target.repo;
+		const cfg: GitHubConfig = {
+			owner: target.owner,
+			repo: target.repo,
+			base: info.default_branch,
+			branch: input.branch ?? "hive/main",
+			mirror: input.mirror ?? true,
+			prs: input.prs ?? true,
+			pull: input.pull ?? false,
+			token: await sealSecret(this.secretMaster, input.token),
+			connectedAt: now(),
+			lastSynced: sameRepo ? previous.lastSynced : null,
+			pendingSync: sameRepo ? previous.pendingSync : null,
+			lastRun: null,
+			lastMirror: null,
+			lastPull: null,
+			error: null,
+		};
+		this.saveGithub(cfg);
+		this.log("hive", `connected to github.com/${cfg.owner}/${cfg.repo}`);
+		await this.schedule(1, "githubSync");
+		return this.githubStatus();
+	}
+
+	setGitHubOptions(patch: { mirror?: boolean; prs?: boolean; pull?: boolean }) {
+		const cfg = this.githubConfig();
+		if (!cfg) throw new Error("not connected to GitHub");
+		this.saveGithub({ ...cfg, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => typeof v === "boolean")) });
+		return this.githubStatus();
+	}
+
+	disconnectGitHub() {
+		this.saveGithub(null);
+		this.log("hive", "disconnected from GitHub");
+		return { connected: false };
+	}
+
+	githubStatus() {
+		const cfg = this.githubConfig();
+		const pullRequests = this.db
+			.exec("SELECT goal_id, state, number, url, branch, reason, updated_at FROM goal_prs WHERE state != 'skipped' ORDER BY updated_at DESC LIMIT 100")
+			.toArray()
+			.map((r) => ({ goalId: String(r.goal_id), state: String(r.state), number: r.number === null ? null : Number(r.number), url: r.url ? String(r.url) : null, reason: r.reason ? String(r.reason) : null }));
+		if (!cfg) return { connected: false as const, pullRequests };
+		const { token: _token, ...rest } = cfg;
+		return { connected: true as const, ...rest, repoUrl: `https://github.com/${cfg.owner}/${cfg.repo}`, pullRequests };
+	}
+
+	private githubSyncing = false;
+
+	// Mirror trunk, open pull requests for newly achieved goals, and bring upstream commits in.
+	// Runs after landings, on demand, and every ten minutes when pulling is on.
+	async githubSync() {
+		const cfg = this.githubConfig();
+		if (!cfg || this.githubSyncing) return;
+		this.githubSyncing = true;
+		const box = mergeBoxOf(this.ctx.exports, `${this.repo}:github`);
+		const where = { repo: this.repo, owner: cfg.owner, name: cfg.repo };
+		const errors: string[] = [];
+		const update: Partial<GitHubConfig> = { lastRun: now() };
+		try {
+			if (cfg.mirror) {
+				const m = await box.githubMirror({ ...where, branch: cfg.branch }).catch((e: Error) => ({ ok: false, head: "", reason: e.message }));
+				if (m.ok) update.lastMirror = { at: now(), head: m.head };
+				else errors.push(`mirror: ${m.reason}`);
+			}
+			if (cfg.prs) await this.openGoalPrs(cfg, box, where).catch((e: Error) => errors.push(`pull requests: ${e.message}`));
+			if (cfg.pull) {
+				const p = await this.pullUpstream(cfg, box, where).catch((e: Error) => {
+					errors.push(`pull: ${e.message}`);
+					return null;
+				});
+				if (p) Object.assign(update, p);
+			}
+		} finally {
+			this.githubSyncing = false;
+			const latest = this.githubConfig();
+			if (latest) this.saveGithub({ ...latest, ...update, error: errors.length ? errors.join("; ").slice(0, 1000) : null });
+		}
+	}
+
+	private async openGoalPrs(cfg: GitHubConfig, box: ReturnType<typeof mergeBoxOf>, where: { repo: string; owner: string; name: string }) {
+		const token = await this.githubToken();
+		if (!token) throw new Error("the stored token can't be read (was HIVE_TOKEN rotated? connect again)");
+		const pending = this.db
+			.exec("SELECT g.id FROM goals g LEFT JOIN goal_prs p ON p.goal_id = g.id WHERE g.status = 'achieved' AND g.parent_id IS NULL AND p.goal_id IS NULL ORDER BY g.created_at LIMIT 10")
+			.toArray()
+			.map((r) => String(r.id));
+		for (const goalId of pending) {
+			const goal = this.goal(goalId);
+			if (!goal) continue;
+			const subgoals = this.db.exec("SELECT id, title FROM goals WHERE parent_id = ? ORDER BY created_at", goalId).toArray();
+			const goalIds = [goalId, ...subgoals.map((s) => String(s.id))];
+			const branch = `hive/goal-${goalId}`;
+			const result = await box.githubGoalBranch({ ...where, base: cfg.base, branch, goalIds });
+			if (!result.ok || result.commits === 0) {
+				const reason = result.ok ? "no landed commits for this goal" : (result.reason ?? "failed");
+				this.db.exec("INSERT OR REPLACE INTO goal_prs VALUES (?, ?, NULL, NULL, ?, ?, ?)", goalId, result.ok ? "empty" : "conflict", branch, reason, now());
+				continue;
+			}
+			const changes = goalIds.flatMap((g) =>
+				this.db
+					.exec("SELECT id FROM changes WHERE goal_id = ? AND status = 'landed'", g)
+					.toArray()
+					.map((r) => String(r.id)),
+			);
+			const issue = this.goalIssue(goalId);
+			const prGoal: PrGoal = {
+				id: goalId,
+				title: goal.title,
+				description: goal.description,
+				issue,
+				subgoals: subgoals.map((s) => ({ title: String(s.title) })),
+				changes: changes.map((id) => {
+					const d = this.changeDetail(id)!;
+					const decision = d.decisions.filter((x) => x.outcome === "land" || x.outcome === "win").at(-1);
+					return {
+						id,
+						model: d.change.model,
+						evidence: d.evidence.map((e) => ({ command: e.command, ok: e.ok })),
+						decision: decision ? { rationale: decision.rationale, decidedBy: decision.decidedBy, confidence: decision.confidence } : null,
+						cost: this.changeCost(id).total,
+					};
+				}),
+				dashboard: `${this.siteUrl()}/r/${encodeURIComponent(this.repo)}`,
+			};
+			const sameRepo = !!issue && issue.ref.toLowerCase().startsWith(`${cfg.owner}/${cfg.repo}#`.toLowerCase());
+			const pr = await upsertPullRequest({ owner: cfg.owner, repo: cfg.repo }, token, { head: branch, base: cfg.base, title: prTitle(prGoal), body: prBody(prGoal, sameRepo) });
+			this.db.exec("INSERT OR REPLACE INTO goal_prs VALUES (?, 'open', ?, ?, ?, NULL, ?)", goalId, pr.number, pr.url, branch, now());
+			this.log("hive", `opened ${pr.url} for "${goal.title}"`);
+		}
+	}
+
+	private async pullUpstream(cfg: GitHubConfig, box: ReturnType<typeof mergeBoxOf>, where: { repo: string; owner: string; name: string }): Promise<Partial<GitHubConfig>> {
+		// One sync at a time: wait while the last one is still on its way to trunk.
+		const open = this.db.exec("SELECT id FROM changes WHERE agent_id = ? AND status NOT IN ('landed','archived','escalated')", UPSTREAM_AGENT).toArray();
+		if (open.length) return { lastPull: { at: now(), count: 0 } };
+		const up = await box.githubUpstream({ ...where, base: cfg.base, since: cfg.lastSynced });
+		const since = cfg.lastSynced ?? up.since;
+		if (up.count === 0) return { lastSynced: since, lastPull: { at: now(), count: 0 } };
+		const goal = this.createGoal({ title: `Sync ${up.count} commit${up.count === 1 ? "" : "s"} from GitHub`, description: `github.com/${cfg.owner}/${cfg.repo} ${cfg.base}: ${since.slice(0, 8)}..${up.upstreamHead.slice(0, 8)}` });
+		const change = await this.startChange({ goalId: goal.id, agentId: UPSTREAM_AGENT, model: "upstream", kind: "cli" });
+		const message = `Sync ${up.count} commit(s) from github.com/${cfg.owner}/${cfg.repo}\n\nUpstream ${since}..${up.upstreamHead}\n\nHive-Change-Id: ${change.id}\nHive-Goal: ${goal.id}\nHive-Agent: ${UPSTREAM_AGENT}\nHive-Model: upstream\nHive-Upstream: ${up.upstreamHead}\n`;
+		const applied = await box.githubApplyUpstream({ ...where, base: cfg.base, fork: change.fork, since, upstreamHead: up.upstreamHead, message });
+		if (!applied.ok) {
+			await this.escalated(change.id, { confidence: 1, probabilities: { escalate: 1 }, rationale: `Couldn't bring GitHub's changes in: ${applied.reason}. Resolve on GitHub or in trunk, then abandon this change; the next sync retries.`, decidedBy: "hive:upstream" }, { pump: false });
+			return { lastPull: { at: now(), count: up.count } };
+		}
+		await this.submit(change.id);
+		this.log("hive", `bringing in ${up.count} commit(s) from GitHub as ${change.id}`);
+		return { pendingSync: { changeId: change.id, upstreamHead: up.upstreamHead }, lastSynced: since, lastPull: { at: now(), count: up.count } };
+	}
+
+	private siteUrl() {
+		return (this.env as { HIVE_SITE_URL?: string }).HIVE_SITE_URL || "https://hivegit.dev";
+	}
+
 	// ── Spend ────────────────────────────────────────────────────────────────
 
 	// A batch's merge box time (standard-4), shared across its changes. Once per batch.
@@ -1265,10 +1479,19 @@ export class RepoCoordinator extends Agent<Env> {
 		this.clearTrunkRed();
 		this.setTrunkHead(tip);
 		await this.schedule(0, "reindex", { commit: tip });
+		const gh = this.githubConfig();
+		if (gh) {
+			if (gh.pendingSync && items.some((i) => i.changeId === gh.pendingSync?.changeId)) this.saveGithub({ ...gh, lastSynced: gh.pendingSync.upstreamHead, pendingSync: null });
+			await this.schedule(20, "githubSync");
+		}
 	}
 
 	async bounced(changeId: string, reason: string, d: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome">, opts: { pump?: boolean } = {}) {
 		const change = this.change(changeId)!;
+		// Nobody can fix an upstream sync but a person.
+		if (change.agentId === UPSTREAM_AGENT) {
+			return this.escalated(changeId, { ...d, rationale: `GitHub's changes don't pass trunk's checks here: ${d.rationale}` }, opts);
+		}
 		this.recordDecision({ ...d, changeId, outcome: "bounce" });
 		this.setStatus(changeId, "bounced");
 		// External agents (MCP, CLI) read the reason from the change detail instead.
@@ -1449,6 +1672,8 @@ export class RepoCoordinator extends Agent<Env> {
 			agents: this.db.exec("SELECT * FROM agents").toArray().map((r) => ({ id: String(r.id), kind: String(r.kind), model: String(r.model), trust: Number(r.trust) })),
 			trunkChecks: this.trunkChecks(),
 			// Planned sub-goals' dependencies: [goal, the goal it waits for].
+			// Pull requests opened on GitHub for goals.
+			goalPrs: Object.fromEntries(this.db.exec("SELECT goal_id, number, url, state FROM goal_prs WHERE url IS NOT NULL").toArray().map((r) => [String(r.goal_id), { number: Number(r.number), url: String(r.url), state: String(r.state) }])),
 			// Goals made from issues: goal id → owner/repo#n and its URL.
 			goalIssues: Object.fromEntries(this.db.exec("SELECT goal_id, ref, url FROM goal_issues").toArray().map((r) => [String(r.goal_id), { ref: String(r.ref), url: String(r.url) }])),
 			goalDeps: this.db.exec("SELECT goal_id, depends_on FROM goal_deps LIMIT 2000").toArray().map((r) => [String(r.goal_id), String(r.depends_on)] as [string, string]),

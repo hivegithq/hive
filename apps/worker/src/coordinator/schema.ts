@@ -30,6 +30,9 @@ export const SCHEMA = [
 	`CREATE INDEX IF NOT EXISTS usage_by_change ON usage (change_id)`,
 	// Goals made from issues elsewhere (GitHub): owner/repo#number, so imports don't repeat.
 	`CREATE TABLE IF NOT EXISTS goal_issues (goal_id TEXT PRIMARY KEY, ref TEXT NOT NULL UNIQUE, url TEXT NOT NULL)`,
+	// Pull requests Hive opened (or chose not to) for goals, when connected to GitHub.
+	`CREATE TABLE IF NOT EXISTS goal_prs (
+		goal_id TEXT PRIMARY KEY, state TEXT NOT NULL, number INTEGER, url TEXT, branch TEXT, reason TEXT, updated_at INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS goal_budgets (goal_id TEXT PRIMARY KEY, budget REAL)`,
 	`CREATE TABLE IF NOT EXISTS evaluations (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, model TEXT NOT NULL, score REAL NOT NULL,

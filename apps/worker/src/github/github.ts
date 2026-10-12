@@ -82,4 +82,16 @@ export function goalFromIssue(r: GitHubRepo, issue: Issue): { title: string; des
 	};
 }
 
+// Open a pull request for a branch, or refresh the open one already there.
+export async function upsertPullRequest(r: GitHubRepo, token: string, pr: { head: string; base: string; title: string; body: string }): Promise<{ number: number; url: string }> {
+	type Pr = { number: number; html_url: string };
+	const existing = await gh<Pr[]>(`/repos/${r.owner}/${r.repo}/pulls?state=open&head=${encodeURIComponent(`${r.owner}:${pr.head}`)}`, token);
+	if (existing[0]) {
+		await gh<Pr>(`/repos/${r.owner}/${r.repo}/pulls/${existing[0].number}`, token, { method: "PATCH", body: JSON.stringify({ title: pr.title, body: pr.body }) });
+		return { number: existing[0].number, url: existing[0].html_url };
+	}
+	const created = await gh<Pr>(`/repos/${r.owner}/${r.repo}/pulls`, token, { method: "POST", body: JSON.stringify({ ...pr, maintainer_can_modify: true }) });
+	return { number: created.number, url: created.html_url };
+}
+
 export { gh };

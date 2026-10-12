@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { coordinatorOf } from "../bindings.ts";
 import { repoHost, tokenSecret } from "../repo/index.ts";
 import type { OutboundPolicy } from "./box.ts";
 
@@ -41,6 +42,21 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 			}
 			if (!upstream.ok) console.warn(`hive outbound: ${request.method} ${repo}${url.pathname.slice(url.pathname.lastIndexOf("/"))} → ${upstream.status}`);
 			return upstream;
+		}
+
+		if (policy.github && url.hostname === "github.com") {
+			const { owner, repo: name, hive } = policy.github;
+			const m = /^\/([^/]+)\/([^/]+?)(?:\.git)?\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(url.pathname);
+			if (!m || m[1].toLowerCase() !== owner.toLowerCase() || m[2].toLowerCase() !== name.toLowerCase()) {
+				return deny(`only github.com/${owner}/${name} is reachable from this sandbox`);
+			}
+			const token = await coordinatorOf(this.ctx.exports, hive).githubToken();
+			if (!token) return deny(`no GitHub token is connected for ${hive}`);
+			const headers = new Headers(request.headers);
+			headers.set("authorization", `Basic ${btoa(`x-access-token:${token}`)}`);
+			headers.set("accept-encoding", "identity");
+			const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
+			return fetch(url.toString(), { method: request.method, headers, body, redirect: "manual" });
 		}
 
 		if (policy.hosts.includes(url.hostname)) {

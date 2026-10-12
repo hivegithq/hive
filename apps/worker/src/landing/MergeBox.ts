@@ -231,6 +231,117 @@ export class MergeBox extends DurableObject<Env> {
 	// to the empty trunk as main, whatever its default branch was called. A token for a private
 	// repository is passed as a per-command HTTP header: never in a URL, a command line or storage.
 	// Runs in its own box (repo:import), whose only reachable hosts are the source's and trunk.
+	// ── GitHub (the `<repo>:github` instance) ─────────────────────────────────
+	// One policy for this box's lifetime: read trunk, write the repo's forks (upstream syncs), and
+	// reach one GitHub repository, whose token the gateway adds. The container never holds it.
+
+	private async githubBox(input: { repo: string; owner: string; name: string }) {
+		await this.box.ensure({ repos: [{ name: input.repo, scope: "read" }, { name: `${input.repo}.*`, scope: "write" }], hosts: [], github: { owner: input.owner, repo: input.name, hive: input.repo } });
+		const trunk = await repoHost(this.env).get(input.repo);
+		if (!trunk) throw new Error(`trunk ${input.repo} missing`);
+		const dir = "/workspace/github";
+		const url = `https://github.com/${input.owner}/${input.name}.git`;
+		const r = await this.box.run(
+			`set -e
+			if [ ! -d ${dir}/.git ]; then git clone -q --no-tags ${sh(containerRemote(this.env, trunk.remote))} ${dir}; fi
+			cd ${dir}
+			git remote set-url origin ${sh(containerRemote(this.env, trunk.remote))}
+			git remote remove github 2>/dev/null || true
+			git remote add github ${sh(url)}
+			git config user.name "Hive" && git config user.email "hive@hivegit.dev"
+			git fetch -q --no-tags origin +refs/heads/main:refs/remotes/origin/main 2>&1`,
+			{ cwd: "/workspace", timeoutMs: 10 * 60 * 1000 },
+		);
+		if (r.exitCode !== 0) throw new Error(`couldn't set up: ${(r.stdout + r.stderr).trim().slice(-500)}`);
+		return { dir, url, trunk };
+	}
+
+	// Push trunk to a branch on GitHub (Hive owns that branch, so it's forced).
+	async githubMirror(input: { repo: string; owner: string; name: string; branch: string }): Promise<{ ok: boolean; head: string; reason: string | null }> {
+		const { dir } = await this.githubBox(input);
+		const r = await this.box.run(`git push -q --force github refs/remotes/origin/main:refs/heads/${sh(input.branch)} 2>&1; echo "EXIT $?"; git rev-parse refs/remotes/origin/main`, { cwd: dir, timeoutMs: 10 * 60 * 1000 });
+		const ok = /EXIT 0/.test(r.stdout);
+		return { ok, head: r.stdout.trim().split("\n").at(-1) ?? "", reason: ok ? null : r.stdout.replace(/EXIT \d+[\s\S]*$/, "").trim().slice(-500) };
+	}
+
+	// A branch on GitHub with one goal's work: its landed commits (Hive-Goal trailer, sub-goals
+	// included) cherry-picked, oldest first, onto GitHub's base branch.
+	async githubGoalBranch(input: { repo: string; owner: string; name: string; base: string; branch: string; goalIds: string[] }): Promise<{ ok: boolean; commits: number; reason: string | null }> {
+		const { dir } = await this.githubBox(input);
+		const grep = input.goalIds.map((g) => `--grep=${sh(`^Hive-Goal: ${g}$`)}`).join(" ");
+		const r = await this.box.run(
+			`set -e
+			git fetch -q --no-tags github +refs/heads/${sh(input.base)}:refs/remotes/github/${sh(input.base)} 2>&1
+			commits=$(git rev-list --reverse --no-merges ${grep} refs/remotes/origin/main)
+			n=$(printf '%s' "$commits" | grep -c . || true)
+			echo "COMMITS $n"
+			[ "$n" = "0" ] && exit 0
+			git checkout -q -B ${sh(input.branch)} refs/remotes/github/${sh(input.base)}
+			for c in $commits; do
+				if ! git cherry-pick --allow-empty --keep-redundant-commits -x "$c" >/dev/null 2>&1; then
+					echo "CONFLICT $(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+					git cherry-pick --abort || true
+					exit 0
+				fi
+			done
+			git push -q --force github HEAD:refs/heads/${sh(input.branch)} 2>&1
+			echo PUSHED`,
+			{ cwd: dir, timeoutMs: 10 * 60 * 1000 },
+		);
+		const commits = Number(/COMMITS (\d+)/.exec(r.stdout)?.[1] ?? 0);
+		const conflict = /CONFLICT (.*)/.exec(r.stdout)?.[1];
+		if (conflict !== undefined) return { ok: false, commits, reason: `doesn't apply cleanly to ${input.base}: conflicts in ${conflict.trim() || "some files"}` };
+		if (commits > 0 && !r.stdout.includes("PUSHED")) return { ok: false, commits, reason: (r.stdout + r.stderr).trim().slice(-500) };
+		return { ok: true, commits, reason: null };
+	}
+
+	// What GitHub's base branch has that Hive hasn't taken yet. `since` is the last upstream commit
+	// brought in; the first time, it's where trunk and GitHub last agreed.
+	async githubUpstream(input: { repo: string; owner: string; name: string; base: string; since: string | null }): Promise<{ upstreamHead: string; since: string; count: number }> {
+		const { dir } = await this.githubBox(input);
+		const r = await this.box.run(
+			`set -e
+			git fetch -q --no-tags github +refs/heads/${sh(input.base)}:refs/remotes/github/${sh(input.base)} 2>&1
+			up=$(git rev-parse refs/remotes/github/${sh(input.base)})
+			since=${input.since ? sh(input.since) : `$(git merge-base refs/remotes/origin/main "$up" || echo "")`}
+			[ -z "$since" ] && { echo "NOBASE"; exit 0; }
+			echo "UP $up"; echo "SINCE $since"; echo "COUNT $(git rev-list --count "$since..$up")"`,
+			{ cwd: dir, timeoutMs: 10 * 60 * 1000 },
+		);
+		if (r.stdout.includes("NOBASE")) throw new Error(`trunk and github.com/${input.owner}/${input.name} share no history`);
+		const get = (k: string) => new RegExp(`${k} (\\S+)`).exec(r.stdout)?.[1] ?? "";
+		if (r.exitCode !== 0 || !get("UP")) throw new Error(`couldn't read GitHub: ${(r.stdout + r.stderr).trim().slice(-500)}`);
+		return { upstreamHead: get("UP"), since: get("SINCE"), count: Number(get("COUNT")) };
+	}
+
+	// Bring GitHub's new commits into a fork of trunk as one commit (landing replays forks as a
+	// linear stack, so upstream history arrives squashed, with the range in its message).
+	async githubApplyUpstream(input: { repo: string; owner: string; name: string; base: string; fork: string; since: string; upstreamHead: string; message: string }): Promise<{ ok: boolean; reason: string | null }> {
+		const { dir } = await this.githubBox(input);
+		const fork = await repoHost(this.env).get(input.fork);
+		if (!fork) throw new Error(`fork ${input.fork} missing`);
+		await this.box.files().writeFile("/tmp/hive-upstream-msg", input.message);
+		const r = await this.box.run(
+			`set -e
+			git checkout -q -B upstream-sync refs/remotes/origin/main
+			git diff --binary ${sh(input.since)} ${sh(input.upstreamHead)} > /tmp/upstream.patch
+			if [ ! -s /tmp/upstream.patch ]; then echo EMPTY; exit 0; fi
+			if ! git apply --3way --index /tmp/upstream.patch 2>/tmp/apply.err; then
+				echo "CONFLICT $(git diff --name-only --diff-filter=U | tr '\n' ' ') $(tail -c 300 /tmp/apply.err | tr '\n' ' ')"
+				git reset -q --hard; exit 0
+			fi
+			git commit -q -F /tmp/hive-upstream-msg
+			git push -q --force ${sh(containerRemote(this.env, fork.remote))} HEAD:refs/heads/main 2>&1
+			echo PUSHED`,
+			{ cwd: dir, timeoutMs: 10 * 60 * 1000 },
+		);
+		if (r.stdout.includes("EMPTY")) return { ok: false, reason: "nothing to bring in" };
+		const conflict = /CONFLICT (.*)/.exec(r.stdout)?.[1];
+		if (conflict !== undefined) return { ok: false, reason: `GitHub's changes conflict with trunk: ${conflict.trim()}` };
+		if (!r.stdout.includes("PUSHED")) return { ok: false, reason: (r.stdout + r.stderr).trim().slice(-500) };
+		return { ok: true, reason: null };
+	}
+
 	async importRepo(input: { repo: string; url: string; branch?: string; token?: string }): Promise<{ head: string; commits: number; files: number }> {
 		const trunk = await repoHost(this.env).get(input.repo);
 		if (!trunk) throw new Error(`trunk ${input.repo} missing`);
