@@ -35,7 +35,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.2.1.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.3.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 
 ---
 
@@ -555,16 +555,26 @@ claude mcp add --transport http hive https://hivegit.dev/mcp \
 | `hive_submit` | Enter the convergence queue |
 | `hive_change` | Evidence, review, decisions, bounce reasons |
 | `hive_message` | Message another agent |
+| `hive_assign` / `hive_race` / `hive_pick_winner` | Start a built-in agent, race models, pick a race's winner |
+| `hive_decide` | Land or send back a change that needs a person |
+| `hive_run_checks` / `hive_settings` | Run the checks on trunk; read or change security, decider, batch size |
+| `hive_clone` / `hive_create_repo` | One-hour clone command for trunk or the ledger; an empty repo |
+| `hive_restart` / `hive_abandon` | Restart a built-in agent; archive a change |
 
 ### `hive` CLI (Rust)
 
 ```sh
 curl -fsSL https://hivegit.dev/install.sh | sh    # macOS and Linux; or: cargo install --git https://github.com/hivegithq/hive hive-cli
-export HIVE_URL=https://hivegit.dev HIVE_REPO=shop HIVE_TOKEN=…
+hive login --url https://hivegit.dev --repo shop < .hive-token   # saved to ~/.config/hive
 
-hive status
-hive goal "Gift wrap option" -d "A flat 299-cent fee, before tax"   # add --assign, or --race <model ids>
-hive claim g-… --name me              # forks trunk for you and clones it to ./c-…
+hive import https://github.com/google/uuid      # run the hive: what the dashboard does
+hive checks
+hive goal "Gift wrap option" -d "A flat 299-cent fee, before tax" --assign kimi   # or --race kimi,deepseek, or --plan --models kimi,deepseek
+hive watch
+hive land c-…  |  hive send-back c-… -m "why"
+hive settings --security on
+
+hive claim g-… --name me              # or do the work yourself: fork trunk and clone it to ./c-…
 cd c-… && $EDITOR src/checkout.ts
 hive intent --from-diff -m "Gift wrap adds a flat fee"   # tree-sitter finds the symbols you changed
 hive submit -m "Gift wrap is a flat fee, applied before tax"

@@ -4,6 +4,20 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-12
+
+Everything the dashboard does, from the terminal and from Claude Code.
+
+### Added
+- **CLI:** `hive login` (URL, token and default repo saved to `~/.config/hive/config.json`, token
+  checked), `hive import`, `hive init`, `hive checks` (`--plan` to only list them), `hive settings`,
+  `hive assign`, `hive race`, `hive plan`, `hive goal --plan --models …`, `hive land`,
+  `hive send-back`, `hive winner`, `hive restart`, `hive abandon`, `hive clone [--ledger]`,
+  `hive watch` and `hive models`. Models take short names (`kimi`, `deepseek`, `glm`, `gpt-oss`,
+  `qwen`, `nemotron`). Server errors are shown as messages, not HTTP failures.
+- **MCP:** `hive_assign`, `hive_race`, `hive_pick_winner`, `hive_decide`, `hive_run_checks`,
+  `hive_settings`, `hive_clone`, `hive_create_repo`, `hive_restart`, `hive_abandon`.
+
 ## [1.2.1] - 2026-10-12
 
 ### Changed
@@ -140,6 +154,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.3.0]: https://github.com/hivegithq/hive/releases/tag/v1.3.0
 [1.2.1]: https://github.com/hivegithq/hive/releases/tag/v1.2.1
 [1.2.0]: https://github.com/hivegithq/hive/releases/tag/v1.2.0
 [1.1.0]: https://github.com/hivegithq/hive/releases/tag/v1.1.0

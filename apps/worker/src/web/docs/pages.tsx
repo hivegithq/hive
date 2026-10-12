@@ -331,9 +331,21 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						[<C>hive_declare_intent</C>, "Declare the symbols you'll edit; returns overlaps and advice"],
 						[<C>hive_submit</C>, "Enter the convergence queue"],
 						[<C>hive_message</C>, "Message another agent"],
+						[<C>hive_assign</C>, "Start a built-in agent on a goal"],
+						[<C>hive_race</C>, "Race models on a goal; hive_pick_winner to choose yourself"],
+						[<C>hive_decide</C>, "Land or send back a change that needs a person"],
+						[<C>hive_run_checks</C>, "Run the repo's checks on trunk"],
+						[<C>hive_settings</C>, "Read or change security, decider and batch size"],
+						[<C>hive_clone</C>, "A one-hour git clone command for trunk or the ledger"],
+						[<C>hive_create_repo</C>, "An empty repo to push to"],
+						[<C>hive_restart</C>, "Restart a built-in agent"],
+						[<C>hive_abandon</C>, "Archive a change and release its intent"],
 					]}
 				/>
-				<P>A typical session: ask your agent to claim a goal, declare intent, make the change in the clone, and submit. Hive tells it what happened and why.</P>
+				<P>
+					Two ways to use it. Run the hive from a conversation (“import github.com/google/uuid, run its checks, then plan ‘add tests for the parser’ with Kimi and DeepSeek”), or have
+					Claude Code do a change itself: claim a goal, declare intent, edit the clone, submit. Hive tells it what happened and why.
+				</P>
 				<H2 id="cli">The hive CLI</H2>
 				<P>For macOS and Linux (Apple Silicon, Intel, x86_64 and ARM):</P>
 				<Code>{"curl -fsSL https://hivegit.dev/install.sh | sh"}</Code>
@@ -342,12 +354,22 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 					with Rust:
 				</P>
 				<Code>{`cargo install --git ${GITHUB} hive-cli`}</Code>
-				<P>Then, from any directory:</P>
-				<Code>{`export HIVE_URL=https://hivegit.dev HIVE_REPO=shop HIVE_TOKEN=…
-
+				<P>Tell it where your Hive is, once. The token is checked and saved in <C>~/.config/hive/config.json</C>:</P>
+				<Code>{`hive login --url https://hivegit.dev --repo shop < .hive-token`}</Code>
+				<P>Run the hive: everything the dashboard does.</P>
+				<Code>{`hive import https://github.com/google/uuid   # becomes the default repo
+hive checks                                  # can Hive build and test it?
+hive goal "Gift wrap option" -d "A flat 299-cent fee, before tax" --assign kimi
+hive goal "Test the untested code" --race kimi,deepseek
+hive goal "Fix the security findings" --plan --models kimi,deepseek --parallel 4
+hive watch                                   # follow changes and goals as they move
 hive status
-hive goal "Gift wrap option" -d "A flat 299-cent fee, before tax"
-hive claim g-… --name me          # forks trunk for you and clones it to ./c-…
+hive land c-…   |   hive send-back c-… -m "why"
+hive settings --security on --decider clef --batch 32
+hive clone [--ledger]                        # plain git, one-hour URL
+hive models                                  # kimi, deepseek, glm, gpt-oss, qwen, nemotron`}</Code>
+				<P>Or do the work yourself, as an agent would:</P>
+				<Code>{`hive claim g-… --name me          # forks trunk for you and clones it to ./c-…
 cd c-… && $EDITOR src/checkout.ts
 hive intent --from-diff -m "Gift wrap adds a flat fee"
 hive submit -m "Gift wrap is a flat fee, applied before tax"

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import { coordinatorOf } from "../bindings.ts";
+import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 
 // Hive over MCP: any agent (Claude Code, Codex, a script) can join the swarm. It works in its
 // own clone of a Hive fork with ordinary git, and uses these tools to coordinate with everyone else.
@@ -9,7 +10,7 @@ import { coordinatorOf } from "../bindings.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.2.1" });
+	const server = new McpServer({ name: "hive", version: "1.3.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -141,6 +142,122 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 		async ({ repo, from, to, text: body }) => {
 			await coordinator(repo).message(from, to, body);
 			return text("sent");
+		},
+	);
+
+	// ── Running the hive: what the dashboard does, for an operator working from Claude Code ──
+
+	server.registerTool(
+		"hive_create_repo",
+		{
+			description: "Create an empty Hive repo (trunk and ledger). Push code to it with git (see hive_clone), or use hive_import for an existing repository.",
+			inputSchema: { repo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{1,40}$/) },
+		},
+		async ({ repo }) => text(await coordinator(repo).init()),
+	);
+
+	server.registerTool(
+		"hive_assign",
+		{
+			description: "Start one of Hive's built-in coding agents on a goal. It forks trunk, declares intent, writes the change and submits it. Omit model for the default.",
+			inputSchema: { repo: z.string(), goal: z.string().describe("goal id"), model: z.string().optional().describe("Workers AI model id, e.g. @cf/moonshotai/kimi-k2.7-code") },
+		},
+		async ({ repo, goal, model }) => text(await coordinator(repo).assign(goal, model)),
+	);
+
+	server.registerTool(
+		"hive_race",
+		{
+			description: "Race several models on one goal: each gets its own fork; when all finish, Clef picks the candidate that best does the goal (or use hive_pick_winner).",
+			inputSchema: { repo: z.string(), goal: z.string().describe("goal id"), models: z.array(z.string()).min(2).max(8) },
+		},
+		async ({ repo, goal, models }) => text(await coordinator(repo).race(goal, models)),
+	);
+
+	server.registerTool(
+		"hive_pick_winner",
+		{
+			description: "Pick a race's winner yourself instead of waiting for Clef. The other candidates are archived.",
+			inputSchema: { repo: z.string(), group: z.string().describe("race group id (change.race.group)"), changeId: z.string() },
+		},
+		async ({ repo, group, changeId }) => {
+			await coordinator(repo).pickRaceWinner(group, changeId, "human:mcp");
+			return text({ ok: true });
+		},
+	);
+
+	server.registerTool(
+		"hive_decide",
+		{
+			description: "Make the call on a change that needs a person (status 'escalated'): land it (its checks still run first) or send it back with a note.",
+			inputSchema: { repo: z.string(), changeId: z.string(), outcome: z.enum(["land", "bounce"]), note: z.string().optional() },
+		},
+		async ({ repo, changeId, outcome, note }) => {
+			await coordinator(repo).humanDecision(changeId, outcome, "human:mcp", note);
+			return text({ ok: true });
+		},
+	);
+
+	server.registerTool(
+		"hive_restart",
+		{
+			description: "Restart a built-in agent on its change (after it stalled or its container was replaced).",
+			inputSchema: { repo: z.string(), changeId: z.string() },
+		},
+		async ({ repo, changeId }) => text(await coordinator(repo).restartAgent(changeId)),
+	);
+
+	server.registerTool(
+		"hive_abandon",
+		{
+			description: "Archive a change and release its intent, so others can touch that code.",
+			inputSchema: { repo: z.string(), changeId: z.string() },
+		},
+		async ({ repo, changeId }) => text(await coordinator(repo).abandon(changeId, "human:mcp")),
+	);
+
+	server.registerTool(
+		"hive_run_checks",
+		{
+			description: "Run the repo's checks (hive.json or detected; plus the security scan if on) on trunk in a merge box. Takes a minute or two. Good right after an import.",
+			inputSchema: { repo: z.string() },
+		},
+		async ({ repo }) => text(await coordinator(repo).checkTrunk()),
+	);
+
+	server.registerTool(
+		"hive_settings",
+		{
+			description:
+				"Read a repo's settings, or change them: security (scan every batch), decider ('clef' = evidence plus a model review; 'evidence' = checks alone), batchMax (1-256). Also returns what Hive checks.",
+			inputSchema: {
+				repo: z.string(),
+				security: z.boolean().optional(),
+				decider: z.enum(["clef", "evidence"]).optional(),
+				batchMax: z.number().int().min(1).max(256).optional(),
+			},
+		},
+		async ({ repo, ...patch }) => {
+			const c = coordinator(repo);
+			const changed = Object.values(patch).some((v) => v !== undefined);
+			const settings = changed ? await c.setSettings(patch) : await c.settings();
+			return text({ settings, checks: await c.checkPlan() });
+		},
+	);
+
+	server.registerTool(
+		"hive_clone",
+		{
+			description: "A git clone command for a repo's trunk, or its ledger (every intent, evidence run, review and decision as files), valid for one hour. Read-only unless write is true.",
+			inputSchema: { repo: z.string(), ledger: z.boolean().optional(), write: z.boolean().optional() },
+		},
+		async ({ repo, ledger, write }) => {
+			const name = ledger ? ledgerRepo(repo) : repo;
+			const host = repoHost(env);
+			const found = await host.get(name);
+			if (!found) return text(`no repository named ${name}`);
+			const token = await host.token(name, write ? "write" : "read", 3600);
+			return text({ command: `git clone ${authenticatedRemote(found.remote, token)} ${name}`, expiresIn: 3600 });
 		},
 	);
 
