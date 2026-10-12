@@ -4,6 +4,36 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-12
+
+Hive works with GitHub, knows what it costs, and shows the code.
+
+### Added
+- **Diff view** in the change drawer: files with counts, numbered lines, declared functions marked,
+  undeclared files flagged, a Widen toggle. Diffs come from the agent's submit (or the CLI's) and
+  then the merge queue's check, and are served from storage, not a container.
+- **Cost tracking and budgets.** Every model call (agents, planner, reviews, Clef) and container run
+  is recorded and priced. Spend shows in the top bar, per goal and per change; `hive cost`,
+  `hive_costs`. Budgets per goal (covering sub-goals) and a default per repository stop agents
+  before each step once reached; raise and restart to continue.
+- **Model leaderboard** per repository: landed, landing rate, sent back, needed a person, median time
+  to land, cost per landed change. Dashboard, `hive models --stats`, `hive_models`.
+- **GitHub issues as goals**, idempotent, linked back, with `Hive-Issue` trailers on what lands.
+  Open goals can be started from the goal list.
+- **Push back to GitHub**: trunk mirrored to `hive/main`, a pull request per achieved goal with its
+  evidence and decision (`Fixes #n` for issue goals), and optional upstream sync through the merge
+  queue. The token is stored sealed and used only by the egress gateway.
+- **Notifications**: webhooks for needs-you, goal landed, race finished and trunk failing; Slack and
+  Discord formats, or JSON signed with HMAC-SHA256.
+- **Dependency cache**: what setup installs is archived to R2 by lockfile; fresh boxes restore it
+  instead of installing. `hive.json` gains `cache`.
+
+### Changed
+- Changes whose own tests passed land at a lower bar (0.70 instead of 0.85) when land is Clef's top
+  choice, there are no conflicts and the agent's trust is at least 0.5.
+- Plan advancement can no longer start a sub-goal twice under concurrent landings.
+- Reviews give the primary model one bounded try, then fall back to gpt-oss 120B.
+
 ## [1.3.0] - 2026-10-12
 
 Everything the dashboard does, from the terminal and from Claude Code.
@@ -154,6 +184,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.4.0]: https://github.com/hivegithq/hive/releases/tag/v1.4.0
 [1.3.0]: https://github.com/hivegithq/hive/releases/tag/v1.3.0
 [1.2.1]: https://github.com/hivegithq/hive/releases/tag/v1.2.1
 [1.2.0]: https://github.com/hivegithq/hive/releases/tag/v1.2.0

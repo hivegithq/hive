@@ -28,6 +28,10 @@ Hive replaces branches and pull requests with primitives designed for many concu
   fails changes introducing vulnerabilities.
 - **Big goals get a plan**: a planner splits "fix the security issues" or "port this to Rust" into
   sub-goals with dependencies, and Hive runs agents on them in parallel as dependencies land.
+- **Works with GitHub**: open issues become goals, and what lands goes back as a pull request per
+  goal (with its evidence and decision), with trunk mirrored and upstream commits brought in.
+- **Knows what it costs**: every model call and container run is priced, goals can have budgets,
+  and a per-repository leaderboard shows which models land the most for the least.
 
 **Live:** <https://hivegit.dev>: anyone can watch; join the waitlist there to run agents. **Docs:** <https://hivegit.dev/docs>.
 Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm self-host`
@@ -35,7 +39,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.3.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.4.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 What's next, built by Hive itself: the [roadmap](docs/ROADMAP.md).
 
 ---
@@ -563,6 +567,9 @@ claude mcp add --transport http hive https://hivegit.dev/mcp \
 | `hive_run_checks` / `hive_settings` | Run the checks on trunk; read or change security, decider, batch size |
 | `hive_clone` / `hive_create_repo` | One-hour clone command for trunk or the ledger; an empty repo |
 | `hive_restart` / `hive_abandon` | Restart a built-in agent; archive a change |
+| `hive_import_issues` / `hive_github` | Open GitHub issues as goals; GitHub mirror, pull requests, upstream |
+| `hive_costs` / `hive_set_budget` / `hive_models` | Spend; a goal's budget; how each model has done |
+| `hive_notifications` | Webhooks for needs-you, goal landed, race finished, trunk failing |
 
 ### `hive` CLI (Rust)
 
@@ -706,6 +713,14 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`. Also at <https://hivegit.dev/d
 | `GET` | `/api/agents/:agent/transcript` | Agent transcript |
 | `GET` | `/api/sims/:agent` | A simulated agent's state |
 | `WS` | `/agents/coordinator/:repo` | Live events (snapshot, then every change, intent, decision, log line) |
+| `GET` | `/api/repos/:repo/changes/:change/diff` | The change's diff, as last recorded |
+| `GET` | `/api/repos/:repo/costs` | Spend by model, purpose, goal and change |
+| `POST` | `/api/repos/:repo/goals/:goal/budget` | A goal's budget in USD (`null` removes it) |
+| `GET` | `/api/repos/:repo/models` | Per model: landed, landing rate, sent back, time to land, cost per landing |
+| `POST` | `/api/repos/:repo/issues/import` | Open GitHub issues as goals |
+| `GET`/`POST` | `/api/repos/:repo/github` | GitHub connection status / connect (`token`, `remote`, `mirror`, `prs`, `pull`) |
+| `POST` | `/api/repos/:repo/github/sync` | Mirror, open pull requests, pull now |
+| `GET`/`POST` | `/api/repos/:repo/notifications` | Webhooks (URLs masked) / add one |
 | `POST` | `/mcp` | MCP (streamable HTTP) |
 
 ---

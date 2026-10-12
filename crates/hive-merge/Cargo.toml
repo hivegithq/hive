@@ -1,6 +1,6 @@
 [package]
 name = "hive-merge"
-version = "1.3.0"
+version = "1.4.0"
 description = "Semantic index and referential-conflict detection for Hive"
 edition.workspace = true
 license.workspace = true

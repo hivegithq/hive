@@ -9,7 +9,15 @@ is kept for that demo and for the cost reasoning.
 |---|---|
 | 1 | Done: tested changes land at a lower bar; reviews fall back to a fast model |
 | 2 | Done: plan advancement can't start a sub-goal twice |
-| 3–9 | In progress |
+| 3 | Done: dependency cache in R2 (verified: a fresh box restored node_modules in 0s) |
+| 4 | Done: mirror, a PR per goal, upstream sync (needs a test against a real GitHub repository) |
+| 5 | Done: issues as goals |
+| 6 | Done: cost tracking and budgets |
+| 7 | Done: model leaderboard |
+| 8 | Done: webhooks (Slack, Discord, signed JSON); email later, through Email Routing |
+| 9 | Done: diff view (side-by-side race comparison later) |
+
+All shipped in 1.4.0.
 
 ## Hive builds Hive
 

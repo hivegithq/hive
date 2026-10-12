@@ -340,6 +340,12 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						[<C>hive_create_repo</C>, "An empty repo to push to"],
 						[<C>hive_restart</C>, "Restart a built-in agent"],
 						[<C>hive_abandon</C>, "Archive a change and release its intent"],
+						[<C>hive_import_issues</C>, "Open GitHub issues as goals"],
+						[<C>hive_github</C>, "GitHub status, sync, options, disconnect"],
+						[<C>hive_costs</C>, "Spend by model, purpose, goal, or one change"],
+						[<C>hive_set_budget</C>, "Cap a goal's spend"],
+						[<C>hive_models</C>, "How each model has done on the repository"],
+						[<C>hive_notifications</C>, "Webhooks: list, add, test, remove"],
 					]}
 				/>
 				<P>
@@ -367,7 +373,10 @@ hive status
 hive land c-…   |   hive send-back c-… -m "why"
 hive settings --security on --decider clef --batch 32
 hive clone [--ledger]                        # plain git, one-hour URL
-hive models                                  # kimi, deepseek, glm, gpt-oss, qwen, nemotron`}</Code>
+hive models                                  # kimi, deepseek, glm, gpt-oss, qwen, nemotron
+hive cost   |   hive budget g-… 2   |   hive models --stats
+hive issues import --exclude-label question --assign kimi --budget 1
+hive github connect < github-token.txt   |   hive notify add <webhook url>`}</Code>
 				<P>Or do the work yourself, as an agent would:</P>
 				<Code>{`hive claim g-… --name me          # forks trunk for you and clones it to ./c-…
 cd c-… && $EDITOR src/checkout.ts
@@ -420,12 +429,13 @@ hive show                         # evidence, review, decision`}</Code>
 				<H2 id="hive-json">hive.json</H2>
 				<P>
 					To say exactly, add a <C>hive.json</C> at the repository's root. <C>setup</C> and <C>checks</C> each replace what was detected; setup re-runs only when the files it depends
-					on change.
+					on change. <C>cache</C> lists what setup fills, so other boxes can <A href="/docs/costs#cache">restore it</A> instead of installing.
 				</P>
 				<Code lang="json">{`{
   "setup": ["make deps"],
   "checks": { "test": "make test", "lint": "make lint", "format": "make fmt-check" },
-  "security": true
+  "security": true,
+  "cache": ["node_modules", "$HOME/.cache/ms-playwright"]
 }`}</Code>
 				<P>
 					The same plan runs everywhere: agents run it in their own container and see exactly what the merge queue will run. A broken <C>hive.json</C> shows up as a failing check.
@@ -437,8 +447,114 @@ hive show                         # evidence, review, decision`}</Code>
 						[<C>security</C>, "off", "Run the security scan on every batch (or set it in hive.json)"],
 						[<C>decider</C>, <C>clef</C>, <>Who lands changes: Clef, on evidence plus a model review, or <C>evidence</C>, the checks alone</>],
 						[<C>batchMax</C>, "16", "Changes stacked and checked together; a failing batch is split to find the culprit"],
+						[<C>goalBudget</C>, "none", "USD a goal (with its sub-goals) may spend unless it sets its own budget"],
 					]}
 				/>
+			</>
+		),
+	},
+	{
+		slug: "github",
+		title: "GitHub",
+		group: "Use",
+		summary: "Turn issues into goals, and send what lands back as pull requests.",
+		body: () => (
+			<>
+				<H2 id="issues">Issues as goals</H2>
+				<P>
+					One goal per open issue, linked back, skipping issues already imported. From the dashboard (<strong className="text-wax">Import GitHub issues as goals</strong> under New goal),
+					MCP (<C>hive_import_issues</C>) or the CLI:
+				</P>
+				<Code>{`hive issues import google/uuid --exclude-label question,wontfix --limit 20
+hive issues import --assign kimi --budget 1     # and start an agent on each, $1 cap apiece`}</Code>
+				<P>
+					The source defaults to the repository this one was imported from. Landed commits carry <C>Hive-Issue: owner/repo#n</C>. For private repositories, or to avoid GitHub's
+					rate limit, pass a token; it's used for that call only.
+				</P>
+				<H2 id="push-back">Send landed work back</H2>
+				<P>Connect the GitHub repository once, with a fine-grained token for that one repository (Contents and Pull requests: read and write):</P>
+				<Code>{`hive github connect owner/repo < github-token.txt     # or Checks & settings → GitHub`}</Code>
+				<List>
+					<li>
+						<strong className="text-wax">Mirror:</strong> after each landing, trunk is pushed to <C>hive/main</C> on GitHub.
+					</li>
+					<li>
+						<strong className="text-wax">Pull requests:</strong> each goal that lands (a plan with all its sub-goals) gets a branch with its commits cherry-picked onto GitHub's default
+						branch, and a pull request with the evidence, Clef's decision and the cost. Goals from issues in the same repository say <C>Fixes #n</C>. If a goal's commits don't apply
+						cleanly, Hive records why instead of opening it.
+					</li>
+					<li>
+						<strong className="text-wax">Pull (optional):</strong> every ten minutes, GitHub's new commits arrive as one “Sync from GitHub” change that goes through the merge queue
+						and lands on the checks alone. If it fails or conflicts, it waits for a person.
+					</li>
+				</List>
+				<Note>
+					The token is stored encrypted, with a key derived from the deployment's <C>HIVE_TOKEN</C> (rotate that and you connect again). Only Hive's egress gateway uses it, and only
+					for that one repository's git traffic: agents and merge boxes never see it.
+				</Note>
+				<Code>{`hive github status
+hive github sync
+hive github options --pull on
+hive github disconnect`}</Code>
+			</>
+		),
+	},
+	{
+		slug: "costs",
+		title: "Costs & budgets",
+		group: "Use",
+		summary: "What each change, goal and model cost, and limits that stop agents before they overspend.",
+		body: () => (
+			<>
+				<P>
+					Every model call (agents, the planner, reviews, Clef) and every container run (agent boxes, merge boxes) is recorded with its tokens or seconds, priced at Workers AI's and
+					Containers' list prices. The dashboard shows the total in the top bar, per goal in the goal list, and per change in its drawer.
+				</P>
+				<Code>{`hive cost                       # total, by model, by purpose, by goal
+hive cost --change c-…          # one change, call by call
+hive models --stats             # each model: landed, sent back, time to land, $ per landed change`}</Code>
+				<H2 id="budgets">Budgets</H2>
+				<P>
+					A goal can have a budget in USD; a plan's budget covers all its sub-goals. A repository can set a default for goals without one. Agents and planners check before every
+					step: at the limit they stop, and the change waits for a person with the numbers. Raise the budget and restart the agent to go on.
+				</P>
+				<Code>{`hive goal "Fix the flaky test" --assign kimi --budget 0.50
+hive budget g-… 2                # raise it (or: none)
+hive restart c-…
+hive settings --budget 1         # default per goal`}</Code>
+				<H2 id="cache">Dependency cache</H2>
+				<P>
+					Installing dependencies is often the slowest part of a check. After a box installs them, Hive archives what was installed to R2, keyed by the lockfiles; the next box with
+					the same lockfiles restores it instead. Evidence says which happened. Node, Rust, Python and Go are covered; for custom setup, list what it fills in{" "}
+					<A href="/docs/repositories">hive.json</A>'s <C>cache</C>.
+				</P>
+			</>
+		),
+	},
+	{
+		slug: "notifications",
+		title: "Notifications",
+		group: "Use",
+		summary: "Hear about the moments that need a person, without keeping the dashboard open.",
+		body: () => (
+			<>
+				<P>A repository calls its webhooks when:</P>
+				<Table
+					head={["Event", "When"]}
+					rows={[
+						[<C>needs-you</C>, "A change waits for a person: Clef wasn't sure, it kept failing, or it hit its budget"],
+						[<C>goal-landed</C>, "A goal (or a whole plan) landed, with its pull request if GitHub is connected"],
+						[<C>race-finished</C>, "A race was judged"],
+						[<C>trunk-failing</C>, "Trunk fails its own checks and landings pause"],
+					]}
+				/>
+				<Code>{`hive notify add https://hooks.slack.com/services/…       # Slack and Discord get their own format
+hive notify add https://example.com/hive --events needs-you
+hive notify test h-…`}</Code>
+				<P>
+					Other URLs get JSON signed like GitHub's webhooks: <C>X-Hive-Signature-256: sha256=HMAC-SHA256(secret, body)</C>, with the secret shown once when you add the hook.
+					Deliveries are retried twice with backoff, and the last outcome shows in Checks &amp; settings. URLs must be public https; lists show them masked.
+				</P>
 			</>
 		),
 	},
@@ -554,5 +670,15 @@ const API: [string, string, string][] = [
 	["GET", "/api/agents/:agent/transcript", "An agent's transcript"],
 	["GET", "/api/hive/stats", "Totals across this deployment's repositories"],
 	["WS", "/agents/coordinator/:repo", "Live events: a snapshot, then every change"],
+	["GET", "/api/repos/:repo/changes/:change/diff", "The change's diff, as last recorded"],
+	["GET", "/api/repos/:repo/costs", "Spend: total, by model, purpose, goal, change"],
+	["POST", "/api/repos/:repo/goals/:goal/budget", "A goal's budget in USD (null removes it)"],
+	["GET", "/api/repos/:repo/models", "Per model: landed, landing rate, sent back, time to land, $ per landing"],
+	["POST", "/api/repos/:repo/issues/import", "Open GitHub issues as goals: source, labels, excludeLabels, limit, token"],
+	["GET", "/api/repos/:repo/github", "GitHub connection status and pull requests"],
+	["POST", "/api/repos/:repo/github", "Connect: token, remote, mirror, prs, pull"],
+	["POST", "/api/repos/:repo/github/sync", "Mirror, open pull requests and pull now"],
+	["GET", "/api/repos/:repo/notifications", "Webhooks (URLs masked)"],
+	["POST", "/api/repos/:repo/notifications", "Add a webhook: url, events"],
 	["POST", "/mcp", "MCP over streamable HTTP; read tools work without the token"],
 ];
