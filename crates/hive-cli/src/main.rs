@@ -52,8 +52,11 @@ enum Cmd {
         #[arg(long, default_value_t = 3)]
         every: u64,
     },
-    /// Models you can name, with their short names.
-    Models,
+    /// Models you can name, with their short names; --stats for how each did on this repo.
+    Models {
+        #[arg(long)]
+        stats: bool,
+    },
     /// Create an empty repo (trunk and ledger) and make it the default.
     Init { name: String },
     /// Import a repository from GitHub or any https git server.
@@ -433,7 +436,28 @@ fn main() -> Result<()> {
                 std::thread::sleep(Duration::from_secs(every.max(1)));
             }
         }
-        Cmd::Models => {
+        Cmd::Models { stats: true } => {
+            let repo = repo()?;
+            let list = api.get(&format!("/api/repos/{repo}/models"))?;
+            println!("{repo}: how each model did");
+            println!("  {:<40} {:>7} {:>7} {:>6} {:>7} {:>9} {:>10} {:>10}", "model", "started", "landed", "rate", "sent bk", "escalated", "median", "$/landed");
+            for m in list.as_array().into_iter().flatten() {
+                let median = m["medianMinutesToLand"].as_f64().map(|v| format!("{v:.0} min")).unwrap_or_else(|| "-".into());
+                let per = m["costPerLanded"].as_f64().map(money).unwrap_or_else(|| "-".into());
+                println!(
+                    "  {:<40} {:>7} {:>7} {:>5.0}% {:>7} {:>9} {:>10} {:>10}",
+                    s(&m["model"]),
+                    m["started"].as_u64().unwrap_or(0),
+                    m["landed"].as_u64().unwrap_or(0),
+                    m["landingRate"].as_f64().unwrap_or(0.0) * 100.0,
+                    m["bounces"].as_u64().unwrap_or(0),
+                    m["escalations"].as_u64().unwrap_or(0),
+                    median,
+                    per
+                );
+            }
+        }
+        Cmd::Models { stats: false } => {
             for (short, id) in MODELS {
                 println!("  {short:<10} {id}");
             }

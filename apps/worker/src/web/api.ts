@@ -35,6 +35,18 @@ export interface Costs {
 	goalBudget: number | null;
 }
 
+export interface ModelStats {
+	model: string;
+	started: number;
+	landed: number;
+	landingRate: number;
+	bounces: number;
+	escalations: number;
+	medianMinutesToLand: number | null;
+	cost: number;
+	costPerLanded: number | null;
+}
+
 export interface ChangeCost {
 	total: number;
 	parts: { model: string; purpose: string; cost: number; inputTokens: number; outputTokens: number; seconds: number }[];
@@ -117,6 +129,7 @@ export const api = {
 		call<Goal>("POST", `/api/repos/${repo}/goals`, { title, description, ...(budget ? { budget } : {}) }),
 	setGoalBudget: (repo: string, goalId: string, budget: number | null) => call("POST", `/api/repos/${repo}/goals/${goalId}/budget`, { budget }),
 	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
+	models: (repo: string) => call<ModelStats[]>("GET", `/api/repos/${repo}/models`),
 	assign: (repo: string, goalId: string, model: string) => call<Change>("POST", `/api/repos/${repo}/goals/${goalId}/assign`, { model }),
 	settings: (repo: string) => call<RepoSettings>("GET", `/api/repos/${repo}/settings`),
 	setSettings: (repo: string, patch: Partial<RepoSettings>) => call<RepoSettings>("POST", `/api/repos/${repo}/settings`, patch),

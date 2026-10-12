@@ -283,6 +283,16 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 	);
 
 	server.registerTool(
+		"hive_models",
+		{
+			description:
+				"How each model has done on a repo: changes started and landed, landing rate, times sent back or escalated, median minutes to land, cost per landed change. Use it to pick models.",
+			inputSchema: { repo: z.string() },
+		},
+		async ({ repo }) => text(await coordinator(repo).models()),
+	);
+
+	server.registerTool(
 		"hive_set_budget",
 		{
 			description: "Set a goal's budget in USD (covers its sub-goals), or null to remove it. Agents stop when it's reached; raise it and hive_restart to continue.",

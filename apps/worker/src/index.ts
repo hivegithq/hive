@@ -165,6 +165,9 @@ app.post("/api/repos/:repo/goals/:goalId/budget", async (c) => {
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setGoalBudget(c.req.param("goalId"), budget));
 });
 
+// How each model has done on this repository.
+app.get("/api/repos/:repo/models", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).models()));
+
 // What the work in this repository cost: totals by model, purpose, goal and change.
 app.get("/api/repos/:repo/costs", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).costs()));
 

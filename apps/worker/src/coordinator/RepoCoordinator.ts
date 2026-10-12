@@ -26,6 +26,7 @@ import { type LedgerFiles, writeLedger } from "../ledger/ledger.ts";
 import { containerCost, modelCost, usd } from "../domain/pricing.ts";
 import { budgetExceeded, type GoalNode, treeSpend } from "./costs.ts";
 import { CLEF_MODEL, metered } from "../decide/clef.ts";
+import { leaderboard } from "./leaderboard.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -1011,6 +1012,20 @@ export class RepoCoordinator extends Agent<Env> {
 		const budgets = new Map(this.goalNodes().map((g) => [g.id, g.budget]));
 		const byGoal = Object.fromEntries([...spend].filter(([g, c]) => c > 0 || (budgets.get(g) ?? null) !== null).map(([g, c]) => [g, { cost: c, budget: budgets.get(g) ?? null }]));
 		return { total, byModel, byPurpose, byGoal, byChange, goalBudget: this.settings().goalBudget };
+	}
+
+	// How each model has done here: landings, sends-back, escalations, time and cost.
+	models() {
+		const changes = this.db
+			.exec("SELECT id, model, status, created_at FROM changes")
+			.toArray()
+			.map((r) => ({ id: String(r.id), model: String(r.model), status: String(r.status), createdAt: Number(r.created_at) }));
+		const decisions = this.db
+			.exec("SELECT change_id, outcome, created_at FROM decisions")
+			.toArray()
+			.map((r) => ({ changeId: String(r.change_id), outcome: String(r.outcome), createdAt: Number(r.created_at) }));
+		const cost = new Map(this.db.exec("SELECT change_id, SUM(cost) AS c FROM usage WHERE change_id IS NOT NULL GROUP BY change_id").toArray().map((r) => [String(r.change_id), Number(r.c)]));
+		return leaderboard(changes, decisions, cost);
 	}
 
 	changeCost(changeId: string) {

@@ -20,6 +20,7 @@ import { ChangeDrawer } from "./ChangeDrawer.tsx";
 import { ChecksPanel } from "./ChecksPanel.tsx";
 import { Account, SignInToAct, useCanWrite, useGuard } from "../ui/Account.tsx";
 import { GoalComposer } from "./GoalComposer.tsx";
+import { ModelBoard } from "./ModelBoard.tsx";
 
 const CARDS_PER_STAGE = 60;
 
@@ -72,6 +73,7 @@ export function Dashboard({ repo }: { repo: string }) {
 					<Overview snapshot={snapshot} />
 					<PlanPanel snapshot={snapshot} log={hive.log} onSelect={setSelected} />
 					<Stages snapshot={snapshot} overlaps={hive.overlaps} selected={selected} onSelect={setSelected} />
+					<ModelBoard repo={repo} tick={hive.tick} />
 				</main>
 				<TrunkColumn trunk={hive.trunk} onSelect={setSelected} />
 			</div>
