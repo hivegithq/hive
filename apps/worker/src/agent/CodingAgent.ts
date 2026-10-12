@@ -333,6 +333,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			detail?.intent ? `Hive-Intent: ${detail.intent.id}` : null,
 			`Hive-Agent: ${this.name}`,
 			`Hive-Model: ${change.model}`,
+			detail?.issue ? `Hive-Issue: ${detail.issue.ref}` : null,
 		].filter(Boolean);
 		const full = `${message.trim()}\n\n${trailers.join("\n")}\n`;
 		await this.box.files().writeFile("/tmp/hive-commit-msg", full);

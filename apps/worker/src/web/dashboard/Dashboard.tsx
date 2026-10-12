@@ -3,13 +3,14 @@ import { Button } from "@cloudflare/kumo/components/button";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Empty } from "@cloudflare/kumo/components/empty";
 import { Loader } from "@cloudflare/kumo/components/loader";
+import { Select } from "@cloudflare/kumo/components/select";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { CopyIcon, DownloadSimpleIcon, GitBranchIcon, GitCommitIcon, ShieldCheckIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Change, ChangeStatus, Overlap } from "../../domain/types.ts";
 import { usd } from "../../domain/pricing.ts";
-import { api, type Costs, type LogLine, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
+import { api, type Costs, type LogLine, MODELS, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
 import { HiveMap, MAP_GROUPS, type MapGroup } from "../hex/HiveMap.tsx";
 import { PlanGraph } from "../hex/PlanGraph.tsx";
 import { Wordmark } from "../ui/Logo.tsx";
@@ -20,6 +21,7 @@ import { ChangeDrawer } from "./ChangeDrawer.tsx";
 import { ChecksPanel } from "./ChecksPanel.tsx";
 import { Account, SignInToAct, useCanWrite, useGuard } from "../ui/Account.tsx";
 import { GoalComposer } from "./GoalComposer.tsx";
+import { IssueImport } from "./IssueImport.tsx";
 import { ModelBoard } from "./ModelBoard.tsx";
 
 const CARDS_PER_STAGE = 60;
@@ -329,7 +331,10 @@ function GoalRail({ repo, snapshot, costs }: { repo: string; snapshot: Snapshot;
 	return (
 		<aside className="space-y-8 bg-night p-5" aria-label="Goals">
 			{canWrite ? (
-				<GoalComposer repo={repo} />
+				<>
+					<GoalComposer repo={repo} />
+					<IssueImport repo={repo} />
+				</>
 			) : (
 				<div className="space-y-4">
 					<h2 className="font-display text-lg font-semibold text-wax">Put agents to work</h2>
@@ -349,23 +354,76 @@ function GoalRail({ repo, snapshot, costs }: { repo: string; snapshot: Snapshot;
 				{snapshot.goals.length === 0 ? (
 					<p className="text-sm text-kumo-subtle">No goals yet. Describe a change above and an agent will fork the repo and start.</p>
 				) : (
-					<GoalTree goals={snapshot.goals} costs={costs} />
+					<GoalTree repo={repo} goals={snapshot.goals} costs={costs} issues={snapshot.goalIssues ?? {}} />
 				)}
 			</section>
 		</aside>
 	);
 }
 
+// Put agents on a goal that has none yet (one imported from an issue, say).
+function StartGoal({ repo, goalId, onDone }: { repo: string; goalId: string; onDone: () => void }) {
+	const [model, setModel] = useState(MODELS[0].id);
+	const [busy, setBusy] = useState<"one" | "plan" | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const go = async (how: "one" | "plan") => {
+		setBusy(how);
+		setError(null);
+		try {
+			if (how === "one") await api.assign(repo, goalId, model);
+			else await api.plan(repo, goalId, { agentModels: [model] });
+			onDone();
+		} catch (e) {
+			setError((e as Error).message);
+		} finally {
+			setBusy(null);
+		}
+	};
+	return (
+		<li className="cut-sm space-y-2 bg-white/[0.03] p-3 ring-1 ring-white/10">
+			<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(MODELS.map((m) => [m.id, m.label]))} />
+			<div className="flex gap-2">
+				<Button size="sm" variant="primary" loading={busy === "one"} disabled={!!busy} onClick={() => go("one")}>
+					Start an agent
+				</Button>
+				<Button size="sm" variant="secondary" loading={busy === "plan"} disabled={!!busy} onClick={() => go("plan")}>
+					Plan it
+				</Button>
+			</div>
+			{error && <p className="text-xs text-kumo-danger">{error}</p>}
+		</li>
+	);
+}
+
 const GOAL_TONE: Record<string, string> = { achieved: "text-honey", planning: "text-flare", planned: "text-flare", racing: "text-flare" };
 
 // Goals newest first, with a planned goal's sub-goals nested under it.
-function GoalTree({ goals, costs }: { goals: Snapshot["goals"]; costs: Costs | null }) {
+function GoalTree({ repo, goals, costs, issues }: { repo: string; goals: Snapshot["goals"]; costs: Costs | null; issues: NonNullable<Snapshot["goalIssues"]> }) {
+	const canWrite = useCanWrite();
+	const [openGoal, setOpenGoal] = useState<string | null>(null);
 	const children = new Map<string, Snapshot["goals"]>();
 	for (const g of goals) if (g.parentId) children.set(g.parentId, [...(children.get(g.parentId) ?? []), g]);
 	const top = goals.filter((g) => !g.parentId || !goals.some((p) => p.id === g.parentId)).reverse().slice(0, 40);
-	const row = (g: Snapshot["goals"][number], nested: boolean) => (
+	const startable = (g: Snapshot["goals"][number]) => canWrite && g.status === "open" && !g.parentId;
+	const row = (g: Snapshot["goals"][number], nested: boolean) => [
 		<li key={g.id} className={`flex items-baseline gap-2 text-sm ${nested ? "border-l border-white/10 pl-3" : ""}`}>
-			<span className={`min-w-0 flex-1 truncate ${nested ? "text-kumo-subtle" : "text-kumo-default"}`}>{g.title}</span>
+			{startable(g) ? (
+				<button
+					type="button"
+					onClick={() => setOpenGoal(openGoal === g.id ? null : g.id)}
+					className="min-w-0 flex-1 truncate text-left text-kumo-default hover:text-honey"
+					title="Put agents on this goal"
+				>
+					{g.title}
+				</button>
+			) : (
+				<span className={`min-w-0 flex-1 truncate ${nested ? "text-kumo-subtle" : "text-kumo-default"}`}>{g.title}</span>
+			)}
+			{issues[g.id] && (
+				<a href={issues[g.id].url} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-steel hover:text-honey" title={`From ${issues[g.id].ref}`}>
+					issue
+				</a>
+			)}
 			{costs?.byGoal[g.id] && (
 				<span className="shrink-0 tabular text-xs text-kumo-subtle" title={costs.byGoal[g.id].budget ? `Budget ${usd(costs.byGoal[g.id].budget ?? 0)}` : "Spent so far"}>
 					{usd(costs.byGoal[g.id].cost)}
@@ -373,8 +431,9 @@ function GoalTree({ goals, costs }: { goals: Snapshot["goals"]; costs: Costs | n
 				</span>
 			)}
 			<span className={`shrink-0 ${GOAL_TONE[g.status] ?? "text-kumo-subtle"}`}>{g.status.replace("_", " ")}</span>
-		</li>
-	);
+		</li>,
+		openGoal === g.id && <StartGoal key={`${g.id}:start`} repo={repo} goalId={g.id} onDone={() => setOpenGoal(null)} />,
+	];
 	return (
 		<ol className="space-y-1.5">
 			{top.map((g) => {

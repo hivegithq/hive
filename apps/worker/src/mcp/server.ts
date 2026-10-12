@@ -283,6 +283,23 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 	);
 
 	server.registerTool(
+		"hive_import_issues",
+		{
+			description:
+				"Turn open GitHub issues into goals, one each, linked back to the issue (skips ones already imported). Source defaults to the repo this one was imported from. Then start agents with hive_assign or hive_plan.",
+			inputSchema: {
+				repo: z.string(),
+				source: z.string().optional().describe("owner/repo or a GitHub URL"),
+				labels: z.array(z.string()).optional().describe("only issues with all of these labels"),
+				excludeLabels: z.array(z.string()).optional().describe("skip issues with any of these labels"),
+				limit: z.number().int().min(1).max(200).optional(),
+				token: z.string().optional().describe("GitHub token for private repositories or rate limits; used once, not stored"),
+			},
+		},
+		async ({ repo, ...input }) => text(await coordinator(repo).importIssues(input)),
+	);
+
+	server.registerTool(
 		"hive_models",
 		{
 			description:

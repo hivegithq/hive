@@ -11,6 +11,7 @@
 //!   hive land <change> / hive send-back <change> -m why    decide a change that needs you
 //!   hive checks / hive settings           what Hive runs here, and how it lands
 //!   hive cost / hive budget <goal> 5      what the work cost; cap a goal's spend
+//!   hive issues import [owner/repo]       open GitHub issues as goals (--assign kimi --budget 1)
 //!   hive claim <goal> / intent / submit   do the work yourself, in your own fork
 //!
 //! Where and who: flags, then HIVE_URL / HIVE_REPO / HIVE_TOKEN, then `hive login`'s config file.
@@ -70,6 +71,11 @@ enum Cmd {
         /// Read token for a private repository; used for this clone only.
         #[arg(long)]
         source_token: Option<String>,
+    },
+    /// GitHub issues as goals.
+    Issues {
+        #[command(subcommand)]
+        action: IssuesCmd,
     },
     /// Create a goal, and optionally put agents on it.
     Goal {
@@ -195,6 +201,32 @@ enum Cmd {
     },
     /// Evidence, review and decisions for a change (defaults to this checkout's change).
     Show { change: Option<String> },
+}
+
+#[derive(Subcommand)]
+enum IssuesCmd {
+    /// One goal per open issue (skips ones already imported). Source defaults to where the repo was imported from.
+    Import {
+        /// owner/repo or a GitHub URL.
+        source: Option<String>,
+        /// Only issues with all of these labels.
+        #[arg(long, value_delimiter = ',')]
+        label: Vec<String>,
+        /// Skip issues with any of these labels (e.g. upstream,wontfix).
+        #[arg(long, value_delimiter = ',')]
+        exclude_label: Vec<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+        /// GitHub token for private repositories or rate limits; used once, not stored.
+        #[arg(long, env = "GITHUB_TOKEN", hide_env_values = true)]
+        github_token: Option<String>,
+        /// Start a built-in agent on each new goal (optionally naming the model).
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        assign: Option<String>,
+        /// With --assign: a USD budget for each goal.
+        #[arg(long)]
+        budget: Option<f64>,
+    },
 }
 
 // Workers AI models agents can use, with the short names the CLI accepts.
@@ -503,6 +535,30 @@ fn main() -> Result<()> {
                 println!("no agents yet: `hive assign {id}`, `hive race {id} --models …`, `hive plan {id}`, or `hive claim {id}` to do it yourself");
             }
         }
+        Cmd::Issues { action: IssuesCmd::Import { source, label, exclude_label, limit, github_token, assign, budget } } => {
+            let repo = repo()?;
+            let r = api.post(
+                &format!("/api/repos/{repo}/issues/import"),
+                json!({ "source": source, "labels": if label.is_empty() { Value::Null } else { json!(label) }, "excludeLabels": exclude_label, "limit": limit, "token": github_token }),
+            )?;
+            let created = r["created"].as_array().cloned().unwrap_or_default();
+            println!("{}: {} open, {} already imported, {} new goal(s)", s(&r["source"]), r["open"], r["alreadyImported"], created.len());
+            for g in &created {
+                let id = s(&g["goalId"]);
+                print!("  {id:<14} {:<22} {}", s(&g["ref"]), s(&g["title"]));
+                if let Some(model) = &assign {
+                    if let Some(b) = budget {
+                        api.post(&format!("/api/repos/{repo}/goals/{id}/budget"), json!({ "budget": b }))?;
+                    }
+                    let body = if model.is_empty() { json!({}) } else { json!({ "model": model_id(model) }) };
+                    match api.post(&format!("/api/repos/{repo}/goals/{id}/assign"), body) {
+                        Ok(c) => print!("  → {}", s(&c["id"])),
+                        Err(e) => print!("  (agent didn't start: {e})"),
+                    }
+                }
+                println!();
+            }
+        }
         Cmd::Cost { change } => {
             let repo = repo()?;
             if let Some(change) = change {
@@ -716,7 +772,8 @@ fn main() -> Result<()> {
             let (repo, change, goal) = local_change()?;
             let agent = git(&["config", "--get", "hive.agent"]).unwrap_or_default();
             git(&["add", "-A"])?;
-            let msg = format!("{}\n\nHive-Change-Id: {change}\nHive-Goal: {goal}\nHive-Agent: {agent}\nHive-Model: human-or-cli\n", message.trim());
+            let issue = api.get(&format!("/api/repos/{repo}/changes/{change}")).ok().and_then(|d| d["issue"]["ref"].as_str().map(|r| format!("Hive-Issue: {r}\n"))).unwrap_or_default();
+            let msg = format!("{}\n\nHive-Change-Id: {change}\nHive-Goal: {goal}\nHive-Agent: {agent}\nHive-Model: human-or-cli\n{issue}", message.trim());
             if git(&["diff", "--cached", "--quiet"]).is_err() {
                 git(&["commit", "-q", "-m", &msg])?;
             }

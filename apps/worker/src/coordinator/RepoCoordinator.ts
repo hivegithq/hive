@@ -27,6 +27,7 @@ import { containerCost, modelCost, usd } from "../domain/pricing.ts";
 import { budgetExceeded, type GoalNode, treeSpend } from "./costs.ts";
 import { CLEF_MODEL, metered } from "../decide/clef.ts";
 import { leaderboard } from "./leaderboard.ts";
+import { goalFromIssue, listOpenIssues, parseGitHubRepo, selectIssues } from "../github/github.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -370,6 +371,8 @@ export class RepoCoordinator extends Agent<Env> {
 		}
 		this.log("hive", `importing ${input.url}${input.branch ? ` (${input.branch})` : ""}`);
 		const result = await mergeBoxOf(this.ctx.exports, `${this.repo}:import`).importRepo({ repo: this.repo, ...input });
+		// Remember where it came from (never the token): issues and pushing back use it.
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('origin', ?)", JSON.stringify({ url: input.url, branch: input.branch ?? null }));
 		this.log("hive", `imported ${result.commits} commits, ${result.files} files; trunk at ${result.head.slice(0, 8)}`);
 		await this.onTrunkPush(result.head, []);
 		return result;
@@ -919,6 +922,43 @@ export class RepoCoordinator extends Agent<Env> {
 		return evidence;
 	}
 
+	// ── Origin and issues ────────────────────────────────────────────────────
+
+	origin(): { url: string; branch: string | null } | null {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'origin'").toArray()[0];
+		return row ? JSON.parse(String(row.value)) : null;
+	}
+
+	goalIssue(goalId: string): { ref: string; url: string } | null {
+		const r = this.db.exec("SELECT ref, url FROM goal_issues WHERE goal_id = ?", goalId).toArray()[0];
+		return r ? { ref: String(r.ref), url: String(r.url) } : null;
+	}
+
+	// One goal per open GitHub issue, skipping issues already imported. The source defaults to the
+	// repository this one was imported from. A token (for private repositories or rate limits) is
+	// used for this call only.
+	async importIssues(input: { source?: string; labels?: string[]; excludeLabels?: string[]; limit?: number; token?: string }) {
+		const source = parseGitHubRepo(input.source ?? this.origin()?.url ?? "");
+		if (!source) throw new Error(input.source ? `not a GitHub repository: ${input.source}` : "no source: pass owner/repo (this repository wasn't imported from GitHub)");
+		const prefix = `${source.owner}/${source.repo}#`;
+		const known = new Set(
+			this.db
+				.exec("SELECT ref FROM goal_issues WHERE ref LIKE ?", `${prefix}%`)
+				.toArray()
+				.map((r) => Number(String(r.ref).slice(prefix.length))),
+		);
+		const issues = await listOpenIssues(source, { token: input.token, labels: input.labels });
+		const chosen = selectIssues(issues, { excludeLabels: input.excludeLabels, skip: known, limit: input.limit ?? 50 });
+		const created = chosen.map((issue) => {
+			const g = goalFromIssue(source, issue);
+			const goal = this.createGoal({ title: g.title, description: g.description });
+			this.db.exec("INSERT INTO goal_issues VALUES (?, ?, ?)", goal.id, g.ref, issue.url);
+			return { goalId: goal.id, ref: g.ref, title: issue.title, url: issue.url };
+		});
+		this.log("hive", `imported ${created.length} issue(s) from ${source.owner}/${source.repo} as goals`);
+		return { source: `${source.owner}/${source.repo}`, open: issues.length, alreadyImported: known.size, created };
+	}
+
 	// ── Spend ────────────────────────────────────────────────────────────────
 
 	// A batch's merge box time (standard-4), shared across its changes. Once per batch.
@@ -1384,6 +1424,7 @@ export class RepoCoordinator extends Agent<Env> {
 		return {
 			change,
 			goal: this.goal(change.goalId),
+			issue: this.goalIssue(change.goalId),
 			intent: this.intentFor(changeId),
 			evidence: all("SELECT * FROM evidence WHERE change_id = ? ORDER BY created_at", toEvidence),
 			evaluations: all("SELECT * FROM evaluations WHERE change_id = ? ORDER BY created_at", toEvaluation),
@@ -1408,6 +1449,8 @@ export class RepoCoordinator extends Agent<Env> {
 			agents: this.db.exec("SELECT * FROM agents").toArray().map((r) => ({ id: String(r.id), kind: String(r.kind), model: String(r.model), trust: Number(r.trust) })),
 			trunkChecks: this.trunkChecks(),
 			// Planned sub-goals' dependencies: [goal, the goal it waits for].
+			// Goals made from issues: goal id → owner/repo#n and its URL.
+			goalIssues: Object.fromEntries(this.db.exec("SELECT goal_id, ref, url FROM goal_issues").toArray().map((r) => [String(r.goal_id), { ref: String(r.ref), url: String(r.url) }])),
 			goalDeps: this.db.exec("SELECT goal_id, depends_on FROM goal_deps LIMIT 2000").toArray().map((r) => [String(r.goal_id), String(r.depends_on)] as [string, string]),
 		};
 	}

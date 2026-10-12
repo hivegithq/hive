@@ -16,6 +16,7 @@ export interface Snapshot {
 	decisions: Decision[];
 	agents: { id: string; kind: string; model: string; trust: number }[];
 	goalDeps?: [string, string][];
+	goalIssues?: Record<string, { ref: string; url: string }>;
 	trunkChecks?: { commit: string; at: number; ok: boolean; languages: string[]; source: string; runs: { kind: string; command: string; ok: boolean }[] } | null;
 }
 
@@ -71,6 +72,7 @@ export interface ChangeDetail {
 	evaluations: Evaluation[];
 	decisions: Decision[];
 	cost?: ChangeCost;
+	issue?: { ref: string; url: string } | null;
 }
 
 export interface LogLine {
@@ -130,6 +132,12 @@ export const api = {
 	setGoalBudget: (repo: string, goalId: string, budget: number | null) => call("POST", `/api/repos/${repo}/goals/${goalId}/budget`, { budget }),
 	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
 	models: (repo: string) => call<ModelStats[]>("GET", `/api/repos/${repo}/models`),
+	importIssues: (repo: string, input: { source?: string; labels?: string[]; excludeLabels?: string[]; limit?: number; token?: string }) =>
+		call<{ source: string; open: number; alreadyImported: number; created: { goalId: string; ref: string; title: string; url: string }[] }>(
+			"POST",
+			`/api/repos/${repo}/issues/import`,
+			input,
+		),
 	assign: (repo: string, goalId: string, model: string) => call<Change>("POST", `/api/repos/${repo}/goals/${goalId}/assign`, { model }),
 	settings: (repo: string) => call<RepoSettings>("GET", `/api/repos/${repo}/settings`),
 	setSettings: (repo: string, patch: Partial<RepoSettings>) => call<RepoSettings>("POST", `/api/repos/${repo}/settings`, patch),

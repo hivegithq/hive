@@ -165,6 +165,31 @@ app.post("/api/repos/:repo/goals/:goalId/budget", async (c) => {
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setGoalBudget(c.req.param("goalId"), budget));
 });
 
+// One goal per open GitHub issue (source defaults to where the repository was imported from).
+app.post("/api/repos/:repo/issues/import", async (c) => {
+	const input = await body(
+		c.req.raw,
+		z.object({
+			source: z.string().nullish(),
+			labels: z.array(z.string()).nullish(),
+			excludeLabels: z.array(z.string()).nullish(),
+			limit: z.number().int().min(1).max(200).nullish(),
+			token: z.string().max(500).nullish(),
+		}),
+	);
+	const { source, labels, excludeLabels, limit, token } = input;
+	return c.json(
+		await coordinator(c.executionCtx.exports, c.req.param("repo")).importIssues({
+			source: source ?? undefined,
+			labels: labels ?? undefined,
+			excludeLabels: excludeLabels ?? undefined,
+			limit: limit ?? undefined,
+			token: token || undefined,
+		}),
+		201,
+	);
+});
+
 // How each model has done on this repository.
 app.get("/api/repos/:repo/models", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).models()));
 

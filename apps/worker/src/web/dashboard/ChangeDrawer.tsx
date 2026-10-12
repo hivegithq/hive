@@ -65,7 +65,19 @@ export function ChangeDrawer(props: { repo: string; changeId: string; tick: numb
 				<div className="min-w-0 flex-1">
 					<h2 className="font-mono text-sm text-kumo-subtle">{props.changeId}</h2>
 					<p className="mt-1 font-display text-xl font-semibold leading-tight text-wax">{detail?.goal?.title ?? "Loading change"}</p>
-					{detail && <p className="mt-1 text-sm text-kumo-subtle">{detail.change.model === "sim" ? "A simulated agent" : modelLabel(detail.change.model)}</p>}
+					{detail && (
+						<p className="mt-1 text-sm text-kumo-subtle">
+							{detail.change.model === "sim" ? "A simulated agent" : modelLabel(detail.change.model)}
+							{detail.issue && (
+								<>
+									{" · "}
+									<a href={detail.issue.url} target="_blank" rel="noreferrer" className="text-steel hover:text-honey">
+										{detail.issue.ref}
+									</a>
+								</>
+							)}
+						</p>
+					)}
 				</div>
 				<Button variant="ghost" shape="square" icon={XIcon} onClick={props.onClose} aria-label="Close details" />
 			</header>

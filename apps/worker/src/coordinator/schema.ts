@@ -28,6 +28,8 @@ export const SCHEMA = [
 		output_tokens INTEGER NOT NULL DEFAULT 0, seconds REAL NOT NULL DEFAULT 0, cost REAL NOT NULL)`,
 	`CREATE INDEX IF NOT EXISTS usage_by_goal ON usage (goal_id)`,
 	`CREATE INDEX IF NOT EXISTS usage_by_change ON usage (change_id)`,
+	// Goals made from issues elsewhere (GitHub): owner/repo#number, so imports don't repeat.
+	`CREATE TABLE IF NOT EXISTS goal_issues (goal_id TEXT PRIMARY KEY, ref TEXT NOT NULL UNIQUE, url TEXT NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS goal_budgets (goal_id TEXT PRIMARY KEY, budget REAL)`,
 	`CREATE TABLE IF NOT EXISTS evaluations (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, model TEXT NOT NULL, score REAL NOT NULL,
