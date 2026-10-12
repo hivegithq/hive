@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import { coordinatorOf } from "../bindings.ts";
+import { EVENTS } from "../notify/notify.ts";
 import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 
 // Hive over MCP: any agent (Claude Code, Codex, a script) can join the swarm. It works in its
@@ -318,6 +319,33 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 			if (action === "options") return text(await c.setGitHubOptions({ mirror, prs, pull }));
 			if (action === "disconnect") return text(await c.disconnectGitHub());
 			return text(await c.githubStatus());
+		},
+	);
+
+	server.registerTool(
+		"hive_notifications",
+		{
+			description:
+				"Webhooks a repo calls when a change needs a person, a goal lands, a race finishes, or trunk fails: list, add (Slack and Discord URLs get their own format; others get signed JSON), test, remove.",
+			inputSchema: {
+				repo: z.string(),
+				action: z.enum(["list", "add", "test", "remove"]).default("list"),
+				url: z.string().url().optional(),
+				events: z.array(z.enum(EVENTS)).optional(),
+				hookId: z.string().optional(),
+			},
+		},
+		async ({ repo, action, url, events, hookId }) => {
+			const c = coordinator(repo);
+			if (action === "add") {
+				if (!url) return text("add needs url");
+				return text(await c.addHook({ url, events }));
+			}
+			if (action === "test" || action === "remove") {
+				if (!hookId) return text(`${action} needs hookId`);
+				return text(action === "test" ? await c.testHook(hookId) : await c.removeHook(hookId));
+			}
+			return text(await c.listHooks());
 		},
 	);
 

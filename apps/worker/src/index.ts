@@ -4,6 +4,7 @@ import { agentOf, coordinatorOf, simOf } from "./bindings.ts";
 import { handleMcp } from "./mcp/server.ts";
 import { authenticatedRemote, parseTrailers, repoHost } from "./repo/index.ts";
 import { actor } from "./auth.ts";
+import { EVENTS } from "./notify/notify.ts";
 
 export { CodingAgent } from "./agent/CodingAgent.ts";
 export { RepoCoordinator } from "./coordinator/RepoCoordinator.ts";
@@ -218,6 +219,18 @@ app.post("/api/repos/:repo/github/sync", async (c) => {
 	return c.json(await coord.githubStatus());
 });
 app.post("/api/repos/:repo/github/disconnect", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).disconnectGitHub()));
+
+// Webhooks for when something needs a person, a goal lands, a race finishes, or trunk fails.
+app.get("/api/repos/:repo/notifications", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).listHooks()));
+app.post("/api/repos/:repo/notifications", async (c) => {
+	const input = await body(
+		c.req.raw,
+		z.object({ url: z.string().url().max(1000), format: z.enum(["json", "slack", "discord"]).nullish(), events: z.array(z.enum(EVENTS)).nullish() }),
+	);
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).addHook({ url: input.url, format: input.format ?? undefined, events: input.events ?? undefined }), 201);
+});
+app.post("/api/repos/:repo/notifications/:hookId/test", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).testHook(c.req.param("hookId"))));
+app.post("/api/repos/:repo/notifications/:hookId/remove", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).removeHook(c.req.param("hookId"))));
 
 // How each model has done on this repository.
 app.get("/api/repos/:repo/models", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).models()));

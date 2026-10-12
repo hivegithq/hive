@@ -78,6 +78,11 @@ enum Cmd {
         #[command(subcommand)]
         action: GithubCmd,
     },
+    /// Webhooks for when a change needs you, a goal lands, a race finishes, or trunk fails.
+    Notify {
+        #[command(subcommand)]
+        action: NotifyCmd,
+    },
     /// GitHub issues as goals.
     Issues {
         #[command(subcommand)]
@@ -242,6 +247,22 @@ enum GithubCmd {
     },
     /// Forget the token and stop syncing.
     Disconnect,
+}
+
+#[derive(Subcommand)]
+enum NotifyCmd {
+    /// Webhooks on this repo.
+    List,
+    /// Add one. Slack and Discord URLs get their format; others get JSON signed with a secret shown once.
+    Add {
+        url: String,
+        /// Only these: needs-you, goal-landed, race-finished, trunk-failing (default: all).
+        #[arg(long, value_delimiter = ',')]
+        events: Vec<String>,
+    },
+    /// Send a test notification.
+    Test { id: String },
+    Remove { id: String },
 }
 
 #[derive(Subcommand)]
@@ -619,6 +640,36 @@ fn main() -> Result<()> {
             }
             for p in st["pullRequests"].as_array().into_iter().flatten().take(15) {
                 println!("  {:<14} {:<9} {}", s(&p["goalId"]), s(&p["state"]), p["url"].as_str().or(p["reason"].as_str()).unwrap_or(""));
+            }
+        }
+        Cmd::Notify { action } => {
+            let repo = repo()?;
+            let print = |list: &Value| {
+                for h in list.as_array().into_iter().flatten() {
+                    let last = match h["last"].as_object() {
+                        Some(l) if l.get("ok") == Some(&json!(true)) => "last delivery ok".to_string(),
+                        Some(l) => format!("last delivery failed: {}", l.get("error").and_then(|e| e.as_str()).unwrap_or("")),
+                        None => "not used yet".into(),
+                    };
+                    let events: Vec<&str> = h["events"].as_array().into_iter().flatten().map(s).collect();
+                    println!("  {:<12} {:<8} {:<36} {}  ({last})", s(&h["id"]), s(&h["format"]), s(&h["url"]), events.join(","));
+                }
+            };
+            match action {
+                NotifyCmd::List => print(&api.get(&format!("/api/repos/{repo}/notifications"))?),
+                NotifyCmd::Add { url, events } => {
+                    let h = api.post(&format!("/api/repos/{repo}/notifications"), json!({ "url": url, "events": if events.is_empty() { Value::Null } else { json!(events) } }))?;
+                    println!("added {} ({})", s(&h["id"]), s(&h["format"]));
+                    if let Some(secret) = h["signingSecret"].as_str() {
+                        println!("signing secret (shown once): {secret}");
+                        println!("verify: X-Hive-Signature-256 = sha256=HMAC-SHA256(secret, body)");
+                    }
+                }
+                NotifyCmd::Test { id } => {
+                    let r = api.post(&format!("/api/repos/{repo}/notifications/{id}/test"), json!({}))?;
+                    println!("{}", if r["ok"] == true { "delivered".to_string() } else { format!("failed: {} {}", r["status"], s(&r["error"])) });
+                }
+                NotifyCmd::Remove { id } => print(&api.post(&format!("/api/repos/{repo}/notifications/{id}/remove"), json!({}))?),
             }
         }
         Cmd::Issues { action: IssuesCmd::Import { source, label, exclude_label, limit, github_token, assign, budget } } => {

@@ -30,6 +30,7 @@ import { leaderboard } from "./leaderboard.ts";
 import { gh, goalFromIssue, listOpenIssues, parseGitHubRepo, selectIssues, upsertPullRequest } from "../github/github.ts";
 import { type PrGoal, prBody, prTitle } from "../github/pr.ts";
 import { open as openSecret, seal as sealSecret } from "../github/secret.ts";
+import { checkUrl, EVENTS, maskUrl, type Format, formatFor, type Hook, type Notice, type NotifyEvent, payload, sign } from "../notify/notify.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -432,6 +433,10 @@ export class RepoCoordinator extends Agent<Env> {
 		this.db.exec("UPDATE goals SET status = ? WHERE id = ?", status, goalId);
 		const goal = this.goal(goalId);
 		if (goal) this.emit({ type: "goal", goal });
+		if (goal && status === "achieved" && !goal.parentId) {
+			const pr = this.db.exec("SELECT url FROM goal_prs WHERE goal_id = ? AND url IS NOT NULL", goalId).toArray()[0];
+			this.notify({ event: "goal-landed", text: `“${goal.title}” landed${pr ? ` (${pr.url})` : ""}.`, goalId });
+		}
 		// A landed sub-goal may unblock its siblings, or complete its parent.
 		if (goal?.parentId && status === "achieved") this.ctx.waitUntil(this.advancePlan(goal.parentId).catch((e) => console.warn("advance plan failed", e)));
 	}
@@ -701,6 +706,10 @@ export class RepoCoordinator extends Agent<Env> {
 		this.db.exec("UPDATE changes SET status = ?, updated_at = ? WHERE id = ?", status, now(), changeId);
 		const change = this.change(changeId)!;
 		this.emit({ type: "change", change });
+		if (status === "escalated") {
+			const goal = this.goal(change.goalId);
+			this.notify({ event: "needs-you", text: `${changeId} (“${goal?.title ?? change.goalId}”) needs a person to land it or send it back.`, changeId, goalId: change.goalId });
+		}
 		return change;
 	}
 
@@ -890,6 +899,7 @@ export class RepoCoordinator extends Agent<Env> {
 	markTrunkRed(info: { commit: string; output: string }) {
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('trunk_red', ?)", JSON.stringify({ ...info, since: now() }));
 		this.log("hive", `trunk is red at ${info.commit.slice(0, 8)}: landings paused until it passes again`);
+		this.notify({ event: "trunk-failing", text: `Trunk fails its checks at ${info.commit.slice(0, 8)}; landings are paused until it passes again.` });
 		this.recordMetric("trunk_red", 1);
 	}
 
@@ -1171,6 +1181,82 @@ export class RepoCoordinator extends Agent<Env> {
 
 	private siteUrl() {
 		return (this.env as { HIVE_SITE_URL?: string }).HIVE_SITE_URL || "https://hivegit.dev";
+	}
+
+	// ── Notifications ────────────────────────────────────────────────────────
+
+	private hooks(): Hook[] {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = 'hooks'").toArray()[0];
+		return row ? JSON.parse(String(row.value)) : [];
+	}
+
+	private saveHooks(hooks: Hook[]) {
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('hooks', ?)", JSON.stringify(hooks));
+	}
+
+	// Webhook URLs are often secrets themselves (Slack's, Discord's), so lists show only their host.
+	listHooks() {
+		return this.hooks().map(({ secret: _s, url, ...h }) => ({ ...h, url: maskUrl(url) }));
+	}
+
+	// The signing secret is shown once, here; afterwards only the gateway-side copy exists.
+	async addHook(input: { url: string; format?: Format; events?: NotifyEvent[] }) {
+		const problem = checkUrl(input.url);
+		if (problem) throw new Error(problem);
+		const secret = `whsec_${[...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+		const hook: Hook = {
+			id: id("h"),
+			url: input.url,
+			format: input.format ?? formatFor(input.url),
+			events: input.events?.length ? input.events : [...EVENTS],
+			secret: await sealSecret(this.secretMaster, secret),
+			createdAt: now(),
+			last: null,
+		};
+		this.saveHooks([...this.hooks(), hook]);
+		const { secret: _s, url, ...shown } = hook;
+		return { ...shown, url: maskUrl(url), signingSecret: hook.format === "json" ? secret : null };
+	}
+
+	removeHook(hookId: string) {
+		this.saveHooks(this.hooks().filter((h) => h.id !== hookId));
+		return this.listHooks();
+	}
+
+	async testHook(hookId: string) {
+		const hook = this.hooks().find((h) => h.id === hookId);
+		if (!hook) throw new Error(`no webhook ${hookId}`);
+		return this.deliver(hook, { event: "needs-you", repo: this.repo, text: "This is a test from Hive.", link: `${this.siteUrl()}/r/${encodeURIComponent(this.repo)}`, at: now() }, 1);
+	}
+
+	private notify(n: Omit<Notice, "repo" | "link" | "at">) {
+		const hooks = this.hooks().filter((h) => h.events.includes(n.event));
+		if (!hooks.length) return;
+		const notice: Notice = { ...n, repo: this.repo, link: `${this.siteUrl()}/r/${encodeURIComponent(this.repo)}`, at: now() };
+		for (const h of hooks) this.ctx.waitUntil(this.deliver(h, notice, 3).catch(() => {}));
+	}
+
+	// Up to `tries` attempts, backing off; the outcome is kept on the hook for the settings panel.
+	private async deliver(hook: Hook, n: Notice, tries: number) {
+		const body = payload(hook.format, n);
+		const headers: Record<string, string> = { "content-type": "application/json", "user-agent": "hive-webhooks", "x-hive-event": n.event };
+		if (hook.format === "json") {
+			const secret = await openSecret(this.secretMaster, hook.secret);
+			if (secret) headers["x-hive-signature-256"] = await sign(secret, body);
+		}
+		let last: Hook["last"] = null;
+		for (let i = 0; i < tries; i++) {
+			if (i > 0) await new Promise((r) => setTimeout(r, 1000 * 4 ** i));
+			try {
+				const res = await fetch(hook.url, { method: "POST", headers, body, signal: AbortSignal.timeout(10_000) });
+				last = { at: now(), ok: res.ok, status: res.status, error: res.ok ? null : (await res.text()).slice(0, 200) };
+				if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) break;
+			} catch (err) {
+				last = { at: now(), ok: false, status: null, error: String((err as Error)?.message ?? err).slice(0, 200) };
+			}
+		}
+		this.saveHooks(this.hooks().map((h) => (h.id === hook.id ? { ...h, last } : h)));
+		return last;
 	}
 
 	// ── Spend ────────────────────────────────────────────────────────────────
@@ -1559,6 +1645,8 @@ export class RepoCoordinator extends Agent<Env> {
 				if (this.isBuiltin(c.agentId)) this.ctx.waitUntil(agentOf(this.ctx.exports, c.agentId).release().catch(() => {}));
 			}
 		}
+		const winner = finished.find((c) => c.id === verdict.winner);
+		this.notify({ event: "race-finished", text: `The race for “${goal.title}” finished: ${winner ? `${winner.model} won` : "no winner"} among ${finished.length}.`, goalId: goal.id, changeId: verdict.winner });
 		await this.pump();
 	}
 

@@ -67,6 +67,15 @@ export type GitHubStatus =
 			lastRun: number | null;
 			error: string | null;
 	  };
+export interface Hook {
+	id: string;
+	url: string;
+	format: "json" | "slack" | "discord";
+	events: string[];
+	createdAt: number;
+	last: { at: number; ok: boolean; status: number | null; error: string | null } | null;
+}
+
 export interface GitHubPr {
 	goalId: string;
 	state: string;
@@ -160,6 +169,10 @@ export const api = {
 	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
 	models: (repo: string) => call<ModelStats[]>("GET", `/api/repos/${repo}/models`),
 	github: (repo: string) => call<GitHubStatus>("GET", `/api/repos/${repo}/github`),
+	hooks: (repo: string) => call<Hook[]>("GET", `/api/repos/${repo}/notifications`),
+	addHook: (repo: string, input: { url: string; events?: string[] }) => call<Hook & { signingSecret: string | null }>("POST", `/api/repos/${repo}/notifications`, input),
+	testHook: (repo: string, id: string) => call<Hook["last"]>("POST", `/api/repos/${repo}/notifications/${id}/test`, {}),
+	removeHook: (repo: string, id: string) => call<Hook[]>("POST", `/api/repos/${repo}/notifications/${id}/remove`, {}),
 	connectGitHub: (repo: string, input: { token: string; remote?: string; mirror: boolean; prs: boolean; pull: boolean }) =>
 		call<GitHubStatus>("POST", `/api/repos/${repo}/github`, input),
 	githubOptions: (repo: string, patch: { mirror?: boolean; prs?: boolean; pull?: boolean }) => call<GitHubStatus>("POST", `/api/repos/${repo}/github/options`, patch),
