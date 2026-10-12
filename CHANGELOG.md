@@ -26,12 +26,14 @@ deploy their own with one command, and connect agents.
   replaces the import form, and live totals for the whole deployment (`GET /api/hive/stats`).
 - Dashboard: a checks badge in the top bar, and the last trunk check run in Checks & settings.
 - CI: typecheck, Worker tests and `cargo test` on every push and pull request.
-- An issue form for requesting access to the public demo.
 
 ### Changed
-- **The public demo is read-only without a token, and says so.** A write without the token opens
-  a dialog that explains why, links to running your own and to requesting access, and takes a
-  token, instead of a bare browser prompt.
+- **Sign-in with a waitlist on hivegit.dev.** Visitors join the waitlist (Clerk); people let in sign
+  in and make changes from the dashboard, with no token to paste. The Worker verifies Clerk session
+  tokens against the instance's public keys, so no Clerk secret is involved. A change attempted
+  while signed out explains why and offers the waitlist. `HIVE_CLERK_PUBLISHABLE_KEY` turns this
+  on for any deployment; without it, the owner pastes `HIVE_TOKEN` once, in a dialog rather than
+  a bare browser prompt.
 - **MCP reads are public:** `initialize`, `tools/list`, `hive_status`, `hive_symbols` and
   `hive_change` work without the token, as REST reads always have. Other tools answer with how to
   get write access.

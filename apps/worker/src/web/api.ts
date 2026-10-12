@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Change, Decision, Evaluation, Evidence, Goal, HiveEvent, Intent, Overlap } from "../domain/types.ts";
 import type { EvidencePlan } from "../evidence/plan.ts";
 import type { EvidenceRun } from "../landing/types.ts";
-import { askForToken } from "./ui/TokenDialog.tsx";
+import { getToken } from "@clerk/react";
+import { ACCESS } from "./clerk.ts";
+import { askForAccess, TOKEN_KEY } from "./ui/AccessDialog.tsx";
 
 export interface Snapshot {
 	repo: string;
@@ -61,7 +63,6 @@ export const MODELS = [
 
 export const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? id.split("/").at(-1) ?? id;
 
-const TOKEN_KEY = "hive-token";
 const readToken = () => {
 	try {
 		return localStorage.getItem(TOKEN_KEY);
@@ -70,23 +71,18 @@ const readToken = () => {
 	}
 };
 
+// Signed-in visitors send their Clerk session token; on a Hive without sign-in, the owner's token.
+const credential = async () => (ACCESS === "clerk" ? await getToken().catch(() => null) : readToken());
+
 async function call<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
-	const token = readToken();
 	const headers: Record<string, string> = {};
 	if (body) headers["content-type"] = "application/json";
-	if (token && method !== "GET") headers.authorization = `Bearer ${token}`;
-	const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-	if (res.status === 401 && !retried) {
-		const entered = await askForToken();
-		if (entered) {
-			try {
-				localStorage.setItem(TOKEN_KEY, entered.trim());
-			} catch {
-				// private mode: the token works for this call only
-			}
-			return call<T>(method, path, body, true);
-		}
+	if (method !== "GET") {
+		const token = await credential();
+		if (token) headers.authorization = `Bearer ${token}`;
 	}
+	const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+	if (res.status === 401 && !retried && (await askForAccess()) === "retry") return call<T>(method, path, body, true);
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error((data as { error?: string }).error ?? `${method} ${path} failed with ${res.status}`);
 	return data as T;

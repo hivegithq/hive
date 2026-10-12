@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agentOf, coordinatorOf, simOf } from "./bindings.ts";
 import { handleMcp } from "./mcp/server.ts";
 import { authenticatedRemote, parseTrailers, repoHost } from "./repo/index.ts";
+import { actor } from "./auth.ts";
 
 export { CodingAgent } from "./agent/CodingAgent.ts";
 export { RepoCoordinator } from "./coordinator/RepoCoordinator.ts";
@@ -39,19 +40,14 @@ async function refuseMcpWrite(request: Request): Promise<Response | null> {
 	return Response.json(Array.isArray(body) ? replies : replies[0]);
 }
 
-// Writes spend money (agents, containers, model calls) and change trunk, so they need the
-// HIVE_TOKEN secret when one is set. Reads stay public: the dashboard, trunk and ledger are
-// meant to be seen. In devhost mode with no secret configured, everything is open.
-const authorized = (req: Request, env: Env) => {
-	const token = (env as { HIVE_TOKEN?: string }).HIVE_TOKEN;
-	if (!token) return env.REPO_HOST !== "artifacts";
-	const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-	return given.length === token.length && crypto.subtle.timingSafeEqual(new TextEncoder().encode(given), new TextEncoder().encode(token));
-};
+// Writes spend money (agents, containers, model calls) and change trunk, so they need the owner's
+// HIVE_TOKEN or a signed-in user (auth.ts). Reads stay public: the dashboard, trunk and ledger are
+// meant to be seen.
+const authorized = async (req: Request, env: Env) => (await actor(req, env as Env & { HIVE_TOKEN?: string })) !== null;
 
 app.use("/api/*", async (c, next) => {
-	if (c.req.method === "GET" || authorized(c.req.raw, c.env)) return next();
-	return c.json({ error: "unauthorized: send Authorization: Bearer <HIVE_TOKEN>" }, 401);
+	if (c.req.method === "GET" || (await authorized(c.req.raw, c.env))) return next();
+	return c.json({ error: "Making changes here needs you to be signed in with access, or this deployment's HIVE_TOKEN." }, 401);
 });
 
 app.onError((err, c) => {
@@ -285,7 +281,7 @@ export default {
 	async fetch(request, env, ctx) {
 		const { pathname } = new URL(request.url);
 		if (pathname === "/mcp") {
-			if (!authorized(request, env)) {
+			if (!(await authorized(request, env))) {
 				const refused = await refuseMcpWrite(request);
 				if (refused) return refused;
 			}

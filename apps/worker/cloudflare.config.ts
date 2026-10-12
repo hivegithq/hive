@@ -7,6 +7,8 @@ import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 //   HIVE_NAMESPACE    Artifacts namespace (default: the worker name)
 //   HIVE_DOMAIN       a domain in your account to serve on, apex and www (or a .hive-domain file);
 //                     without one, Hive serves on <name>.<account>.workers.dev only
+//   HIVE_CLERK_PUBLISHABLE_KEY  sign people in with Clerk (or a .hive-clerk file): signed-in users can
+//                     make changes from the dashboard. Without it, the dashboard asks for HIVE_TOKEN.
 // The config runs in Node; declared here rather than pulling Node's types into the Worker's.
 declare const process: {
 	env: Record<string, string | undefined>;
@@ -21,6 +23,7 @@ const fromFile = (name: string) => {
 const NAME = process.env.HIVE_WORKER_NAME || "hive";
 const NAMESPACE = process.env.HIVE_NAMESPACE || NAME;
 const DOMAIN = process.env.HIVE_DOMAIN || fromFile(".hive-domain");
+const CLERK_KEY = process.env.HIVE_CLERK_PUBLISHABLE_KEY || fromFile(".hive-clerk");
 
 // Agent workspaces and the merge box share one image (git, mergiraf, difftastic, node, hive-merge),
 // but a Container links to exactly one Durable Object class, so each gets its own definition.
@@ -57,6 +60,9 @@ export default defineConfig(({ mode }) => {
 				DEVHOST_CONTAINER_URL: bindings.text("http://devhost.hive.internal"),
 				// Required for writes outside devhost mode: `cf workers secrets put HIVE_TOKEN` (or the dashboard).
 				...(local ? {} : { HIVE_TOKEN: bindings.secret() }),
+				// Clerk's publishable key (public): the Worker accepts session tokens signed by that instance.
+				// Not in devhost mode, where a production key wouldn't work on localhost anyway.
+				CLERK_PUBLISHABLE_KEY: bindings.text(local ? "" : (CLERK_KEY ?? "")),
 				CODER_MODEL: bindings.text("@cf/moonshotai/kimi-k2.7-code"),
 				REVIEW_MODEL: bindings.text("@cf/deepseek-ai/deepseek-v4-pro-0813"),
 			},
@@ -72,7 +78,7 @@ export default defineConfig(({ mode }) => {
 			},
 			triggers: [
 				triggers.queue({ name: `${NAME}-repo-events`, maxBatchSize: 10, maxRetries: 5 }),
-				// A custom domain (its zone needs proxied DNS records pointing at the Worker; `pnpm setup` adds
+				// A custom domain (its zone needs proxied DNS records pointing at the Worker; `pnpm self-host` adds
 				// them). workers.dev stays up too.
 				...(local || !DOMAIN
 					? []

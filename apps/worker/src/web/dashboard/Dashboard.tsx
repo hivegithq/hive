@@ -21,6 +21,7 @@ import { VERSION } from "../version.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { ChangeDrawer } from "./ChangeDrawer.tsx";
 import { ChecksPanel } from "./ChecksPanel.tsx";
+import { Account } from "../ui/Account.tsx";
 
 const CARDS_PER_STAGE = 60;
 
@@ -137,6 +138,7 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 				<Button variant="secondary" size="sm" icon={TerminalWindowIcon} onClick={() => api.clone(props.repo).then((r) => setClone(r.command))}>
 					Clone with git
 				</Button>
+				<Account compact />
 			</div>
 			<AnimatePresence>
 				{clone && (

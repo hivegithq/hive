@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { A, C, Code, H2, List, Note, P, Paths, Table } from "./parts.tsx";
-import { ACCESS_URL, GITHUB } from "../links.ts";
+import { GITHUB } from "../links.ts";
 
 export interface DocPage {
 	slug: string;
@@ -61,7 +61,7 @@ export const PAGES: DocPage[] = [
 		slug: "demo",
 		title: "Try the live demo",
 		group: "Start",
-		summary: "hivegit.dev runs a real Hive. Anyone can watch it; changes need a token.",
+		summary: "hivegit.dev runs a real Hive. Anyone can watch it; people on the waitlist get to run agents on it.",
 		body: () => (
 			<>
 				<P>Each repository on hivegit.dev has a live dashboard. Good places to start:</P>
@@ -86,15 +86,16 @@ export const PAGES: DocPage[] = [
 					<li>A plan under the map is a live dependency graph; click a sub-goal to open its change.</li>
 					<li>The trunk column on the right is ordinary git history, with each commit's Hive trailers.</li>
 				</List>
-				<H2 id="read-only">Why it's read-only</H2>
+				<H2 id="access">Running agents here</H2>
 				<P>
-					Starting agents, importing repositories and changing settings run containers and models on the maintainer's Cloudflare account, so they need its access token. If you want
-					to try changes here, <A href={ACCESS_URL}>request access</A>. To do anything you like, <A href="/docs/local">run it locally</A> or <A href="/docs/deploy">deploy your own</A>.
+					Starting agents, importing repositories and changing settings run containers and models, so on hivegit.dev they're open to people with access.{" "}
+					<strong className="text-wax">Join the waitlist</strong> (top of any page, or whenever you try to make a change) and you'll get an email when you're in; then sign in and
+					everything works from the dashboard. To do anything you like right now, <A href="/docs/local">run it locally</A> or <A href="/docs/deploy">deploy your own</A>.
 				</P>
 				<P>Reads are open over every interface. You can point an MCP client at the demo and ask it what's happening:</P>
 				<Code>{"claude mcp add --transport http hive-demo https://hivegit.dev/mcp"}</Code>
 				<P>
-					Without a token, <C>hive_status</C>, <C>hive_symbols</C> and <C>hive_change</C> work; the other tools reply with how to get write access.
+					<C>hive_status</C>, <C>hive_symbols</C> and <C>hive_change</C> work for everyone; tools that make changes need the deployment's token, so for those, run your own Hive.
 				</P>
 			</>
 		),
@@ -180,6 +181,13 @@ pnpm self-host`}</Code>
 				<P>
 					Open your URL; the first time you make a change in the dashboard, it asks for the token in <C>.hive-token</C>.
 				</P>
+				<H2 id="people">Letting other people in</H2>
+				<P>
+					The token is for you. To let others run agents without sharing it, create a Clerk application for your domain, set its access mode to <strong className="text-wax">Waitlist</strong>,
+					and deploy with its publishable key. Visitors then join the waitlist from your site; anyone you approve can sign in and make changes. The Worker checks their session
+					tokens against Clerk's public keys, so no Clerk secret is needed.
+				</P>
+				<Code>{"HIVE_DOMAIN=git.example.com HIVE_CLERK_PUBLISHABLE_KEY=pk_live_… pnpm self-host"}</Code>
 				<H2 id="options">Options</H2>
 				<Table
 					head={["Variable", "Default", "What it does"]}
@@ -187,6 +195,7 @@ pnpm self-host`}</Code>
 						[<C>HIVE_DOMAIN</C>, "none", "Also serve on this domain and its www. It must be a zone on the same account; DNS records are added for you."],
 						[<C>HIVE_WORKER_NAME</C>, <C>hive</C>, "Name of the Worker, and the prefix of its Workflow, queue and containers. Use another to run a second Hive on one account."],
 						[<C>HIVE_NAMESPACE</C>, "the Worker name", "The Artifacts namespace that holds the repositories."],
+						[<C>HIVE_CLERK_PUBLISHABLE_KEY</C>, "none", "Let other people sign in with Clerk and make changes from the dashboard. Put the instance in waitlist mode so you choose who gets in."],
 					]}
 				/>
 				<Code>{"HIVE_DOMAIN=git.example.com pnpm self-host"}</Code>
@@ -272,7 +281,7 @@ hive show                         # evidence, review, decision`}</Code>
 				</P>
 				<H2 id="git">Plain git</H2>
 				<P>
-					Trunk is ordinary git. <strong className="text-wax">Clone with git</strong> on a dashboard, or the API, gives a clone URL that works for an hour (this needs the token):
+					Trunk is ordinary git. <strong className="text-wax">Clone with git</strong> on a dashboard, or the API, gives a clone URL that works for an hour (this needs access, or the token from a script):
 				</P>
 				<Code>{`curl -X POST https://hivegit.dev/api/repos/shop/clone -H "authorization: Bearer $HIVE_TOKEN"`}</Code>
 				<P>

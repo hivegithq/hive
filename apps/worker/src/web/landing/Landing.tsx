@@ -12,6 +12,7 @@ import { VERSION } from "../version.ts";
 import { BatchDemo } from "./BatchDemo.tsx";
 import { AnyCodebase, SecurityAndPlans } from "./codebase.tsx";
 import { GetStarted, Lifecycle, Overlaps, Problem, Race, Record, Stack } from "./sections.tsx";
+import { Account } from "../ui/Account.tsx";
 
 
 // The 2,000-agent run, as verified with a stock git clone (README, "What's been verified").
@@ -102,6 +103,9 @@ function Nav() {
 				<a href="/docs" className="ml-auto text-sm text-kumo-subtle transition-colors hover:text-wax md:hidden">
 					Docs
 				</a>
+				<span className="hidden lg:block">
+					<Account />
+				</span>
 				<a href={GITHUB} className="text-kumo-subtle transition-colors hover:text-wax" aria-label="Source on GitHub">
 					<GithubLogoIcon size={22} />
 				</a>

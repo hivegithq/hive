@@ -42,8 +42,8 @@ export function RepoForm({ initial = "import" }: { initial?: "new" | "import" })
 			/>
 			<p className="mt-4 text-kumo-subtle">
 				{mode === "import"
-					? "Clone any repository from GitHub or another git server into a new hive. Its default branch becomes trunk's main. Writes need this deployment's access token."
-					: "Creates the trunk and its ledger, then opens the dashboard. Push your code to it with git. Writes need this deployment's access token."}
+					? "Clone any repository from GitHub or another git server into a new hive. Its default branch becomes trunk's main."
+					: "Creates the trunk and its ledger, then opens the dashboard. Push your code to it with git."}
 			</p>
 			<div className="mt-5 space-y-3">
 				{mode === "import" && (

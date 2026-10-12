@@ -1,5 +1,5 @@
 import { type ComponentType, lazy, Suspense } from "react";
-import { TokenDialogHost } from "./ui/TokenDialog.tsx";
+import { AccessDialogHost } from "./ui/AccessDialog.tsx";
 
 // A route's code, loaded on demand. After a deploy, a page loaded earlier asks for chunks that no
 // longer exist: reload once to pick up the new build (a session flag stops a reload loop).
@@ -40,7 +40,7 @@ export function App() {
 	return (
 		<>
 			<Suspense fallback={<div className="min-h-screen bg-night" />}>{repo ? <Dashboard repo={decodeURIComponent(repo)} /> : docs ? <Docs /> : <Landing />}</Suspense>
-			<TokenDialogHost />
+			<AccessDialogHost />
 		</>
 	);
 }

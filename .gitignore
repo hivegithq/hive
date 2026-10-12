@@ -13,3 +13,4 @@ target
 worker-configuration.d.ts.bak
 .hive-domain
 .env
+.hive-clerk

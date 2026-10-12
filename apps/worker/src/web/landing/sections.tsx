@@ -329,7 +329,7 @@ export function GetStarted() {
 		{
 			title: "Explore the live demo",
 			body: "Real agents on real repositories, on this deployment. Nothing to install.",
-			cost: "Free, read-only",
+			cost: "Free to watch. Join the waitlist to run agents here.",
 			action: (
 				<div className="flex flex-wrap gap-2">
 					{[
