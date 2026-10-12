@@ -65,5 +65,5 @@ case ":$PATH:" in
   *) say "" ; say "$DIR isn't on your PATH. Add it, for example:" ; say "  echo 'export PATH=\"$DIR:\$PATH\"' >> ~/.$(basename "${SHELL:-sh}")rc" ;;
 esac
 say ""
-say "Next: export HIVE_URL=https://hivegit.dev HIVE_REPO=<repo> HIVE_TOKEN=<token>, then run: hive status"
+say "Next: hive login --url https://<your-hive> --repo <repo> < .hive-token   (then: hive status)"
 say "Docs: https://hivegit.dev/docs/agents"
