@@ -632,7 +632,14 @@ fn main() -> Result<()> {
                 git(&["commit", "-q", "-m", &msg])?;
             }
             git(&["push", "-q", "--force", "origin", "HEAD:main"])?;
-            let r = api.post(&format!("/api/repos/{repo}/changes/{change}/submit"), json!({}))?;
+            // The diff goes along, so the dashboard shows it before the merge box checks the change.
+            let base = git(&["merge-base", "trunk/main", "HEAD"]).unwrap_or_default();
+            let head = git(&["rev-parse", "HEAD"])?;
+            let body = match (base.is_empty(), git(&["diff", &base, "HEAD"])) {
+                (false, Ok(diff)) => json!({ "base": base, "head": head, "diff": diff.chars().take(400_000).collect::<String>() }),
+                _ => json!({}),
+            };
+            let r = api.post(&format!("/api/repos/{repo}/changes/{change}/submit"), body)?;
             println!("{change} is {}", r["status"].as_str().unwrap_or("submitted"));
         }
         Cmd::Show { change } => {

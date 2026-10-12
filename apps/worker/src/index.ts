@@ -189,9 +189,17 @@ app.post("/api/repos/:repo/changes/:changeId/intent", async (c) => {
 	return c.json({ overlaps, advice });
 });
 
-app.post("/api/repos/:repo/changes/:changeId/submit", async (c) =>
-	c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).submit(c.req.param("changeId"))),
-);
+// External agents may send their diff along (the CLI does), so the dashboard shows it before the
+// merge box gets to the change.
+app.post("/api/repos/:repo/changes/:changeId/submit", async (c) => {
+	const raw = await c.req.raw.text();
+	const extra = z
+		.object({ diff: z.string().max(2_000_000).optional(), base: z.string().optional(), head: z.string().optional() })
+		.parse(raw ? JSON.parse(raw) : {});
+	const coord = coordinator(c.executionCtx.exports, c.req.param("repo"));
+	if (extra.diff && extra.base && extra.head) await coord.recordDiff(c.req.param("changeId"), { source: "cli", base: extra.base, head: extra.head, diff: extra.diff });
+	return c.json(await coord.submit(c.req.param("changeId")));
+});
 
 // Per-repo settings: decider ("clef" | "evidence") and landing batch size.
 app.post("/api/repos/:repo/settings", async (c) => {
@@ -228,6 +236,12 @@ app.post("/api/repos/:repo/races/:group/winner", async (c) => {
 app.get("/api/repos/:repo/changes/:changeId", async (c) => {
 	const detail = await coordinator(c.executionCtx.exports, c.req.param("repo")).changeDetail(c.req.param("changeId"));
 	return detail ? c.json(detail) : c.json({ error: "not found" }, 404);
+});
+
+// The change's diff against its base, as last recorded (by its agent, then by the merge box).
+app.get("/api/repos/:repo/changes/:changeId/diff", async (c) => {
+	const d = await coordinator(c.executionCtx.exports, c.req.param("repo")).diffOf(c.req.param("changeId"));
+	return d ? c.json(d) : c.json({ error: "no diff recorded yet" }, 404);
 });
 
 app.post("/api/repos/:repo/changes/:changeId/restart", async (c) =>

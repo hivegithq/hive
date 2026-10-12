@@ -65,6 +65,8 @@ export interface TrunkChecks {
 
 // Planning reads a lot of code: GLM 5.3 has a 1M-token context.
 const PLANNER_MODEL = "@cf/zai-org/glm-5.3";
+// Diffs kept for the dashboard; bigger ones are cut (the change itself is in its fork).
+const MAX_DIFF_CHARS = 400_000;
 
 const MAX_LANDING_RESTARTS = 3;
 const PIPELINE_DEPTH = 2;
@@ -902,6 +904,26 @@ export class RepoCoordinator extends Agent<Env> {
 		);
 		this.emit({ type: "evidence", evidence });
 		return evidence;
+	}
+
+	recordDiff(changeId: string, d: { source: "agent" | "merge" | "cli"; base: string; head: string; diff: string }) {
+		const truncated = d.diff.length > MAX_DIFF_CHARS;
+		this.db.exec(
+			"INSERT OR REPLACE INTO diffs VALUES (?, ?, ?, ?, ?, ?, ?)",
+			changeId,
+			d.source,
+			d.base,
+			d.head,
+			truncated ? d.diff.slice(0, MAX_DIFF_CHARS) : d.diff,
+			truncated ? 1 : 0,
+			now(),
+		);
+	}
+
+	diffOf(changeId: string): { source: string; base: string; head: string; diff: string; truncated: boolean; createdAt: number } | null {
+		const r = this.db.exec("SELECT * FROM diffs WHERE change_id = ?", changeId).toArray()[0];
+		if (!r) return null;
+		return { source: String(r.source), base: String(r.base), head: String(r.head), diff: String(r.diff), truncated: Number(r.truncated) === 1, createdAt: Number(r.created_at) };
 	}
 
 	recordEvaluation(e: Omit<Evaluation, "id" | "createdAt">): Evaluation {

@@ -28,7 +28,9 @@ export class DevRepoHost implements RepoHost {
 		return this.call<RepoHandle | null>("GET", `/api/repos/${enc(name)}`);
 	}
 	async token(name: string, scope: "read" | "write", ttlSeconds: number) {
-		return (await this.call<{ plaintext: string }>("POST", `/api/repos/${enc(name)}/tokens`, { scope, ttl: ttlSeconds })).plaintext;
+		const t = await this.call<{ plaintext: string } | null>("POST", `/api/repos/${enc(name)}/tokens`, { scope, ttl: ttlSeconds });
+		if (!t) throw new Error(`devhost has no repository ${name} (was .devhost cleared? seed it again)`);
+		return t.plaintext;
 	}
 	async log(name: string, opts: { ref?: string; limit?: number } = {}) {
 		const q = new URLSearchParams({ ref: opts.ref ?? "main", limit: String(opts.limit ?? 50) });

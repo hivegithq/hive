@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import type { Decision } from "../../domain/types.ts";
 import { api, type ChangeDetail, modelLabel } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
+import { DiffView } from "./DiffView.tsx";
 import { EvidenceList } from "./Evidence.tsx";
 import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
 
@@ -22,6 +23,7 @@ export function ChangeDrawer(props: { repo: string; changeId: string; tick: numb
 	const [detail, setDetail] = useState<ChangeDetail | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [wide, setWide] = useState(false);
 
 	useEffect(() => {
 		api.change(props.repo, props.changeId).then(setDetail, (e) => setError(e.message));
@@ -51,7 +53,7 @@ export function ChangeDrawer(props: { repo: string; changeId: string; tick: numb
 			animate={{ x: 0 }}
 			exit={{ x: "100%" }}
 			transition={{ type: "spring", stiffness: 380, damping: 38 }}
-			className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[460px] flex-col border-l border-white/10 bg-[#111114]/95 shadow-2xl backdrop-blur-xl"
+			className={`fixed inset-y-0 right-0 z-40 flex w-full ${wide ? "max-w-[min(1100px,100vw)]" : "max-w-[460px]"} flex-col border-l transition-[max-width] duration-300 border-white/10 bg-[#111114]/95 shadow-2xl backdrop-blur-xl`}
 			aria-label={detail ? `Change ${detail.change.id}` : "Change details"}
 		>
 			<header className="flex items-start gap-3 border-b border-white/5 p-5">
@@ -67,13 +69,31 @@ export function ChangeDrawer(props: { repo: string; changeId: string; tick: numb
 			{!detail ? (
 				<p className="p-5 text-kumo-subtle">{error ?? "Loading"}</p>
 			) : (
-				<Body detail={detail} busy={busy} error={error} act={act} repo={props.repo} />
+				<Body detail={detail} busy={busy} error={error} act={act} repo={props.repo} tick={props.tick} wide={wide} setWide={setWide} />
 			)}
 		</motion.aside>
 	);
 }
 
-function Body({ detail, busy, error, act, repo }: { detail: ChangeDetail; busy: boolean; error: string | null; act: (fn: () => Promise<unknown>) => void; repo: string }) {
+function Body({
+	detail,
+	busy,
+	error,
+	act,
+	repo,
+	tick,
+	wide,
+	setWide,
+}: {
+	detail: ChangeDetail;
+	busy: boolean;
+	error: string | null;
+	act: (fn: () => Promise<unknown>) => void;
+	repo: string;
+	tick: number;
+	wide: boolean;
+	setWide: (w: boolean) => void;
+}) {
 	const { change, intent, evidence, evaluations, decisions } = detail;
 	const canWrite = useCanWrite();
 	const review = evaluations.at(-1);
@@ -141,6 +161,19 @@ function Body({ detail, busy, error, act, repo }: { detail: ChangeDetail; busy: 
 				)}
 			</Block>
 
+			{change.model !== "sim" && (
+				<Block
+					title="Changes"
+					action={
+						<button type="button" onClick={() => setWide(!wide)} className="text-xs text-kumo-subtle hover:text-honey">
+							{wide ? "Narrow" : "Widen"}
+						</button>
+					}
+				>
+					<DiffView repo={repo} changeId={change.id} intent={intent} tick={tick} />
+				</Block>
+			)}
+
 			<Block title="Evidence">
 				{evidence.length === 0 ? (
 					<p className="text-kumo-subtle">Nothing has run yet. Evidence appears once the change is in a batch.</p>
@@ -204,10 +237,13 @@ function Body({ detail, busy, error, act, repo }: { detail: ChangeDetail; busy: 
 	);
 }
 
-function Block({ title, children }: { title: string; children: React.ReactNode }) {
+function Block({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
 	return (
 		<section>
-			<h3 className="mb-2.5 font-display text-sm font-semibold tracking-wide text-honey">{title}</h3>
+			<div className="mb-2.5 flex items-center justify-between gap-3">
+				<h3 className="font-display text-sm font-semibold tracking-wide text-honey">{title}</h3>
+				{action}
+			</div>
 			{children}
 		</section>
 	);

@@ -16,6 +16,11 @@ export const SCHEMA = [
 	`CREATE TABLE IF NOT EXISTS evidence (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL,
 		ok INTEGER NOT NULL, output TEXT NOT NULL, commit_hash TEXT NOT NULL, created_at INTEGER NOT NULL)`,
+	// The latest diff of each change against its base: from the agent when it submits, then from the
+	// merge box when the change is checked (the diff that would land).
+	`CREATE TABLE IF NOT EXISTS diffs (
+		change_id TEXT PRIMARY KEY, source TEXT NOT NULL, base TEXT NOT NULL, head TEXT NOT NULL,
+		diff TEXT NOT NULL, truncated INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS evaluations (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, model TEXT NOT NULL, score REAL NOT NULL,
 		summary TEXT NOT NULL, concerns TEXT NOT NULL, created_at INTEGER NOT NULL)`,

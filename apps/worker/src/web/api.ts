@@ -95,6 +95,8 @@ export const api = {
 	snapshot: (repo: string) => call<Snapshot>("GET", `/api/repos/${repo}`),
 	trunk: (repo: string) => call<TrunkCommit[]>("GET", `/api/repos/${repo}/trunk?limit=40`),
 	change: (repo: string, id: string) => call<ChangeDetail>("GET", `/api/repos/${repo}/changes/${id}`),
+	diff: (repo: string, id: string) =>
+		call<{ source: string; base: string; head: string; diff: string; truncated: boolean; createdAt: number }>("GET", `/api/repos/${repo}/changes/${id}/diff`),
 	createGoal: (repo: string, title: string, description: string) => call<Goal>("POST", `/api/repos/${repo}/goals`, { title, description }),
 	assign: (repo: string, goalId: string, model: string) => call<Change>("POST", `/api/repos/${repo}/goals/${goalId}/assign`, { model }),
 	settings: (repo: string) => call<RepoSettings>("GET", `/api/repos/${repo}/settings`),

@@ -277,6 +277,9 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		const { change, goal, intent } = item;
 		const referential: ReferentialConflict[] = await box.referential(change.fork);
 		const conflicts = describeConflicts(referential);
+		// What this change adds on top of the stack below it: kept for the dashboard's diff view.
+		const { diff, structuralDiff } = await box.diff(slice.prev, slice.tip);
+		await coordinator.recordDiff(change.id, { source: "merge", base: slice.prev, head: slice.tip, diff });
 
 		if (mode === "land" && (await coordinator.humanApproved(change.id))) {
 			return { outcome: "land", confidence: 1, probabilities: { land: 1 }, rationale: "Approved by a human reviewer.", decidedBy: "human" };
@@ -291,7 +294,6 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			return { outcome: "land", confidence: 1, probabilities: { land: 1 }, rationale: "Evidence passed.", decidedBy: "hive:evidence" };
 		}
 
-		const { diff, structuralDiff } = await box.diff(slice.prev, slice.tip);
 		const notes = await this.review(goal.title, goal.description, intent?.summary ?? "", structuralDiff || diff, conflicts);
 		const verdict = await decideLanding(
 			this.env.AI,

@@ -322,6 +322,12 @@ export class CodingAgent extends Agent<Env, AgentState> {
 		} else if (r.exitCode !== 0) {
 			return `Commit/push failed: ${r.stderr || r.stdout}`;
 		}
+		// Keep the diff for the dashboard; best effort, it doesn't block the submit.
+		const d = await this.box.run(`base=$(git merge-base trunk/main HEAD) && echo "$base" && git rev-parse HEAD && git diff "$base" HEAD | head -c 400000`, { cwd: REPO_DIR });
+		if (d.exitCode === 0) {
+			const [base, headCommit, ...rest] = d.stdout.split("\n");
+			if (base && headCommit) await this.coordinator.recordDiff(change.id, { source: "agent", base, head: headCommit, diff: rest.join("\n") }).catch(() => {});
+		}
 		try {
 			await this.coordinator.submit(change.id);
 			return "submitted: your change is in the convergence queue. You will be told if it bounces.";

@@ -319,7 +319,7 @@ export class MergeBox extends DurableObject<Env> {
 	// One change's slice of the stack, for review.
 	async diff(prev: string, tip: string): Promise<{ diff: string; structuralDiff: string }> {
 		const range = sh(`${prev}..${tip}`);
-		const diff = (await this.run(`git diff ${range} | head -c 60000`)).stdout;
+		const diff = (await this.run(`git diff ${range} | head -c 400000`)).stdout;
 		const structuralDiff = (await this.run(`GIT_EXTERNAL_DIFF='difft --color never --display inline' git diff --ext-diff ${range} | head -c 30000`)).stdout;
 		return { diff, structuralDiff };
 	}
