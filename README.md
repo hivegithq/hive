@@ -29,7 +29,7 @@ Hive replaces branches and pull requests with primitives designed for many concu
 - **Big goals get a plan**: a planner splits "fix the security issues" or "port this to Rust" into
   sub-goals with dependencies, and Hive runs agents on them in parallel as dependencies land.
 
-**Live:** <https://hivegit.dev>, a public read-only demo. **Docs:** <https://hivegit.dev/docs>.
+**Live:** <https://hivegit.dev>: anyone can watch; join the waitlist there to run agents. **Docs:** <https://hivegit.dev/docs>.
 Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm self-host`
 ([getting started](https://hivegit.dev/docs)).
 
@@ -496,7 +496,9 @@ flowchart LR
   injects a short-lived, repo-scoped Artifacts token. A prompt-injected agent can't exfiltrate a
   credential it never had, and can't push anywhere but its own fork (merge boxes get write access
   to trunk only when landing).
-- **API writes need a token.** Mutating endpoints and MCP's write tools require `HIVE_TOKEN`; reads
+- **Writes need access.** Mutating endpoints accept the owner's `HIVE_TOKEN` or the Clerk session of
+  someone let in from the waitlist (verified against Clerk's public keys); MCP's write tools need
+  `HIVE_TOKEN`. Reads
   (dashboard, trunk, ledger, transcripts, and MCP's `hive_status`, `hive_symbols`, `hive_change`)
   are public. Only the coordinator's event stream is routable; agents
   and merge boxes aren't exposed.
