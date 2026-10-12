@@ -4,6 +4,10 @@ import { type AiRunner, askClef } from "./clef.ts";
 // Auto-land only when Clef is at least this sure (writ's convergence threshold),
 // further capped by how much we trust the agent that wrote the change.
 export const AUTO_LAND_THRESHOLD = 0.85;
+// When the change's own tests ran and passed, they carry much of the weight: the bar for landing
+// drops, as long as land is Clef's top choice and the agent isn't one Hive has learned to doubt.
+export const TESTED_LAND_THRESHOLD = 0.7;
+const TESTED_MIN_TRUST = 0.5;
 // After this many submissions, a change that would bounce again goes to a person instead.
 export const MAX_ATTEMPTS = 3;
 
@@ -23,6 +27,7 @@ export function landingOutcome(input: {
 	evidenceOk: boolean;
 	conflicts?: number; // referential conflicts: semantic coupling a person should look at
 	attempts?: number; // how many times this change has been submitted
+	testsPassed?: boolean; // the evidence included tests, and they passed
 }): Pick<LandingVerdict, "outcome" | "confidence" | "rationale"> {
 	const pLand = input.probabilities.land ?? 0;
 	const pBounce = input.probabilities.bounce ?? 0;
@@ -46,6 +51,14 @@ export function landingOutcome(input: {
 	}
 	if (effective >= AUTO_LAND_THRESHOLD) {
 		return { outcome: "land", confidence: pLand, rationale: `Clef land=${fmt(pLand)} (trust-adjusted ${fmt(effective)}) ≥ ${AUTO_LAND_THRESHOLD}.` };
+	}
+	const topChoice = Object.entries(input.probabilities).every(([k, p]) => k === "land" || p < pLand);
+	if (input.testsPassed && conflicts === 0 && topChoice && input.trust >= TESTED_MIN_TRUST && effective >= TESTED_LAND_THRESHOLD) {
+		return {
+			outcome: "land",
+			confidence: pLand,
+			rationale: `Its tests pass and land is Clef's top choice (land=${fmt(pLand)}, trust-adjusted ${fmt(effective)} ≥ ${TESTED_LAND_THRESHOLD} for tested changes).`,
+		};
 	}
 	if (pBounce >= pLand && pBounce >= 0.5) {
 		if ((input.attempts ?? 1) >= MAX_ATTEMPTS) {
@@ -86,6 +99,7 @@ export async function decideLanding(
 	const reviewScore = answers.review.score / 4;
 	// Only deterministic results count as evidence. Referential conflicts are a signal for review.
 	const evidenceOk = state.evidence.every((e) => e.ok);
+	const testsPassed = evidenceOk && state.evidence.some((e) => e.kind === "test");
 	const verdict = landingOutcome({
 		probabilities: answers.decision.probabilities,
 		reviewScore,
@@ -93,6 +107,7 @@ export async function decideLanding(
 		evidenceOk,
 		conflicts: state.conflicts.length,
 		attempts,
+		testsPassed,
 	});
 	return { ...verdict, probabilities: answers.decision.probabilities, reviewScore };
 }

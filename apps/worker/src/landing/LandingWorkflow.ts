@@ -9,7 +9,8 @@ import { type AttemptFn, evidenceOk, findLandable } from "./batch.ts";
 import type { EvidenceRun, PushResult, ReferentialConflict, StackEntry, StackResult } from "./MergeBox.ts";
 
 const FETCH_CHUNK = 32;
-const FALLBACK_REVIEW_MODEL = "@cf/zai-org/glm-4.7-flash";
+// A fast, free-tier model, so a busy or slow primary reviewer still leaves a written review.
+const FALLBACK_REVIEW_MODEL = "@cf/openai/gpt-oss-120b";
 const RETRY = { retries: { limit: 2, delay: "5 seconds", backoff: "exponential" }, timeout: "15 minutes" } as const satisfies WorkflowStepConfig;
 
 interface Item {
@@ -335,11 +336,16 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			"You review code changes written by AI agents. Be specific and brief. Respond with JSON only: " +
 			'{"summary": "<two sentences>", "concerns": ["<concrete issue>", ...]}. Empty concerns if none.';
 		const errors: string[] = [];
-		for (const model of [this.env.REVIEW_MODEL, FALLBACK_REVIEW_MODEL]) {
+		// The primary gets one bounded try; the fallback is fast and gets a retry.
+		const attempts = [
+			{ model: this.env.REVIEW_MODEL, totalMs: 75_000, maxRetries: 0 },
+			{ model: FALLBACK_REVIEW_MODEL, totalMs: 60_000, maxRetries: 1 },
+		];
+		for (const { model, totalMs, maxRetries } of attempts) {
 			try {
 				const wait = await gateOf(this.ctx.exports, model).acquire();
 				if (wait > 0) await new Promise((r) => setTimeout(r, Math.min(wait, 60_000)));
-				const { text } = await generateText({ model: ai(model as WorkersAIModelId), system, prompt, timeout: { totalMs: 120_000 }, maxRetries: 1 });
+				const { text } = await generateText({ model: ai(model as WorkersAIModelId), system, prompt, timeout: { totalMs }, maxRetries });
 				try {
 					const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
 					return { summary: String(parsed.summary ?? ""), concerns: Array.isArray(parsed.concerns) ? parsed.concerns.map(String) : [] };

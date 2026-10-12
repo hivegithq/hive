@@ -345,11 +345,13 @@ if any test, typecheck or build failed      → bounce (escalate on attempt ≥ 
 effective = P(land) × (0.85 + 0.15 × trust)  // trust ∈ [0,1], starts at 0.8 built-in / 0.6 external
 if effective ≥ 0.85 and referential conflicts → escalate
 if effective ≥ 0.85                          → land
+if tests ran and passed, land is Clef's top choice, trust ≥ 0.5 and effective ≥ 0.70 → land
 if P(bounce) ≥ P(land) and P(bounce) ≥ 0.5   → bounce (escalate on attempt ≥ 3)
 otherwise                                    → escalate
 ```
 
-No model can talk a failing test onto trunk. Trust is earned: each clean landing raises an
+A change whose own tests passed needs less of Clef's confidence than one with no tests: the tests
+carry part of the proof. No model can talk a failing test onto trunk. Trust is earned: each clean landing raises an
 agent's trust by 0.02.
 
 ---

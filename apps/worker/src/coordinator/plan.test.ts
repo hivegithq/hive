@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelForSubgoal, type PlannedGoal, readPlanSettings, validatePlan } from "./plans.ts";
+import { modelForSubgoal, nextSubgoal, type PlannedGoal, readPlanSettings, validatePlan } from "./plans.ts";
 
 const g = (key: string, dependsOn: string[] = []): PlannedGoal => ({ key, title: key, description: key, dependsOn });
 
@@ -30,5 +30,20 @@ describe("plan models", () => {
 		expect(readPlanSettings(JSON.stringify({ model: "glm", agentModel: "kimi", maxParallel: 4 }), "default")).toEqual({ model: "glm", agentModels: ["kimi"], maxParallel: 4 });
 		expect(readPlanSettings(JSON.stringify({ model: "glm", agentModels: ["a", "b"], maxParallel: 2 }), "default").agentModels).toEqual(["a", "b"]);
 		expect(readPlanSettings("{}", "default").agentModels).toEqual(["default"]);
+	});
+});
+
+describe("nextSubgoal", () => {
+	const g = (id: string, status: string, dependsOn: string[] = []) => ({ id, status, dependsOn });
+
+	it("starts the first open sub-goal whose dependencies have landed", () => {
+		expect(nextSubgoal([g("a", "achieved"), g("b", "open", ["a"]), g("c", "open")], 4)).toBe("b");
+		expect(nextSubgoal([g("a", "in_progress"), g("b", "open", ["a"]), g("c", "open")], 4)).toBe("c");
+	});
+
+	it("never picks a sub-goal that's already started, and respects the limit", () => {
+		expect(nextSubgoal([g("a", "in_progress"), g("b", "in_progress")], 2)).toBeNull();
+		expect(nextSubgoal([g("a", "in_progress"), g("b", "open")], 1)).toBeNull();
+		expect(nextSubgoal([g("a", "achieved"), g("b", "in_progress", ["a"])], 4)).toBeNull();
 	});
 });

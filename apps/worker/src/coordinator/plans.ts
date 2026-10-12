@@ -48,3 +48,13 @@ export function readPlanSettings(raw: string, fallbackModel: string): PlanSettin
 // Sub-goals take the plan's agent models in turn (by their order in the plan), so a plan with
 // several models spreads its work across all of them.
 export const modelForSubgoal = (agentModels: string[], index: number) => agentModels[index % agentModels.length];
+
+// The next sub-goal to start: open, every dependency achieved, and room under the parallelism
+// limit. Sub-goals are in plan order; null when nothing can start yet.
+export function nextSubgoal(subgoals: { id: string; status: string; dependsOn: string[] }[], maxParallel: number): string | null {
+	const status = new Map(subgoals.map((g) => [g.id, g.status]));
+	const running = subgoals.filter((g) => g.status === "in_progress" || g.status === "racing").length;
+	if (running >= maxParallel) return null;
+	const ready = subgoals.find((g) => g.status === "open" && g.dependsOn.every((d) => status.get(d) === "achieved"));
+	return ready?.id ?? null;
+}

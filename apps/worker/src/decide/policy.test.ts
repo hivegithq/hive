@@ -27,6 +27,20 @@ describe("landingOutcome", () => {
 		expect(r.outcome).toBe("bounce");
 	});
 
+	it("lands a tested change Clef favours, below the untested bar", () => {
+		const r = landingOutcome({ probabilities: { land: 0.87, bounce: 0.05, escalate: 0.08 }, reviewScore: 0.78, trust: 0.8, evidenceOk: true, testsPassed: true });
+		expect(r.outcome).toBe("land");
+		expect(landingOutcome({ probabilities: { land: 0.87, bounce: 0.05, escalate: 0.08 }, reviewScore: 0.78, trust: 0.8, evidenceOk: true }).outcome).toBe("escalate");
+	});
+
+	it("still asks a person about a tested change when Clef is unsure, the agent is doubted, or code is coupled", () => {
+		const base = { reviewScore: 0.7, evidenceOk: true, testsPassed: true };
+		expect(landingOutcome({ ...base, probabilities: { land: 0.68, escalate: 0.3 }, trust: 0.8 }).outcome).toBe("escalate");
+		expect(landingOutcome({ ...base, probabilities: { land: 0.45, escalate: 0.5 }, trust: 1 }).outcome).toBe("escalate");
+		expect(landingOutcome({ ...base, probabilities: { land: 0.9 }, trust: 0.3 }).outcome).toBe("escalate");
+		expect(landingOutcome({ ...base, probabilities: { land: 0.8 }, trust: 1, conflicts: 1 }).outcome).toBe("escalate");
+	});
+
 	it("escalates instead of auto-landing when there is a referential conflict", () => {
 		const r = landingOutcome({ probabilities: { land: 0.95 }, reviewScore: 1, trust: 1, evidenceOk: true, conflicts: 1 });
 		expect(r.outcome).toBe("escalate");

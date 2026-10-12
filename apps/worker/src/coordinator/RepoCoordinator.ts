@@ -15,7 +15,7 @@ import type {
 } from "../domain/types.ts";
 import { authenticatedRemote, changeRepo, head, ledgerRepo, parseTrailers, repoHost } from "../repo/index.ts";
 import { detectOverlaps, type ReferenceGraph } from "./overlap.ts";
-import { modelForSubgoal, type PlannedGoal, type PlanSettings, readPlanSettings, validatePlan } from "./plans.ts";
+import { modelForSubgoal, nextSubgoal, type PlannedGoal, type PlanSettings, readPlanSettings, validatePlan } from "./plans.ts";
 import { repoPath } from "../agent/paths.ts";
 import { PROBE_FILES, planEvidence } from "../evidence/plan.ts";
 import { selectBatch } from "../landing/batch.ts";
@@ -462,28 +462,40 @@ export class RepoCoordinator extends Agent<Env> {
 	}
 
 	// Start every sub-goal whose dependencies have all landed, up to the plan's parallelism; mark
-	// the parent achieved when every sub-goal is.
+	// the parent achieved when every sub-goal is. Several landings can call this at once, so each
+	// sub-goal is chosen from fresh state and marked started before anything awaits: two calls
+	// can never start the same one.
 	async advancePlan(goalId: string) {
 		const row = this.db.exec("SELECT value FROM meta WHERE key = ?", `plan:${goalId}`).toArray()[0];
 		if (!row) return;
 		const { agentModels, maxParallel } = readPlanSettings(String(row.value), this.env.CODER_MODEL);
-		const children = this.db.exec("SELECT id, status FROM goals WHERE parent_id = ? ORDER BY created_at", goalId).toArray();
-		if (children.length === 0) return;
-		const status = new Map(children.map((c) => [String(c.id), String(c.status)]));
-		if ([...status.values()].every((s) => s === "achieved" || s === "abandoned")) {
+		const subgoals = () =>
+			this.db
+				.exec("SELECT id, status FROM goals WHERE parent_id = ? ORDER BY created_at", goalId)
+				.toArray()
+				.map((c) => ({
+					id: String(c.id),
+					status: String(c.status),
+					dependsOn: this.db.exec("SELECT depends_on FROM goal_deps WHERE goal_id = ?", String(c.id)).toArray().map((r) => String(r.depends_on)),
+				}));
+		const all = subgoals();
+		if (all.length === 0) return;
+		if (all.every((c) => c.status === "achieved" || c.status === "abandoned")) {
 			if (this.goal(goalId)?.status !== "achieved") this.setGoalStatus(goalId, "achieved");
 			return;
 		}
 		if (this.goal(goalId)?.status === "planned") this.setGoalStatus(goalId, "in_progress");
-		let running = [...status.values()].filter((s) => s === "in_progress" || s === "racing").length;
-		const order = [...status.keys()];
-		for (const [childId, s] of status) {
-			if (running >= maxParallel) break;
-			if (s !== "open") continue;
-			const deps = this.db.exec("SELECT depends_on FROM goal_deps WHERE goal_id = ?", childId).toArray().map((r) => String(r.depends_on));
-			if (!deps.every((d) => status.get(d) === "achieved")) continue;
-			await this.assign(childId, modelForSubgoal(agentModels, order.indexOf(childId)));
-			running++;
+		const order = all.map((c) => c.id);
+		for (;;) {
+			const next = nextSubgoal(subgoals(), maxParallel);
+			if (!next) return;
+			this.setGoalStatus(next, "in_progress"); // claimed: no await between choosing and this
+			try {
+				await this.assign(next, modelForSubgoal(agentModels, order.indexOf(next)));
+			} catch (err) {
+				this.setGoalStatus(next, "open");
+				throw err;
+			}
 		}
 	}
 

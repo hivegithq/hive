@@ -1,4 +1,17 @@
-# Roadmap: Hive builds Hive
+# Roadmap
+
+**Update (2026-10-12):** we're building items 1–9 ourselves, since that costs nothing in Workers AI. The
+"Hive builds Hive" demo becomes one small item run through Hive on a **free-tier model** (gpt-oss
+120B, Qwen 3.8 or Nemotron 3, whichever proves best), so the showcase costs cents. The plan below
+is kept for that demo and for the cost reasoning.
+
+| # | Status |
+|---|---|
+| 1 | Done: tested changes land at a lower bar; reviews fall back to a fast model |
+| 2 | Done: plan advancement can't start a sub-goal twice |
+| 3–9 | In progress |
+
+## Hive builds Hive
 
 The next round of Hive is built by Hive. We import this repository into hivegit.dev, turn the
 roadmap below into goals, and let agents work on them in parallel. Every change is gated by
@@ -13,9 +26,12 @@ runs it, with every intent, evidence run and decision on the dashboard.
 Everything here was hit for real while running Hive on imported projects (`itoa`,
 `sampleproject`, `uuid`) and while dogfooding the CLI and MCP:
 
-- On `uuid`, changes whose checks all passed ended up under **Needs you**. The review model timed
-  out, so Clef wasn't confident enough to land them alone.
-- Restarted agents opened **duplicate changes**: `uuid` has three copies of `version7_test.go`.
+- On `uuid`, changes whose tests all passed ended up under **Needs you**. Clef put land at
+  0.68–0.87, and the trust discount for new agents put that just under the 0.85 bar. The written
+  reviews had also timed out, though Clef doesn't read them.
+- A planned goal opened **duplicate changes**: `uuid` has three copies of `version7_test.go`,
+  created within four seconds. Concurrent plan advancement started the same sub-goal three
+  times.
 - Imported repositories **drift from GitHub**: fixes land on Hive's trunk and stay there.
 - We can't say what a run **cost**. Agent token usage isn't recorded anywhere.
 - Every merge box reinstalls dependencies from scratch, so **each batch pays for setup again**.
@@ -28,8 +44,8 @@ Everything here was hit for real while running Hive on imported projects (`itoa`
 
 | # | Item | Status | Size | How it runs in Hive |
 |---|---|---|---|---|
-| 1 | Review timeouts don't cause escalation | Do now (by hand) | S | — |
-| 2 | No duplicate changes on restart | In scope | S | One agent |
+| 1 | Passing changes don't pile up under Needs you | Done | S | — |
+| 2 | No duplicate changes | Done | S | — |
 | 3 | Dependency cache between merge boxes | In scope | M | One agent |
 | 4 | Push back to GitHub (mirror trunk, PR per goal, pull upstream) | In scope | L | **Plan and split** |
 | 5 | GitHub issues → goals | In scope | M | One agent |
@@ -42,20 +58,16 @@ Everything here was hit for real while running Hive on imported projects (`itoa`
 | 12 | Recurring goals (nightly lint, weekly dependency updates) | Later | M | |
 | 13 | Lazy-load Clerk (~145 KB on every page) | Later | S | |
 
-### 1. Review timeouts don't cause escalation (by hand, first)
-The landing review calls a model; when it times out, Clef sees no review and its confidence drops
-just under the landing bar. Retry once, then fall back to a second model, then decide on evidence
-alone (as `decider: "evidence"` does) and record that the review was skipped.
+### 1. Passing changes don't pile up under Needs you (done)
+When a change's own tests ran and passed, there are no referential conflicts, land is Clef's top
+choice and the agent's trust is at least 0.5, the landing bar is 0.70 instead of 0.85. Untested
+changes keep the higher bar. Written reviews give the primary model one bounded try (75 s), then
+fall back to gpt-oss 120B, instead of two models timing out twice each.
 
-**Done when** a change whose checks pass lands even if every review model times out, and its
-decision says so.
-
-### 2. No duplicate changes on restart
-A restarted or re-assigned agent must continue its change, not open a new one. And two changes
-on one goal declaring the same files should be reconciled (one archived, recorded as superseded).
-
-**Done when** restarting an agent mid-run leaves exactly one live change per goal. A test covers
-restart and re-assign in the coordinator.
+### 2. No duplicate changes (done)
+Plan advancement picks each sub-goal from fresh state and marks it started before anything awaits
+(`nextSubgoal` in `coordinator/plans.ts`, tested), so concurrent landings can't start a sub-goal
+twice. Restarts already reuse their change.
 
 ### 3. Dependency cache between merge boxes
 Setup commands (`npm ci`, `pnpm install`, `cargo fetch`, `go mod download`, the Python venv)
