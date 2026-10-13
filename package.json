@@ -1,6 +1,6 @@
 {
   "name": "hive",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -9,6 +9,7 @@
     "devhost": "DEVHOST_EVENTS_URL=http://localhost:5173/_dev/events node tools/devhost/server.ts",
     "start": "node tools/local.ts",
     "self-host": "node tools/self-host.ts",
+    "roadmap": "node tools/roadmap.ts",
     "dev": "pnpm --filter @hive/worker dev",
     "deploy": "pnpm --filter @hive/worker deploy",
     "test": "pnpm -r test",

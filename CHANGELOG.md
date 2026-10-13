@@ -4,6 +4,33 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-13
+
+Reviewing agents' work, inspired by [Delta](https://delta.dev), and a public roadmap.
+
+### Added
+- **Review comments** on lines of a change's diff, or on the whole change, sent to its agent as one
+  round: a change waiting for a person goes back with them, and a working agent gets them in its
+  inbox. `hive comment`, `hive_comment`.
+- **Try again**: a fresh attempt on the goal with another model or guidance; the new agent is told
+  what the last attempt ran into (decision, failing checks, comments). `hive retry`, `hive_retry`.
+- **Why is this line here?**: from any line of trunk to the change that wrote it, its goal, the
+  agent's intent, the checks, the review and the decision. Trunk column, `hive why path:line`,
+  `hive_why` (agents can ask before changing code they don't understand).
+- Repositories set up for agents work as-is: `.agents/prepare` (or `.delta/prepare`) is the setup.
+- **Email notifications** (`mailto:` hooks) when `HIVE_EMAIL_FROM` is set; race lanes side by side
+  in the diff view.
+- **Roadmap** at [hivegit.dev/docs/roadmap](https://hivegit.dev/docs/roadmap) with progress per
+  item; `docs/ROADMAP.md` is generated from the same data (`pnpm roadmap`).
+
+### Changed
+- An agent that stops without submitting leaves its change waiting for a person, with the reason,
+  instead of looking busy forever; restart works on it.
+- Private imports send their token through the egress gateway, never into the container.
+- pnpm and yarn repositories run `corepack enable` first, so package scripts that call `pnpm` or
+  `yarn` work (Hive's own checks needed this).
+- A change that adds nothing to trunk says so instead of asking Clef.
+
 ## [1.4.0] - 2026-10-12
 
 Hive works with GitHub, knows what it costs, and shows the code.
@@ -184,6 +211,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.5.0]: https://github.com/hivegithq/hive/releases/tag/v1.5.0
 [1.4.0]: https://github.com/hivegithq/hive/releases/tag/v1.4.0
 [1.3.0]: https://github.com/hivegithq/hive/releases/tag/v1.3.0
 [1.2.1]: https://github.com/hivegithq/hive/releases/tag/v1.2.1

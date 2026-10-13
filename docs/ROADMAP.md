@@ -1,261 +1,51 @@
 # Roadmap
 
-**Update (2026-10-12):** we're building items 1–9 ourselves, since that costs nothing in Workers AI. The
-"Hive builds Hive" demo becomes one small item run through Hive on a **free-tier model** (gpt-oss
-120B, Qwen 3.8 or Nemotron 3, whichever proves best), so the showcase costs cents. The plan below
-is kept for that demo and for the cost reasoning.
+What Hive does next, and how far along each piece is. Also at <https://hivegit.dev/docs/roadmap>.
+Ideas marked "from Delta" come from [delta.dev](https://delta.dev), the Zed team's multiplayer
+environment for coding with agents. Generated from `apps/worker/src/web/docs/roadmap.ts` by
+`pnpm roadmap`: edit that file, not this one.
 
-| # | Status |
-|---|---|
-| 1 | Done: tested changes land at a lower bar; reviews fall back to a fast model |
-| 2 | Done: plan advancement can't start a sub-goal twice |
-| 3 | Done: dependency cache in R2 (verified: a fresh box restored node_modules in 0s) |
-| 4 | Done: mirror, a PR per goal, upstream sync (needs a test against a real GitHub repository) |
-| 5 | Done: issues as goals |
-| 6 | Done: cost tracking and budgets |
-| 7 | Done: model leaderboard |
-| 8 | Done: webhooks (Slack, Discord, signed JSON); email later, through Email Routing |
-| 9 | Done: diff view (side-by-side race comparison later) |
+## Next
 
-All shipped in 1.4.0.
-
-## Hive builds Hive
-
-The next round of Hive is built by Hive. We import this repository into hivegit.dev, turn the
-roadmap below into goals, and let agents work on them in parallel. Every change is gated by
-Hive's own checks (typecheck, vitest, `cargo test`) and decided by Clef. We review what lands,
-bring it back to GitHub, and deploy it ourselves.
-
-It is the best demo Hive can give: a real codebase with real tests, improving the system that
-runs it, with every intent, evidence run and decision on the dashboard.
-
-## Where these come from
-
-Everything here was hit for real while running Hive on imported projects (`itoa`,
-`sampleproject`, `uuid`) and while dogfooding the CLI and MCP:
-
-- On `uuid`, changes whose tests all passed ended up under **Needs you**. Clef put land at
-  0.68–0.87, and the trust discount for new agents put that just under the 0.85 bar. The written
-  reviews had also timed out, though Clef doesn't read them.
-- A planned goal opened **duplicate changes**: `uuid` has three copies of `version7_test.go`,
-  created within four seconds. Concurrent plan advancement started the same sub-goal three
-  times.
-- Imported repositories **drift from GitHub**: fixes land on Hive's trunk and stay there.
-- We can't say what a run **cost**. Agent token usage isn't recorded anywhere.
-- Every merge box reinstalls dependencies from scratch, so **each batch pays for setup again**.
-- Watching for changes that need a person means **keeping the dashboard open**.
-- In the change drawer you see evidence and a review, but **not the code**.
-
-## The list
-
-**Status:** "Do now" = item 1, done by hand before the run. **In scope** = items 2–9, built by Hive. **Later** = items 10–13.
-
-| # | Item | Status | Size | How it runs in Hive |
-|---|---|---|---|---|
-| 1 | Passing changes don't pile up under Needs you | Done | S | — |
-| 2 | No duplicate changes | Done | S | — |
-| 3 | Dependency cache between merge boxes | In scope | M | One agent |
-| 4 | Push back to GitHub (mirror trunk, PR per goal, pull upstream) | In scope | L | **Plan and split** |
-| 5 | GitHub issues → goals | In scope | M | One agent |
-| 6 | Cost tracking and budgets | In scope | M–L | **Plan and split** |
-| 7 | Model leaderboard per repo | In scope | S–M | **Race** (showcase) |
-| 8 | Notifications when something needs you | In scope | M | One agent |
-| 9 | Diff view in the change drawer | In scope | S–M | **Race** (showcase) |
-| 10 | "Your repos" home page | Later | M | |
-| 11 | Personal API keys / MCP OAuth, per-user spend limits | Later (when the waitlist opens) | L | |
-| 12 | Recurring goals (nightly lint, weekly dependency updates) | Later | M | |
-| 13 | Lazy-load Clerk (~145 KB on every page) | Later | S | |
-
-### 1. Passing changes don't pile up under Needs you (done)
-When a change's own tests ran and passed, there are no referential conflicts, land is Clef's top
-choice and the agent's trust is at least 0.5, the landing bar is 0.70 instead of 0.85. Untested
-changes keep the higher bar. Written reviews give the primary model one bounded try (75 s), then
-fall back to gpt-oss 120B, instead of two models timing out twice each.
-
-### 2. No duplicate changes (done)
-Plan advancement picks each sub-goal from fresh state and marks it started before anything awaits
-(`nextSubgoal` in `coordinator/plans.ts`, tested), so concurrent landings can't start a sub-goal
-twice. Restarts already reuse their change.
-
-### 3. Dependency cache between merge boxes
-Setup commands (`npm ci`, `pnpm install`, `cargo fetch`, `go mod download`, the Python venv)
-are keyed by a hash of the files they depend on. Hive already re-runs setup only when those files
-change *within* a box. Persist the result *across* boxes:
-- a tarball in R2, keyed by repo + setup command + lockfile hash;
-- restored before setup, saved after a successful one;
-- bounded in size, evicted per repo.
-
-**Done when** the second batch after an import skips the install (a timing shown in the
-evidence), and a lockfile change invalidates it. Tests cover key derivation and invalidation.
-
-### 4. Push back to GitHub (planned goal)
-Imported repositories remember where they came from. Three parts, which the planner should split
-further:
-- **Mirror:** push trunk to a branch on the origin (e.g. `hive/main`) after each landing batch.
-- **PRs:** open one pull request per landed goal, with the goal, the evidence and Clef's decision
-  in the body.
-- **Pull upstream:** fetch new commits from origin's default branch on a schedule and fast-forward
-  or rebase trunk, so outside work reaches the agents.
-
-Credentials: a GitHub token per repository (fine-grained, contents + pull requests). It's stored
-encrypted and set from the dashboard or `hive github connect`, and never enters a container
-(pushes go through the outbound gateway, like Artifacts tokens do).
-
-**Done when** a landed goal on a test repo shows up as a PR on GitHub, and a commit pushed to
-GitHub appears on Hive's trunk within the polling interval.
-
-### 5. GitHub issues → goals
-`hive issues import owner/repo [--label x] [--exclude-label upstream] [--limit n]`, the same in
-MCP (`hive_import_issues`), and a dashboard button.
-- One goal per issue: title, body, a link back, and `Hive-Issue: owner/repo#123` on the landed
-  commit.
-- Re-running skips issues already imported.
-
-With #4, the PR body says `Fixes #123`.
-
-**Done when** importing a repository's issues creates one goal each, idempotently, and a landed
-fix carries the issue trailer.
-
-### 6. Cost tracking and budgets (planned goal)
-Record usage for every model call: agents, reviews, planner, Clef, judges.
-- **What:** tokens in and out, the model, and the change, goal and agent it was for.
-- **Price:** from a per-model price table (Workers AI's published prices).
-- **Where it shows:**
-  - per change (drawer), per goal and per repo (dashboard), per model (feeds #7);
-  - `hive cost`;
-  - in the ledger.
-- **Budgets:** a cap per goal and per repo. An agent that hits it stops with a clear reason, and
-  the goal waits for a person.
-- **Container time:** box seconds and instance type, so a run's full cost is visible.
-
-**Done when** every change shows its cost, a goal with a $1 budget stops its agents at $1, and
-totals match the sum of the recorded calls. Tests cover the accounting and the budget stop.
-
-### 7. Model leaderboard per repo (race)
-From data Hive already has, per model:
-- changes started and landed, landing rate, and how often changes were sent back or escalated;
-- median time to land;
-- cost per landed change (with #6).
-
-A panel on the dashboard, `hive models --stats`, and the landing page's live totals for hivegit.dev.
-
-**Done when** the leaderboard for `uuid` matches its changes and decisions.
-
-### 8. Notifications
-When a change needs a person, a race finishes, a plan completes, or trunk's checks start failing:
-- **Webhook first** (JSON, signed), which covers Slack/Discord through their incoming webhooks.
-- **Email** through Cloudflare Email Service to the repo owner.
-- Per-repo settings choose events and destinations.
-- Delivery is retried, with failures recorded.
-
-**Done when** escalating a change on a test repo posts to a webhook receiver with a valid
-signature. Tests cover signing and the event filter.
-
-### 9. Diff view in the change drawer (race)
-The change's diff against its base (from Artifacts), file by file:
-- additions and deletions;
-- the declared intent's symbols highlighted;
-- syntax colouring for the common languages;
-- large diffs collapsed.
-
-For a race, the candidates can be compared side by side.
-
-**Done when** any landed or open change shows its diff, and a race's candidates can be compared.
-
-## How the run works
-
-1. **By hand, first:** item 1, plus a `hive.json` for this repository:
-
-   ```json
-   {
-     "setup": ["corepack enable", "pnpm install --frozen-lockfile"],
-     "checks": {
-       "typecheck": "cd apps/worker && npx cf workers types && npx tsc --noEmit -p . && npx tsc --noEmit -p tsconfig.web.json",
-       "test": "cd apps/worker && npx vitest run",
-       "rust": "cargo test --locked"
-     }
-   }
-   ```
-
-2. **Import** `hivegithq/hive` into hivegit.dev as `hive`, and run `hive checks` until trunk is
-   green.
-3. **Goals:**
-   - one goal per item, from this document, with its "Done when" as acceptance criteria;
-   - #4 and #6 are **planned** (GLM 5.3 plans; Kimi and DeepSeek take sub-goals in turn);
-   - #7 and #9 are **races** between Kimi, DeepSeek and gpt-oss, the showcase moments;
-   - the rest get one agent (Kimi);
-   - 4–6 agents at once.
-4. **Watch** with `hive watch hive`, and decide anything under Needs you with
-   `hive land` / `hive send-back`.
-5. **Bring it home:** review the landed changes, pull Hive's trunk into GitHub (by hand until #4
-   exists, then #4 does it), and deploy when no agent is mid-edit.
-
-Agents' changes never deploy by themselves. Anything needing a secret (a GitHub token, a webhook
-URL) is code the agents write and configuration we add.
-
-## What it costs
-
-### Measured
-From the `uuid` run, five Kimi K2.7 agents that each landed a change, measured from their
-transcripts:
-- 7–18 turns per agent;
-- **~150k input and ~5k output tokens per agent** on average (77k–267k input);
-- **≈ $0.16 per agent** at Kimi's price.
-
-Those were small tasks (one test file each) in a small Go repository.
-
-### Workers AI prices (per million tokens)
-
-| Model | Input | Output | Used for |
-|---|---|---|---|
-| Kimi K2.7 Code | $0.95 | $4.00 | Agents |
-| DeepSeek V4 Pro | $1.32 | $3.96 | Agents, reviews |
-| GLM 5.3 | $1.40 | $4.40 | Planner |
-| gpt-oss 120B | $0.35 | $0.75 | Cheap agents (weaker) |
-| Clef Flash | $0.038 | — | Decisions |
-
-### Estimate for items 2–9
-Work on Hive is bigger than a `uuid` test file: several files, a TypeScript and Rust codebase,
-UI plus backend. Assume **4–10× the measured usage per attempt**, i.e. 0.6–1.5M input and
-20–50k output, and about 1.5 attempts per change to cover changes sent back.
-
-| Part | Agent runs | Model cost |
+| Item | Progress | |
 |---|---|---|
-| #2, #3, #5, #8: one agent each | ~6 attempts | $6–15 |
-| #4 and #6, planned (~5 sub-goals each, plus planning) | ~15 attempts + 2 plans | $17–40 |
-| #7 and #9, three-model races | ~9 attempts | $8–20 |
-| Reviews (DeepSeek) and Clef, per change | ~30 changes | $1–3 |
-| **Total models** | | **~$30–80** |
+| **Conversation branching: retry from step N** (from Delta) | `████░░░░░░` 40% | Rewind an agent to an earlier step, with its workspace as it was then, and continue differently; keep both branches to compare. *Today:* Try again starts a fresh attempt that knows what the last one ran into. Transcripts are kept per step. |
+| **A reviewer that fixes** (from Delta) | `██░░░░░░░░` 15% | A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review. *Today:* A model review and Clef's decision on every change; review comments from people. |
+| **Agent roles in plans: scouts, workers, reviewers** (from Delta) | `██░░░░░░░░` 20% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner and parallel workers, with models per plan. |
+| **Provenance graph** (from Delta) | `███░░░░░░░` 30% | One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them. *Today:* Why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. |
+| **Agents talking across work** (from Delta) | `████░░░░░░` 40% | Agent-to-agent messages visible in the dashboard, and plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”). *Today:* hive_message and agent inboxes; intents say who is touching which symbols. |
+| **Steer a working agent live** (from Delta) | `███░░░░░░░` 30% | Join an agent while it works: watch its steps stream, send a correction mid-run, pause or stop it. *Today:* Comments reach a working agent's inbox; the activity ticker; restart and abandon. |
+| **Review progress: files seen** (from Delta) | `░░░░░░░░░░` 0% | Mark files seen while reviewing a change, cleared when the agent edits them again (3/17 reviewed). |
+| **Bring your own model provider** (from Delta) | `░░░░░░░░░░` 0% | Agents on Anthropic, OpenAI or any compatible API (through AI Gateway), next to Workers AI, with spend tracked the same way. |
+| **Context window breakdown** (from Delta) | `██░░░░░░░░` 20% | Per agent step: how much went to the system prompt, history, tool output; where the tokens (and money) go. *Today:* Tokens and cost per call and per change. |
+| **Watchers, mentions and read-only sharing** (from Delta) | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
+| **Repository-level memory** (from Delta) | `██░░░░░░░░` 15% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* The ledger records every intent, review and decision; try again carries one attempt's lessons forward. |
+| **“Your repos” home page** | `░░░░░░░░░░` 0% | A signed-in home listing your repositories, what needs you, and spend. |
+| **Personal API keys and MCP sign-in** | `█░░░░░░░░░` 10% | People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token. *Today:* Clerk sign-in for the dashboard; budgets per goal. |
+| **Recurring goals** | `░░░░░░░░░░` 0% | Goals that run on a schedule: nightly “fix new lint warnings”, weekly “update dependencies”. |
+| **Lazy-load sign-in** | `░░░░░░░░░░` 0% | Load Clerk only when someone signs in, instead of 145 KB on every page. |
 
-**Containers:**
-- agent boxes (standard-1) cost about $0.07 an hour each;
-- a merge box (standard-4) about $0.40 an hour, and a batch runs ~5 minutes;
-- total: **under $5**, most of it inside Workers Paid's included container time.
+## Shipped
 
-**All in: roughly $35–85**, likely toward the lower end because most items are small.
+| | Version |
+|---|---|
+| Review comments on the diff, sent to the agent (from Delta) | 1.5.0 |
+| Try again with another model or guidance, told what the last attempt ran into (from Delta) | 1.5.0 |
+| Why is this line here? (line → change, goal, intent, proof, decision) (from Delta) | 1.5.0 |
+| .agents/prepare and .delta/prepare as setup (from Delta) | 1.5.0 |
+| Agents that give up wait for a person instead of looking busy | 1.5.0 |
+| Email notifications; side-by-side race lanes; private imports through the gateway | 1.5.0 |
+| Diff view in the change drawer | 1.4.0 |
+| Cost tracking and budgets | 1.4.0 |
+| Model leaderboard per repository | 1.4.0 |
+| GitHub issues as goals | 1.4.0 |
+| Push back to GitHub: mirror, a pull request per goal, upstream sync | 1.4.0 |
+| Webhooks: Slack, Discord, signed JSON | 1.4.0 |
+| Dependency cache shared between boxes | 1.4.0 |
+| Tested changes land at a lower bar; no duplicate sub-goals | 1.4.0 |
 
-**Time:** with 4–6 agents at once, each change takes 15–40 minutes to reach trunk. Expect the
-whole run to take **an afternoon**. Reviewing and deploying is on us.
+## How Hive is built
 
-### Keeping it cheap
-- **Kimi by default.** It's the cheapest of the strong models; use races only where the
-  comparison is the point.
-- **Measure first.** Run #2 alone, check its real usage against the estimate, then start the
-  rest.
-- **Small goals.** Tight "Done when" criteria keep agents from wandering, and wandering is where
-  the tokens go.
-- **Once #6 lands,** give every later goal a budget.
-- **gpt-oss 120B** is about 3× cheaper. It's fine for #2 and #7, but weaker on the multi-file
-  items.
-
-## Risks
-
-- **Deploys interrupt agents.** Don't deploy hivegit.dev while the run is going: containers
-  restart and planners stop.
-- **Checks only prove what they test.** #3, #4 and #8 touch external systems (R2, GitHub, email).
-  Agents can unit-test the logic; the end-to-end check is ours, against a test repository and a
-  test webhook.
-- **Secrets stay with us.** No token for GitHub, email or webhooks goes to an agent. They write
-  the code paths; we configure them.
-- **Overlap is expected.** #6 and #7 both touch usage data, and #4 and #5 both touch GitHub.
-  Declared intents surface that early, which is part of the demo.
+Items are built by hand or, for a showcase, by Hive itself on a free-tier Workers AI model, gated
+by Hive's own checks (typecheck, vitest, `cargo test`). The plan and the measured costs are in
+[Hive builds Hive](HIVE-BUILDS-HIVE.md); what shipped when is in the [changelog](../CHANGELOG.md).

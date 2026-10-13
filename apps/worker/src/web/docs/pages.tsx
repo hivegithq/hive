@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { A, C, Code, H2, List, Note, P, Paths, Table } from "./parts.tsx";
+import { NEXT, SHIPPED } from "./roadmap.ts";
 import { GITHUB } from "../links.ts";
 
 export interface DocPage {
@@ -285,6 +286,18 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 					A change sent back gets the reason and tries again. After three attempts, or when Clef isn't sure, it waits for a person under{" "}
 					<strong className="text-wax">Needs you</strong>, where someone with access can land it or send it back.
 				</P>
+				<H2 id="review">Reviewing a change</H2>
+				<List>
+					<li>
+						<strong className="text-wax">Comments:</strong> in a change's diff, click a line number to comment on that line, or comment on the whole change. <strong className="text-wax">Send to the agent</strong> delivers them as one round: a change waiting for you goes back with them, and an agent still working gets them while it works. CLI: <C>hive comment c-… --file src/cart.ts --line 42 "…"</C>, then <C>--send</C>.
+					</li>
+					<li>
+						<strong className="text-wax">Try again:</strong> start a fresh attempt on the goal with another model or your guidance. The new agent is told what the last attempt ran into (its decision, failing checks, your comments); the last attempt stays for comparison unless you archive it. CLI: <C>hive retry c-… --model deepseek --guidance "…"</C>.
+					</li>
+					<li>
+						<strong className="text-wax">Why is this line here?</strong> At the top of the trunk column, or <C>hive why src/cart.ts:42</C>: the change that wrote the line, its goal, the agent's intent, the checks that passed, the review and Clef's decision. Agents can ask too (<C>hive_why</C>) before changing code they don't understand.
+					</li>
+				</List>
 				<H2 id="map">Reading the map</H2>
 				<P>Each hexagon is one change. The honeycomb fills from the centre outwards:</P>
 				<Table
@@ -347,6 +360,9 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						[<C>hive_set_budget</C>, "Cap a goal's spend"],
 						[<C>hive_models</C>, "How each model has done on the repository"],
 						[<C>hive_notifications</C>, "Webhooks: list, add, test, remove"],
+						[<C>hive_why</C>, "Why a line of trunk is what it is"],
+						[<C>hive_comment</C>, "Review comments on a change, sent to its agent"],
+						[<C>hive_retry</C>, "Try a goal again with another model or guidance"],
 					]}
 				/>
 				<P>
@@ -438,6 +454,10 @@ hive show                         # evidence, review, decision`}</Code>
   "security": true,
   "cache": ["node_modules", "$HOME/.cache/ms-playwright"]
 }`}</Code>
+				<P>
+					A repository already set up for agents works as-is: if it has <C>.agents/prepare</C> (or <C>.delta/prepare</C>, which overrides it), Hive runs that script as setup,
+					unless <C>hive.json</C> says otherwise.
+				</P>
 				<P>
 					The same plan runs everywhere: agents run it in their own container and see exactly what the merge queue will run. A broken <C>hive.json</C> shows up as a failing check.
 				</P>
@@ -632,6 +652,38 @@ hive notify test h-…`}</Code>
 		),
 	},
 	{
+		slug: "roadmap",
+		title: "Roadmap",
+		group: "Reference",
+		summary: "What Hive does next, and how far along each piece is. Ideas marked Delta come from delta.dev, the Zed team's multiplayer environment for coding with agents.",
+		body: () => (
+			<>
+				<H2 id="next">Next</H2>
+				<div className="space-y-4">
+					{NEXT.map((item) => (
+						<div key={item.title} className="cut-sm bg-comb/40 p-4 ring-1 ring-comb-line">
+							<div className="flex items-baseline gap-3">
+								<p className="min-w-0 flex-1 font-display text-lg font-semibold text-wax">{item.title}</p>
+								{item.from && <span className="shrink-0 text-xs text-steel">from {item.from}</span>}
+								<span className="shrink-0 tabular text-sm text-honey">{item.progress}%</span>
+							</div>
+							<div className="mt-2 h-1.5 bg-white/5">
+								<div className="h-full bg-honey" style={{ width: `${Math.max(2, item.progress)}%` }} />
+							</div>
+							<p className="mt-3 text-sm leading-relaxed text-kumo-default">{item.what}</p>
+							{item.have && <p className="mt-1 text-sm text-kumo-subtle">Today: {item.have}</p>}
+						</div>
+					))}
+				</div>
+				<H2 id="shipped">Shipped</H2>
+				<Table head={["", "Version"]} rows={SHIPPED.map((s) => [<>{s.title}{s.from && <span className="ml-2 text-xs text-steel">from {s.from}</span>}</>, <C>{s.version}</C>])} />
+				<P>
+					Have an idea? <A href="https://github.com/hivegithq/hive/issues/new">Open an issue</A>.
+				</P>
+			</>
+		),
+	},
+	{
 		slug: "api",
 		title: "API reference",
 		group: "Reference",
@@ -686,5 +738,9 @@ const API: [string, string, string][] = [
 	["POST", "/api/repos/:repo/github/sync", "Mirror, open pull requests and pull now"],
 	["GET", "/api/repos/:repo/notifications", "Webhooks (URLs masked)"],
 	["POST", "/api/repos/:repo/notifications", "Add a webhook: url, events"],
+	["GET", "/api/repos/:repo/why?path=&line=", "Why a line of trunk is what it is"],
+	["POST", "/api/repos/:repo/changes/:change/comments", "A review comment: path, line, side, body"],
+	["POST", "/api/repos/:repo/changes/:change/comments/send", "Send the pending comments to the agent"],
+	["POST", "/api/repos/:repo/changes/:change/retry", "Try again: model, guidance, replace"],
 	["POST", "/mcp", "MCP over streamable HTTP; read tools work without the token"],
 ];

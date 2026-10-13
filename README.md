@@ -39,8 +39,8 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.4.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
-What's next, built by Hive itself: the [roadmap](docs/ROADMAP.md).
+**Version 1.5.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+What's next: the [roadmap](docs/ROADMAP.md), with progress per item.
 
 ---
 
@@ -570,6 +570,7 @@ claude mcp add --transport http hive https://hivegit.dev/mcp \
 | `hive_import_issues` / `hive_github` | Open GitHub issues as goals; GitHub mirror, pull requests, upstream |
 | `hive_costs` / `hive_set_budget` / `hive_models` | Spend; a goal's budget; how each model has done |
 | `hive_notifications` | Webhooks for needs-you, goal landed, race finished, trunk failing |
+| `hive_why` / `hive_comment` / `hive_retry` | Why a line is there; review comments to an agent; try a goal again with context |
 
 ### `hive` CLI (Rust)
 
