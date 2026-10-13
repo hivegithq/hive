@@ -83,6 +83,7 @@ export class Outbound extends WorkerEntrypoint<Env, OutboundPolicy> {
 			if (/\/(info\/refs|git-upload-pack|git-receive-pack)$/.test(url.pathname)) {
 				const headers = new Headers(request.headers);
 				headers.set("accept-encoding", "identity");
+				if (policy.sourceAuth?.host === url.hostname) headers.set("authorization", policy.sourceAuth.authorization);
 				const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
 				return fetch(url.toString(), { method: request.method, headers, body, redirect: "manual" });
 			}

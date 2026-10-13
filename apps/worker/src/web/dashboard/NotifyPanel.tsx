@@ -80,7 +80,7 @@ export function NotifyPanel({ repo, canWrite }: { repo: string; canWrite: boolea
 			{note && <p className="text-sm text-kumo-default">{note}</p>}
 			<form onSubmit={add} className="flex items-end gap-2">
 				<div className="min-w-0 flex-1">
-					<Input label="Webhook URL" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://hooks.slack.com/services/…" />
+					<Input label="Webhook URL" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://hooks.slack.com/services/… or mailto:you@example.com" />
 				</div>
 				<Button type="submit" variant="secondary" loading={busy} disabled={!url.trim()}>
 					Add

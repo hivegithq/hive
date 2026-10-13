@@ -225,7 +225,7 @@ app.get("/api/repos/:repo/notifications", async (c) => c.json(await coordinator(
 app.post("/api/repos/:repo/notifications", async (c) => {
 	const input = await body(
 		c.req.raw,
-		z.object({ url: z.string().url().max(1000), format: z.enum(["json", "slack", "discord"]).nullish(), events: z.array(z.enum(EVENTS)).nullish() }),
+		z.object({ url: z.string().max(1000), format: z.enum(["json", "slack", "discord", "email"]).nullish(), events: z.array(z.enum(EVENTS)).nullish() }),
 	);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).addHook({ url: input.url, format: input.format ?? undefined, events: input.events ?? undefined }), 201);
 });

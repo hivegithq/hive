@@ -141,19 +141,20 @@ function detect(files: Record<string, string>): { languages: string[]; setup: Se
 		} catch {
 			// a broken package.json fails its own install
 		}
+		// corepack enable puts pnpm/yarn on PATH, so package scripts that call them (pnpm -r test) work.
 		const install = has("pnpm-lock.yaml")
-			? "corepack pnpm install --frozen-lockfile"
+			? "corepack enable && pnpm install --frozen-lockfile"
 			: has("yarn.lock")
-				? "corepack yarn install --immutable"
+				? "corepack enable && yarn install --immutable"
 				: has("package-lock.json")
 					? "npm ci --no-audit --no-fund"
 					: "npm install --no-audit --no-fund";
 		setup.push({
 			command: install,
 			keyFiles: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
-			cache: { local: ["node_modules"], absolute: has("pnpm-lock.yaml") ? ["$(corepack pnpm store path 2>/dev/null || echo /nonexistent)"] : [] },
+			cache: { local: ["node_modules"], absolute: has("pnpm-lock.yaml") ? ["$(pnpm store path 2>/dev/null || echo /nonexistent)"] : [] },
 		});
-		const runner = has("pnpm-lock.yaml") ? "corepack pnpm run -s" : has("yarn.lock") ? "corepack yarn run -s" : "npm run -s";
+		const runner = has("pnpm-lock.yaml") ? "pnpm run -s" : has("yarn.lock") ? "yarn run -s" : "npm run -s";
 		for (const kind of ["typecheck", "build", "test"] as const) {
 			if (scripts[kind]) checks.push({ kind, name: kind, command: `${runner} ${kind}` });
 		}

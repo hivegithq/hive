@@ -1,7 +1,7 @@
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import type { Intent } from "../../domain/types.ts";
-import { api } from "../api.ts";
+import { api, modelLabel } from "../api.ts";
 import { type DiffFile, parseDiff } from "./diff.ts";
 
 const BIG = 400; // lines; bigger files start collapsed
@@ -107,5 +107,60 @@ function FileDiff({ file, declared, names }: { file: DiffFile; declared: boolean
 					</div>
 				))}
 		</section>
+	);
+}
+
+// A race lane's diff, optionally next to another lane's: the same goal, solved differently.
+export function RaceDiff(props: { repo: string; changeId: string; group: string; intent: Intent | null; tick: number; wide: boolean; setWide: (w: boolean) => void }) {
+	const [lanes, setLanes] = useState<{ id: string; model: string; index: number }[]>([]);
+	const [other, setOther] = useState<string | null>(null);
+	useEffect(() => {
+		api.snapshot(props.repo).then(
+			(s) =>
+				setLanes(
+					s.changes
+						.filter((c) => c.race?.group === props.group && c.id !== props.changeId)
+						.map((c) => ({ id: c.id, model: c.model, index: c.race?.index ?? 0 }))
+						.sort((a, b) => a.index - b.index),
+				),
+			() => {},
+		);
+	}, [props.repo, props.group, props.changeId]);
+	const pick = (id: string | null) => {
+		setOther(id);
+		if (id) props.setWide(true);
+	};
+	return (
+		<div>
+			{lanes.length > 0 && (
+				<p className="mb-3 flex flex-wrap items-center gap-2 text-sm text-kumo-subtle">
+					Compare with
+					{lanes.map((l) => (
+						<button
+							key={l.id}
+							type="button"
+							onClick={() => pick(other === l.id ? null : l.id)}
+							className={`cut-sm px-2 py-0.5 text-xs ring-1 ${other === l.id ? "bg-honey/15 text-wax ring-honey/50" : "ring-white/10 hover:text-wax"}`}
+						>
+							lane {l.index + 1}: {modelLabel(l.model)}
+						</button>
+					))}
+				</p>
+			)}
+			{other ? (
+				<div className="grid gap-4 lg:grid-cols-2">
+					<div className="min-w-0">
+						<p className="mb-2 text-xs text-honey">This change</p>
+						<DiffView repo={props.repo} changeId={props.changeId} intent={props.intent} tick={props.tick} />
+					</div>
+					<div className="min-w-0">
+						<p className="mb-2 text-xs text-honey">{lanes.find((l) => l.id === other) ? `Lane ${(lanes.find((l) => l.id === other)?.index ?? 0) + 1}` : other}</p>
+						<DiffView repo={props.repo} changeId={other} intent={null} tick={props.tick} />
+					</div>
+				</div>
+			) : (
+				<DiffView repo={props.repo} changeId={props.changeId} intent={props.intent} tick={props.tick} />
+			)}
+		</div>
 	);
 }

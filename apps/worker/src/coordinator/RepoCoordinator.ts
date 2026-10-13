@@ -30,7 +30,7 @@ import { leaderboard } from "./leaderboard.ts";
 import { gh, goalFromIssue, listOpenIssues, parseGitHubRepo, selectIssues, upsertPullRequest } from "../github/github.ts";
 import { type PrGoal, prBody, prTitle } from "../github/pr.ts";
 import { open as openSecret, seal as sealSecret } from "../github/secret.ts";
-import { checkUrl, EVENTS, maskUrl, type Format, formatFor, type Hook, type Notice, type NotifyEvent, payload, sign } from "../notify/notify.ts";
+import { checkUrl, EVENTS, emailFor, maskUrl, type Format, formatFor, type Hook, type Notice, type NotifyEvent, payload, sign } from "../notify/notify.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -274,9 +274,18 @@ export class RepoCoordinator extends Agent<Env> {
 			if (["planned", "in_progress"].includes(this.goal(goalId)?.status ?? "")) await this.advancePlan(goalId).catch((e) => console.warn("advance plan failed", e));
 		}
 		const rows = this.db
-			.exec("SELECT c.agent_id FROM changes c JOIN agents a ON a.id = c.agent_id WHERE c.status IN ('drafting','bounced') AND a.kind = 'builtin'")
+			.exec("SELECT c.id, c.agent_id FROM changes c JOIN agents a ON a.id = c.agent_id WHERE c.status IN ('drafting','bounced') AND a.kind = 'builtin'")
 			.toArray();
-		await Promise.all(rows.map((r) => agentOf(this.ctx.exports, String(r.agent_id)).ping().catch(() => null)));
+		// Waking an agent resumes it; one that has given up (stopped without submitting, or failed)
+		// leaves its change waiting for a person instead of looking busy forever.
+		await Promise.all(
+			rows.map(async (r) => {
+				const h = await agentOf(this.ctx.exports, String(r.agent_id))
+					.health()
+					.catch(() => null);
+				if (h?.phase === "failed" && h.changeId === String(r.id) && h.lastError !== "budget reached") await this.agentGaveUp(String(r.id), h.steps, h.lastError);
+			}),
+		);
 
 		// Simulated agents get their bounce again if it may have been lost (they ignore duplicates),
 		// and a nudge if their change has been drafting a while.
@@ -559,7 +568,8 @@ export class RepoCoordinator extends Agent<Env> {
 	async restartAgent(changeId: string): Promise<Change> {
 		const change = this.change(changeId);
 		if (!change) throw new Error(`unknown change ${changeId}`);
-		const budgetStop = change.status === "escalated" && this.changeDetail(changeId)?.decisions.at(-1)?.decidedBy === "hive:budget";
+		const stoppedBy = change.status === "escalated" ? this.changeDetail(changeId)?.decisions.at(-1)?.decidedBy : undefined;
+		const budgetStop = stoppedBy === "hive:budget" || stoppedBy === "hive:agent";
 		if (!["drafting", "bounced"].includes(change.status) && !budgetStop) throw new Error(`change ${changeId} is ${change.status}, not with its agent`);
 		if (!this.isBuiltin(change.agentId)) throw new Error(`${change.agentId} is an external agent; restart it yourself`);
 		if (budgetStop) {
@@ -1238,6 +1248,7 @@ export class RepoCoordinator extends Agent<Env> {
 
 	// Up to `tries` attempts, backing off; the outcome is kept on the hook for the settings panel.
 	private async deliver(hook: Hook, n: Notice, tries: number) {
+		if (hook.format === "email") return this.deliverEmail(hook, n);
 		const body = payload(hook.format, n);
 		const headers: Record<string, string> = { "content-type": "application/json", "user-agent": "hive-webhooks", "x-hive-event": n.event };
 		if (hook.format === "json") {
@@ -1251,6 +1262,24 @@ export class RepoCoordinator extends Agent<Env> {
 				const res = await fetch(hook.url, { method: "POST", headers, body, signal: AbortSignal.timeout(10_000) });
 				last = { at: now(), ok: res.ok, status: res.status, error: res.ok ? null : (await res.text()).slice(0, 200) };
 				if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) break;
+			} catch (err) {
+				last = { at: now(), ok: false, status: null, error: String((err as Error)?.message ?? err).slice(0, 200) };
+			}
+		}
+		this.saveHooks(this.hooks().map((h) => (h.id === hook.id ? { ...h, last } : h)));
+		return last;
+	}
+
+	// Email goes out through the send-email binding, to an address verified in Email Routing.
+	private async deliverEmail(hook: Hook, n: Notice) {
+		const env = this.env as { EMAIL?: SendEmail; EMAIL_FROM?: string };
+		let last: Hook["last"];
+		if (!env.EMAIL || !env.EMAIL_FROM) last = { at: now(), ok: false, status: null, error: "email isn't set up on this deployment (HIVE_EMAIL_FROM)" };
+		else {
+			try {
+				const { subject, text } = emailFor(n);
+				await env.EMAIL.send({ from: { name: "Hive", email: env.EMAIL_FROM }, to: hook.url.slice(7), subject, text });
+				last = { at: now(), ok: true, status: 200, error: null };
 			} catch (err) {
 				last = { at: now(), ok: false, status: null, error: String((err as Error)?.message ?? err).slice(0, 200) };
 			}
@@ -1321,6 +1350,16 @@ export class RepoCoordinator extends Agent<Env> {
 	// The budget this goal's work has run into, if any.
 	overBudget(goalId: string) {
 		return budgetExceeded(goalId, this.goalNodes(), this.goalSpend(), this.settings().goalBudget);
+	}
+
+	// A built-in agent stopped without submitting: a person restarts it (perhaps with another model),
+	// lands or sends back what it has, or abandons the change.
+	async agentGaveUp(changeId: string, steps: number, reason: string | null) {
+		const change = this.change(changeId);
+		if (!change || !["drafting", "bounced"].includes(change.status)) return;
+		const why = `The agent stopped after ${steps} step${steps === 1 ? "" : "s"} without submitting${reason ? ` (${reason.slice(0, 200)})` : ""}. Restart it, start another model on the goal, or abandon the change.`;
+		this.log(change.agentId, why);
+		await this.escalated(changeId, { confidence: 1, probabilities: { escalate: 1 }, rationale: why, decidedBy: "hive:agent" });
 	}
 
 	// An agent stopped by a budget: the change waits for a person, with the numbers.

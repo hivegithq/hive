@@ -8,7 +8,7 @@ import type { Decision } from "../../domain/types.ts";
 import { usd } from "../../domain/pricing.ts";
 import { api, type ChangeDetail, modelLabel } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
-import { DiffView } from "./DiffView.tsx";
+import { DiffView, RaceDiff } from "./DiffView.tsx";
 import { EvidenceList } from "./Evidence.tsx";
 import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
 
@@ -186,7 +186,11 @@ function Body({
 						</button>
 					}
 				>
-					<DiffView repo={repo} changeId={change.id} intent={intent} tick={tick} />
+					{change.race ? (
+						<RaceDiff repo={repo} changeId={change.id} group={change.race.group} intent={intent} tick={tick} wide={wide} setWide={setWide} />
+					) : (
+						<DiffView repo={repo} changeId={change.id} intent={intent} tick={tick} />
+					)}
 				</Block>
 			)}
 

@@ -196,6 +196,7 @@ pnpm self-host`}</Code>
 						[<C>HIVE_DOMAIN</C>, "none", "Also serve on this domain and its www. It must be a zone on the same account; DNS records are added for you."],
 						[<C>HIVE_WORKER_NAME</C>, <C>hive</C>, "Name of the Worker, and the prefix of its Workflow, queue and containers. Use another to run a second Hive on one account."],
 						[<C>HIVE_NAMESPACE</C>, "the Worker name", "The Artifacts namespace that holds the repositories."],
+						[<C>HIVE_EMAIL_FROM</C>, "none", "Send email notifications from this address (its domain needs Email Routing; recipients must be verified)."],
 						[<C>HIVE_CLERK_PUBLISHABLE_KEY</C>, "none", "Let other people sign in with Clerk and make changes from the dashboard. Put the instance in waitlist mode so you choose who gets in."],
 					]}
 				/>
@@ -550,10 +551,15 @@ hive settings --budget 1         # default per goal`}</Code>
 				/>
 				<Code>{`hive notify add https://hooks.slack.com/services/…       # Slack and Discord get their own format
 hive notify add https://example.com/hive --events needs-you
+hive notify add mailto:you@example.com
 hive notify test h-…`}</Code>
 				<P>
 					Other URLs get JSON signed like GitHub's webhooks: <C>X-Hive-Signature-256: sha256=HMAC-SHA256(secret, body)</C>, with the secret shown once when you add the hook.
 					Deliveries are retried twice with backoff, and the last outcome shows in Checks &amp; settings. URLs must be public https; lists show them masked.
+				</P>
+				<P>
+					Email needs one setup step on your own Hive: turn on Email Routing for a domain in your Cloudflare account, verify the addresses that should receive mail, and deploy with{" "}
+					<C>HIVE_EMAIL_FROM=hive@yourdomain</C>.
 				</P>
 			</>
 		),

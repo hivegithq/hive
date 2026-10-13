@@ -23,5 +23,8 @@ describe("notify", () => {
 		expect(formatFor("https://hooks.slack.com/services/x")).toBe("slack");
 		expect(formatFor("https://discord.com/api/webhooks/1/2")).toBe("discord");
 		expect(formatFor("https://example.com/hive")).toBe("json");
+		expect(checkUrl("mailto:karan@example.com")).toBeNull();
+		expect(checkUrl("mailto:nope")).toBe("not an email address");
+		expect(formatFor("mailto:karan@example.com")).toBe("email");
 	});
 });

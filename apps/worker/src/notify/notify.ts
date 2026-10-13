@@ -3,7 +3,7 @@
 
 export const EVENTS = ["needs-you", "goal-landed", "race-finished", "trunk-failing"] as const;
 export type NotifyEvent = (typeof EVENTS)[number];
-export type Format = "json" | "slack" | "discord";
+export type Format = "json" | "slack" | "discord" | "email";
 
 export interface Hook {
 	id: string;
@@ -25,6 +25,11 @@ export interface Notice {
 	at: number;
 }
 
+export function emailFor(n: Notice): { subject: string; text: string } {
+	const subject = { "needs-you": "needs you", "goal-landed": "landed", "race-finished": "race finished", "trunk-failing": "trunk is failing" }[n.event];
+	return { subject: `[Hive] ${n.repo}: ${subject}`, text: `${n.text}\n\n${n.link}\n\nYou get this because a notification on ${n.repo} sends here. Remove it under Checks & settings.` };
+}
+
 export function payload(format: Format, n: Notice): string {
 	if (format === "slack") return JSON.stringify({ text: `*${n.repo}*: ${n.text} <${n.link}|Open>` });
 	if (format === "discord") return JSON.stringify({ content: `**${n.repo}**: ${n.text} ${n.link}` });
@@ -37,8 +42,9 @@ export async function sign(secret: string, body: string): Promise<string> {
 	return `sha256=${[...mac].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
-// The webhook URL must be https and must not point into private networks.
+// The webhook URL must be https and must not point into private networks; email is mailto:.
 export function checkUrl(raw: string): string | null {
+	if (raw.startsWith("mailto:")) return /^mailto:[^@\s]+@[^@\s]+\.[^@\s]+$/.test(raw) ? null : "not an email address";
 	let u: URL;
 	try {
 		u = new URL(raw);
@@ -51,6 +57,7 @@ export function checkUrl(raw: string): string | null {
 }
 
 export const maskUrl = (raw: string) => {
+	if (raw.startsWith("mailto:")) return raw.replace(/^mailto:(.).*@/, "mailto:$1…@");
 	try {
 		const u = new URL(raw);
 		return `${u.protocol}//${u.host}/…${u.pathname.slice(-4)}`;
@@ -60,4 +67,4 @@ export const maskUrl = (raw: string) => {
 };
 
 export const formatFor = (url: string): Format =>
-	/hooks\.slack\.com/.test(url) ? "slack" : /discord(app)?\.com\/api\/webhooks/.test(url) ? "discord" : "json";
+	url.startsWith("mailto:") ? "email" : /hooks\.slack\.com/.test(url) ? "slack" : /discord(app)?\.com\/api\/webhooks/.test(url) ? "discord" : "json";

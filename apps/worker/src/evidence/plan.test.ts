@@ -9,9 +9,9 @@ describe("planEvidence", () => {
 	it("detects Node scripts and the package manager from the lockfile", () => {
 		const p = planEvidence({ "package.json": pkg({ test: "vitest", typecheck: "tsc", lint: "eslint ." }), "pnpm-lock.yaml": "" });
 		expect(p.source).toBe("detected");
-		expect(p.setup[0].command).toBe("corepack pnpm install --frozen-lockfile");
+		expect(p.setup[0].command).toBe("corepack enable && pnpm install --frozen-lockfile");
 		// typecheck before test; lint isn't run unless hive.json asks for it
-		expect(p.checks.map((c) => c.command)).toEqual(["corepack pnpm run -s typecheck", "corepack pnpm run -s test"]);
+		expect(p.checks.map((c) => c.command)).toEqual(["pnpm run -s typecheck", "pnpm run -s test"]);
 	});
 
 	it("detects Rust, Python and Go, together in one repository", () => {

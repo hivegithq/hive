@@ -348,13 +348,13 @@ export class MergeBox extends DurableObject<Env> {
 		if (!trunk) throw new Error(`trunk ${input.repo} missing`);
 		const source = new URL(input.url);
 		if (source.protocol !== "https:") throw new Error("import needs an https:// git URL");
-		await this.box.ensure({ repos: [{ name: input.repo, scope: "write" }], hosts: [source.hostname] });
+		// A private repository's token goes to the gateway, never into the container.
+		await this.box.ensure({
+			repos: [{ name: input.repo, scope: "write" }],
+			hosts: [source.hostname],
+			...(input.token ? { sourceAuth: { host: source.hostname, authorization: `Basic ${btoa(`x-access-token:${input.token}`)}` } } : {}),
+		});
 		const env: Record<string, string> = {};
-		if (input.token) {
-			env.GIT_CONFIG_COUNT = "1";
-			env.GIT_CONFIG_KEY_0 = "http.extraHeader";
-			env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${btoa(`x-access-token:${input.token}`)}`;
-		}
 		const dir = "/tmp/hive-import";
 		const branch = input.branch ? `--branch ${sh(input.branch)}` : "";
 		const r = await this.box.run(
@@ -367,6 +367,7 @@ export class MergeBox extends DurableObject<Env> {
 			cd / && rm -rf ${dir}`,
 			{ cwd: "/tmp", env, timeoutMs: 20 * 60 * 1000 },
 		);
+		if (input.token) await this.box.stop();
 		const line = r.stdout.split("\n").find((l) => l.startsWith("HEAD\t"));
 		if (r.exitCode !== 0 || !line) {
 			const why = (r.stdout + r.stderr).replace(/Authorization: Basic \S+/g, "Authorization: Basic ***").trim().slice(-800);

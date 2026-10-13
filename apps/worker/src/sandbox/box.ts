@@ -12,6 +12,9 @@ export interface OutboundPolicy {
 	github?: { owner: string; repo: string; hive: string };
 	// The shared dependency cache (cache.hive.internal), limited to keys under this prefix.
 	cache?: { prefix: string };
+	// Credentials for one allowed host's git traffic (a private import), added by the gateway. Held
+	// only in memory, for the life of this container.
+	sourceAuth?: { host: string; authorization: string };
 }
 
 export type Instance = "lite" | "standard-1" | "standard-2" | "standard-3" | "standard-4";
@@ -68,6 +71,12 @@ export class Box {
 		await c.interceptOutboundHttps("*", gateway);
 		await c.setInactivityTimeout(20 * 60 * 1000);
 		return true;
+	}
+
+	// Stop the container and forget its policy (and any credentials in it).
+	async stop() {
+		this.policyKey = null;
+		await this.container.destroy().catch(() => {});
 	}
 
 	// start() returns before the container can run commands; wait for a trivial exec to succeed.

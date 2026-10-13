@@ -114,6 +114,11 @@ export class CodingAgent extends Agent<Env, AgentState> {
 		return this.state.phase;
 	}
 
+	// For the heartbeat: has this agent given up on its change, and why.
+	health(): { phase: Phase; steps: number; lastError: string | null; changeId: string } {
+		return { phase: this.state.phase, steps: this.state.steps, lastError: this.state.lastError, changeId: this.state.changeId };
+	}
+
 	private async loop(payload: WorkPayload, fiber: FiberContext, resumed: ModelMessage[] | null) {
 		const detail = await this.coordinator.changeDetail(this.state.changeId);
 		if (!detail?.goal) throw new Error(`change ${this.state.changeId} not found`);

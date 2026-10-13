@@ -7,6 +7,8 @@ import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 //   HIVE_NAMESPACE    Artifacts namespace (default: the worker name)
 //   HIVE_DOMAIN       a domain in your account to serve on, apex and www (or a .hive-domain file);
 //                     without one, Hive serves on <name>.<account>.workers.dev only
+//   HIVE_EMAIL_FROM   send email notifications from this address (or a .hive-email file); its domain
+//                     needs Email Routing, and recipients must be verified destination addresses
 //   HIVE_CLERK_PUBLISHABLE_KEY  sign people in with Clerk (or a .hive-clerk file): signed-in users can
 //                     make changes from the dashboard. Without it, the dashboard asks for HIVE_TOKEN.
 // The config runs in Node; declared here rather than pulling Node's types into the Worker's.
@@ -24,6 +26,7 @@ const NAME = process.env.HIVE_WORKER_NAME || "hive";
 const NAMESPACE = process.env.HIVE_NAMESPACE || NAME;
 const DOMAIN = process.env.HIVE_DOMAIN || fromFile(".hive-domain");
 const CLERK_KEY = process.env.HIVE_CLERK_PUBLISHABLE_KEY || fromFile(".hive-clerk");
+const EMAIL_FROM = process.env.HIVE_EMAIL_FROM || fromFile(".hive-email");
 
 // Agent workspaces and the merge box share one image (git, mergiraf, difftastic, node, hive-merge),
 // but a Container links to exactly one Durable Object class, so each gets its own definition.
@@ -53,6 +56,7 @@ export default defineConfig(({ mode }) => {
 				// Artifacts has no local simulation and needs a paid plan, so devhost mode leaves it out.
 				...(local ? {} : { ARTIFACTS: bindings.artifacts({ namespace: NAMESPACE, dev: { remote: true } }) }),
 				LANDING: bindings.workflow({ name: `${NAME}-landing`, worker: NAME, exportName: "LandingWorkflow" }),
+				...(EMAIL_FROM ? { EMAIL: bindings.sendEmail(), EMAIL_FROM: bindings.text(EMAIL_FROM) } : {}),
 				// Dependencies installed by one box, restored by the next (keyed by lockfiles).
 				CACHE: bindings.r2({ name: `${NAME}-cache` }),
 				REPO_HOST: bindings.text(local ? "devhost" : "artifacts"),
