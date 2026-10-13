@@ -35,6 +35,7 @@ import { feedback, type ReviewComment } from "../review/comments.ts";
 import { describeEvery, dueNow, nextAfter, parseEvery } from "./recurring.ts";
 import { contextBreakdown } from "../agent/context.ts";
 import { type Msg, rewind, steps } from "../agent/rewind.ts";
+import { provenance } from "./provenance.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -55,9 +56,10 @@ export interface RepoSettings {
 	security: boolean; // also run the security scan; findings a change introduces fail it (hive.json can turn it on too)
 	goalBudget: number | null; // USD a goal (with its sub-goals) may spend unless it sets its own; null = no limit
 	reviewModel: string | null; // who writes the review that Clef's decision rests on; null = the deployment's REVIEW_MODEL
+	autoFix: boolean; // when Clef isn't sure and the review raised concerns, start one fixing pass on its own
 }
 
-const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false, goalBudget: null, reviewModel: null };
+const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false, goalBudget: null, reviewModel: null, autoFix: false };
 
 const LANDING_TIMEOUT_MS = 20 * 60 * 1000;
 const cleanPath = (p: string) => {
@@ -262,6 +264,7 @@ export class RepoCoordinator extends Agent<Env> {
 	setSettings(patch: Partial<RepoSettings>): RepoSettings {
 		const next = { ...this.settings(), ...patch };
 		next.batchMax = Math.max(1, Math.min(256, Math.floor(next.batchMax)));
+		next.autoFix = next.autoFix === true;
 		next.reviewModel = next.reviewModel && /^@?[\w./:-]{3,100}$/.test(next.reviewModel) ? next.reviewModel : null;
 		next.goalBudget = next.goalBudget === null || next.goalBudget === undefined || Number(next.goalBudget) <= 0 ? null : Number(next.goalBudget);
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('settings', ?)", JSON.stringify(next));
@@ -402,6 +405,10 @@ export class RepoCoordinator extends Agent<Env> {
 			plans: Number(this.db.exec("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'plan:%'").one().n),
 			batches: Number(this.db.exec("SELECT COUNT(*) AS n FROM metrics WHERE name = 'batch_size'").one().n),
 			checks: this.trunkChecks(),
+			inFlight: Number(this.db.exec("SELECT COUNT(*) AS n FROM changes WHERE status IN ('drafting','submitted','converging','bounced','evaluated')").one().n),
+			needsYou: Number(this.db.exec("SELECT COUNT(*) AS n FROM changes WHERE status = 'escalated'").one().n),
+			spend: Number(this.db.exec("SELECT COALESCE(SUM(cost), 0) AS c FROM usage").one().c),
+			lastAt: Number(this.db.exec("SELECT COALESCE(MAX(updated_at), 0) AS t FROM changes").one().t),
 		};
 	}
 
@@ -1425,6 +1432,36 @@ export class RepoCoordinator extends Agent<Env> {
 		};
 	}
 
+	// ── History ──────────────────────────────────────────────────────────────
+
+	history(limit = 40) {
+		const goals = this.db.exec("SELECT id, title, status, parent_id, created_at FROM goals").toArray().map((r) => ({
+			id: String(r.id),
+			title: String(r.title),
+			status: String(r.status),
+			parentId: r.parent_id ? String(r.parent_id) : null,
+			createdAt: Number(r.created_at),
+		}));
+		const changes = this.db.exec("SELECT id, goal_id, model, status, created_at, submitted_at FROM changes").toArray().map((r) => ({
+			id: String(r.id),
+			goalId: String(r.goal_id),
+			model: String(r.model),
+			status: String(r.status),
+			createdAt: Number(r.created_at),
+			submittedAt: r.submitted_at === null ? null : Number(r.submitted_at),
+		}));
+		const decisions = this.db.exec("SELECT change_id, outcome, decided_by, rationale, created_at FROM decisions").toArray().map((r) => ({
+			changeId: String(r.change_id),
+			outcome: String(r.outcome),
+			decidedBy: String(r.decided_by),
+			rationale: String(r.rationale),
+			createdAt: Number(r.created_at),
+		}));
+		const prs = Object.fromEntries(this.db.exec("SELECT goal_id, number, url FROM goal_prs WHERE url IS NOT NULL").toArray().map((r) => [String(r.goal_id), { number: Number(r.number), url: String(r.url) }]));
+		const costByGoal = Object.fromEntries(this.db.exec("SELECT goal_id, SUM(cost) AS c FROM usage WHERE goal_id IS NOT NULL GROUP BY goal_id").toArray().map((r) => [String(r.goal_id), Number(r.c)]));
+		return provenance({ goals, changes, decisions, prs, costByGoal, limit });
+	}
+
 	// ── Lessons: what reviewers asked for, remembered ────────────────────────
 
 	listLessons() {
@@ -1952,7 +1989,22 @@ export class RepoCoordinator extends Agent<Env> {
 	async escalated(changeId: string, d: Omit<Decision, "id" | "createdAt" | "changeId" | "outcome">, opts: { pump?: boolean } = {}) {
 		this.recordDecision({ ...d, changeId, outcome: "escalate" });
 		this.setStatus(changeId, "escalated");
+		if (d.decidedBy === "clef-flash" && this.settings().autoFix) this.ctx.waitUntil(this.autoFix(changeId).catch((e) => console.warn("auto fix failed", e)));
 		if (opts.pump !== false) await this.pump();
+	}
+
+	// One automatic fixing pass per goal, only for a built-in agent's change that Clef wasn't sure
+	// about, whose review raised concerns, and never past the goal's budget.
+	private async autoFix(changeId: string) {
+		const change = this.change(changeId);
+		if (!change || !this.isBuiltin(change.agentId) || !change.model.startsWith("@cf/")) return;
+		const key = `autofix:${change.goalId}`;
+		if (this.db.exec("SELECT 1 FROM meta WHERE key = ?", key).toArray().length) return;
+		const concerns = this.changeDetail(changeId)?.evaluations.filter((e) => e.model !== "hive:evidence").at(-1)?.concerns ?? [];
+		if (concerns.length === 0 || this.overBudget(change.goalId)) return;
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", key, changeId);
+		this.log("hive", `auto fix: ${changeId} had ${concerns.length} concern(s) and Clef wasn't sure; starting a fixing pass`);
+		await this.fixConcerns(changeId, { by: "auto" });
 	}
 
 	// Race candidate finished evaluation. When every candidate is done, Clef judges the race.

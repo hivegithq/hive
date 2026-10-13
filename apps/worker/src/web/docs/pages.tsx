@@ -298,7 +298,10 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						<strong className="text-wax">Carry on from a step:</strong> in Try again, choose <strong className="text-wax">Start from</strong> a step of a built-in agent's attempt. The new agent gets that attempt's conversation up to there with its file edits and declared intent redone in a fresh fork, then your guidance. <C>hive steps c-…</C>, <C>hive rewind c-… --step 4 --guidance "…"</C>.
 					</li>
 					<li>
-						<strong className="text-wax">A fixing pass:</strong> when a review raised concerns, <strong className="text-wax">Have an agent fix these</strong> starts a fresh agent from the end of the attempt, told to resolve those points (and any comments), then submit; the original is archived. <C>hive fix c-…</C>.
+						<strong className="text-wax">History:</strong> under the map, every goal with its attempts (the model, and how each ended: submitted, sent back, needs a person, landed), its sub-goals, the pull request it became and what it cost. Click an attempt to open it. CLI: <C>hive history</C>.
+					</li>
+					<li>
+						<strong className="text-wax">A fixing pass:</strong> when a review raised concerns, <strong className="text-wax">Have an agent fix these</strong> starts a fresh agent from the end of the attempt, told to resolve those points (and any comments), then submit; the original is archived. <C>hive fix c-…</C>. To have it happen on its own, turn on <strong className="text-wax">auto fix</strong> in Checks &amp; settings: when Clef isn't sure and the review raised concerns, one fixing pass starts per goal (within its budget).
 					</li>
 					<li>
 						<strong className="text-wax">Context:</strong> where a built-in agent's context window went, per step (instructions, briefing, thinking, tool calls, tool results), with the largest tool results named; they are re-read on every step after. <C>hive context c-…</C>.
@@ -384,6 +387,7 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						[<C>hive_fix</C>, "A fixing pass on a change's review concerns"],
 						[<C>hive_context</C>, "Where an agent's context window went"],
 						[<C>hive_lessons</C>, "What agents on this repo are told"],
+						[<C>hive_history</C>, "A repo's history by goal: attempts, outcomes, pull request, cost"],
 						[<C>hive_recurring</C>, "Goals on a schedule: add, run, pause, remove"],
 						[<C>hive_comment</C>, "Review comments on a change, sent to its agent"],
 						[<C>hive_retry</C>, "Try a goal again with another model or guidance"],
@@ -448,7 +452,7 @@ hive show                         # evidence, review, decision`}</Code>
 			<>
 				<H2 id="import">Import</H2>
 				<P>
-					<strong className="text-wax">Add a repository</strong> on any dashboard imports from GitHub or any https git server, with full history. Its default branch becomes
+					The <A href="/repos">repositories page</A> lists every repository on a Hive, busiest first, with what needs a person (<C>hive repos</C>). <strong className="text-wax">Add a repository</strong> on any dashboard imports from GitHub or any https git server, with full history. Its default branch becomes
 					trunk's <C>main</C>. For a private repository, give a read token: it's used for that one clone and never stored. From the API:
 				</P>
 				<Code>{`curl -X POST https://hivegit.dev/api/repos/import -H "authorization: Bearer $HIVE_TOKEN" \\
@@ -493,6 +497,7 @@ hive show                         # evidence, review, decision`}</Code>
 						[<C>decider</C>, <C>clef</C>, <>Who lands changes: Clef, on evidence plus a model review, or <C>evidence</C>, the checks alone</>],
 						[<C>batchMax</C>, "16", "Changes stacked and checked together; a failing batch is split to find the culprit"],
 						[<C>reviewModel</C>, "the deployment's", "The model that writes the review Clef's decision rests on."],
+						[<C>autoFix</C>, "off", "Start one fixing pass on its own when Clef isn't sure and the review raised concerns."],
 						[<C>goalBudget</C>, "none", "USD a goal (with its sub-goals) may spend unless it sets its own budget"],
 					]}
 				/>
@@ -783,5 +788,7 @@ const API: [string, string, string][] = [
 	["POST", "/api/repos/:repo/changes/:change/fix", "A fixing pass on the review's concerns"],
 	["GET", "/api/repos/:repo/changes/:change/context", "Where the agent's context window went"],
 	["GET", "/api/repos/:repo/lessons", "What agents on this repo are told (POST adds one)"],
+	["GET", "/api/repos", "Every repository: landed, in flight, needs you, spend"],
+	["GET", "/api/repos/:repo/history", "History by goal"],
 	["POST", "/mcp", "MCP over streamable HTTP; read tools work without the token"],
 ];

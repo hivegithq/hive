@@ -5,6 +5,7 @@ import { handleMcp } from "./mcp/server.ts";
 import { authenticatedRemote, parseTrailers, repoHost } from "./repo/index.ts";
 import { actor } from "./auth.ts";
 import { EVENTS } from "./notify/notify.ts";
+import { listRepos, registered, registerRepo } from "./repo/directory.ts";
 
 export { CodingAgent } from "./agent/CodingAgent.ts";
 export { RepoCoordinator } from "./coordinator/RepoCoordinator.ts";
@@ -62,6 +63,7 @@ app.onError((err, c) => {
 app.post("/api/repos", async (c) => {
 	const { name } = await body(c.req.raw, z.object({ name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{1,40}$/) }));
 	const remotes = await coordinator(c.executionCtx.exports, name).init();
+	c.executionCtx.waitUntil(registerRepo(c.env.CACHE, name));
 	return c.json({ name, ...remotes }, 201);
 });
 
@@ -79,17 +81,27 @@ app.post("/api/repos/import", async (c) => {
 	);
 	const name = input.name ?? repoNameFromUrl(input.url);
 	const result = await coordinator(c.executionCtx.exports, name).importFrom({ url: input.url, branch: input.branch, token: input.token });
+	c.executionCtx.waitUntil(registerRepo(c.env.CACHE, name));
 	return c.json({ name, ...result }, 201);
 });
 
 // Hive-wide numbers for the landing page: the showcase repositories summed, cached for a minute.
-const SHOWCASE = ["scale2k", "final1k", "clean1k", "swarm1k", "load1k", "load", "vulnshop", "itoa", "sampleproject", "uuid", "store", "shop"];
+// Every repository on this deployment, busiest first: what's in flight, what needs a person, spend.
+app.get("/api/repos", async (c) => {
+	const names = await listRepos(c.env.CACHE);
+	const mine = new Set(await registered(c.env.CACHE));
+	const all = await Promise.all(names.map((r) => coordinator(c.executionCtx.exports, r).summary().catch(() => null)));
+	// A repository someone created shows even when it's empty; the pre-existing ones show once they have activity.
+	const repos = all.filter((r): r is NonNullable<typeof r> => !!r && (mine.has(r.repo) || r.changes > 0 || !!r.checks || r.goals > 0)).sort((a, b) => b.lastAt - a.lastAt);
+	return c.json(repos, 200, { "cache-control": "public, max-age=15" });
+});
+
 app.get("/api/hive/stats", async (c) => {
 	const cache = caches.default;
 	const key = new Request(new URL("/api/hive/stats", c.req.url).toString());
 	const hit = await cache.match(key);
 	if (hit) return hit;
-	const repos = await Promise.all(SHOWCASE.map((r) => coordinator(c.executionCtx.exports, r).summary()));
+	const repos = await Promise.all((await listRepos(c.env.CACHE)).map((r) => coordinator(c.executionCtx.exports, r).summary()));
 	const total = (k: "changes" | "landed" | "aiChanges" | "aiLanded" | "goals" | "plans" | "batches") => repos.reduce((n, r) => n + r[k], 0);
 	const body = {
 		repos: repos.filter((r) => r.changes > 0 || r.checks),
@@ -272,6 +284,9 @@ app.post("/api/repos/:repo/recurring/:rid", async (c) => {
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setRecurring(c.req.param("rid"), patch));
 });
 
+// The repository's history by goal: attempts, outcomes, pull requests, cost.
+app.get("/api/repos/:repo/history", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).history(Math.min(100, Number(c.req.query("limit")) || 40))));
+
 // What reviewers asked for, offered to every new agent on this repository.
 app.get("/api/repos/:repo/lessons", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).listLessons()));
 app.post("/api/repos/:repo/lessons", async (c) => {
@@ -378,6 +393,7 @@ app.post("/api/repos/:repo/settings", async (c) => {
 			security: z.boolean().optional(),
 			goalBudget: z.number().positive().max(10_000).nullable().optional(),
 			reviewModel: z.string().max(100).nullable().optional(),
+			autoFix: z.boolean().optional(),
 		}),);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setSettings(patch));
 });

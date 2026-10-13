@@ -11,7 +11,7 @@ import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.7.0" });
+	const server = new McpServer({ name: "hive", version: "1.8.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -247,6 +247,7 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 				decider: z.enum(["clef", "evidence"]).optional(),
 				batchMax: z.number().int().min(1).max(256).optional(),
 				goalBudget: z.number().positive().nullable().optional().describe("default USD budget per goal; null for no limit"),
+				autoFix: z.boolean().optional().describe("start one fixing pass on its own when Clef isn't sure and the review raised concerns"),
 				reviewModel: z.string().nullable().optional().describe("model that writes the review Clef's decision rests on; null for the deployment default"),
 			},
 		},
@@ -479,6 +480,15 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 			inputSchema: { repo: z.string(), changeId: z.string(), model: z.string().optional() },
 		},
 		async ({ repo, changeId, model }) => text(await coordinator(repo).fixConcerns(changeId, { model, by: "mcp" })),
+	);
+
+	server.registerTool(
+		"hive_history",
+		{
+			description: "A repo's history grouped by goal: each goal's attempts (model, outcome, who decided), its sub-goals, pull request and cost. Use it to see what was tried before.",
+			inputSchema: { repo: z.string(), limit: z.number().int().min(1).max(100).optional() },
+		},
+		async ({ repo, limit }) => text(await coordinator(repo).history(limit ?? 20)),
 	);
 
 	server.registerTool(

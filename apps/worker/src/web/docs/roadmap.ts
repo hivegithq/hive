@@ -11,6 +11,9 @@ export interface RoadmapItem {
 }
 
 export const SHIPPED: { title: string; version: string; from?: "Delta" }[] = [
+	{ title: "History by goal: every attempt, how it ended, the pull request, the cost", version: "1.8.0", from: "Delta" },
+	{ title: "Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns", version: "1.8.0", from: "Delta" },
+	{ title: "Repositories home: every repository, busiest first, with what needs a person", version: "1.8.0" },
 	{ title: "Retry from step N: carry on from an earlier step of an attempt, with its edits redone", version: "1.7.0", from: "Delta" },
 	{ title: "Context window breakdown: where an agent's tokens went, per step", version: "1.7.0", from: "Delta" },
 	{ title: "A fixing pass: an agent resolves a review's concerns on top of the attempt's work", version: "1.7.0", from: "Delta" },
@@ -41,8 +44,8 @@ export const NEXT: RoadmapItem[] = [
 	{
 		title: "A reviewer that fixes",
 		what: "A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review.",
-		progress: 70,
-		have: "A fixing pass on request (resolves the review's concerns and comments on top of the attempt). Missing: running it automatically when a review raises concerns.",
+		progress: 90,
+		have: "A fixing pass on request, or automatically once per goal when Clef isn't sure and the review raised concerns. Missing: a reviewer that edits a copy before the change is queued.",
 		from: "Delta",
 	},
 	{
@@ -55,8 +58,8 @@ export const NEXT: RoadmapItem[] = [
 	{
 		title: "Provenance graph",
 		what: "One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them.",
-		progress: 30,
-		have: "Why-is-this-line-here, the plan graph, trunk history with trailers, the ledger.",
+		progress: 80,
+		have: "History by goal (attempts, outcomes, pull request, cost), why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. Missing: one drawn graph linking goals, attempts and commits.",
 		from: "Delta",
 	},
 	{
@@ -85,11 +88,6 @@ export const NEXT: RoadmapItem[] = [
 		progress: 60,
 		have: "Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs.",
 		from: "Delta",
-	},
-	{
-		title: "“Your repos” home page",
-		what: "A signed-in home listing your repositories, what needs you, and spend.",
-		progress: 0,
 	},
 	{
 		title: "Personal API keys and MCP sign-in",

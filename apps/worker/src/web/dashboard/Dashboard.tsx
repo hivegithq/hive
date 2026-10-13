@@ -21,6 +21,7 @@ import { ChangeDrawer } from "./ChangeDrawer.tsx";
 import { ChecksPanel } from "./ChecksPanel.tsx";
 import { Account, SignInToAct, useCanWrite, useGuard } from "../ui/Account.tsx";
 import { GoalComposer } from "./GoalComposer.tsx";
+import { HistoryView } from "./HistoryView.tsx";
 import { IssueImport } from "./IssueImport.tsx";
 import { WhyLine } from "./WhyLine.tsx";
 import { ModelBoard } from "./ModelBoard.tsx";
@@ -77,6 +78,7 @@ export function Dashboard({ repo }: { repo: string }) {
 					<PlanPanel snapshot={snapshot} log={hive.log} onSelect={setSelected} />
 					<Stages snapshot={snapshot} overlaps={hive.overlaps} selected={selected} onSelect={setSelected} />
 					<ModelBoard repo={repo} tick={hive.tick} />
+					<HistoryView repo={repo} tick={hive.tick} onSelect={setSelected} />
 				</main>
 				<TrunkColumn repo={repo} trunk={hive.trunk} onSelect={setSelected} />
 			</div>
@@ -120,6 +122,9 @@ function TopBar(props: { repo: string; snapshot: Snapshot; connected: boolean; t
 		<header className="sticky top-0 z-30 border-b border-white/5 bg-night/80 backdrop-blur-md">
 			<div className="flex h-14 items-center gap-4 px-4">
 				<Wordmark />
+				<a href="/repos" className="text-sm text-kumo-subtle hover:text-wax">
+					Repositories
+				</a>
 				<span className="text-white/15">/</span>
 				<h1 className="font-display text-lg font-semibold text-wax">{props.repo}</h1>
 				<Badge variant={props.connected ? "success" : "warning"} appearance="dot">

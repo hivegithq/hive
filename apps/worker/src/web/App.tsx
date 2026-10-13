@@ -33,13 +33,15 @@ function route<T extends ComponentType<any>>(load: () => Promise<T>) {
 const Dashboard = route(() => import("./dashboard/Dashboard.tsx").then((m) => m.Dashboard));
 const Landing = route(() => import("./landing/Landing.tsx").then((m) => m.Landing));
 const Docs = route(() => import("./docs/Docs.tsx").then((m) => m.Docs));
+const Repos = route(() => import("./repos/Repos.tsx").then((m) => m.Repos));
 
 export function App() {
 	const repo = location.pathname.match(/^\/r\/([^/]+)/)?.[1];
 	const docs = /^\/docs(\/|$)/.test(location.pathname);
+	const repos = /^\/repos\/?$/.test(location.pathname);
 	return (
 		<>
-			<Suspense fallback={<div className="min-h-screen bg-night" />}>{repo ? <Dashboard repo={decodeURIComponent(repo)} /> : docs ? <Docs /> : <Landing />}</Suspense>
+			<Suspense fallback={<div className="min-h-screen bg-night" />}>{repo ? <Dashboard repo={decodeURIComponent(repo)} /> : docs ? <Docs /> : repos ? <Repos /> : <Landing />}</Suspense>
 			<AccessDialogHost />
 		</>
 	);

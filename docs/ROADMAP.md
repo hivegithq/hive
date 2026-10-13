@@ -9,20 +9,22 @@ environment for coding with agents. Generated from `apps/worker/src/web/docs/roa
 
 | Item | Progress | |
 |---|---|---|
-| **A reviewer that fixes** (from Delta) | `███████░░░` 70% | A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review. *Today:* A fixing pass on request (resolves the review's concerns and comments on top of the attempt). Missing: running it automatically when a review raises concerns. |
+| **A reviewer that fixes** (from Delta) | `█████████░` 90% | A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review. *Today:* A fixing pass on request, or automatically once per goal when Clef isn't sure and the review raised concerns. Missing: a reviewer that edits a copy before the change is queued. |
 | **Agent roles in plans: scouts, workers, reviewers** (from Delta) | `█████░░░░░` 45% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal. |
-| **Provenance graph** (from Delta) | `███░░░░░░░` 30% | One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them. *Today:* Why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. |
+| **Provenance graph** (from Delta) | `████████░░` 80% | One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them. *Today:* History by goal (attempts, outcomes, pull request, cost), why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. Missing: one drawn graph linking goals, attempts and commits. |
 | **Agents talking across work** (from Delta) | `███████░░░` 65% | Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between. *Today:* Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols. |
 | **Bring your own model provider** (from Delta) | `░░░░░░░░░░` 0% | Agents on Anthropic, OpenAI or any compatible API (through AI Gateway), next to Workers AI, with spend tracked the same way. |
 | **Watchers, mentions and read-only sharing** (from Delta) | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
 | **Repository-level memory** (from Delta) | `██████░░░░` 60% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs. |
-| **“Your repos” home page** | `░░░░░░░░░░` 0% | A signed-in home listing your repositories, what needs you, and spend. |
 | **Personal API keys and MCP sign-in** | `█░░░░░░░░░` 10% | People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token. *Today:* Clerk sign-in for the dashboard; budgets per goal. |
 
 ## Shipped
 
 | | Version |
 |---|---|
+| History by goal: every attempt, how it ended, the pull request, the cost (from Delta) | 1.8.0 |
+| Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns (from Delta) | 1.8.0 |
+| Repositories home: every repository, busiest first, with what needs a person | 1.8.0 |
 | Retry from step N: carry on from an earlier step of an attempt, with its edits redone (from Delta) | 1.7.0 |
 | Context window breakdown: where an agent's tokens went, per step (from Delta) | 1.7.0 |
 | A fixing pass: an agent resolves a review's concerns on top of the attempt's work (from Delta) | 1.7.0 |

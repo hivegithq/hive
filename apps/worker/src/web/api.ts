@@ -26,6 +26,7 @@ export interface RepoSettings {
 	security: boolean;
 	goalBudget: number | null;
 	reviewModel: string | null;
+	autoFix: boolean;
 }
 
 export interface Costs {
@@ -80,6 +81,15 @@ export interface ContextBreakdown {
 	steps: { step: number; tokens: Record<"system" | "briefing" | "reasoning" | "calls" | "results", number>; total: number }[];
 	biggest: { step: number; tool: string; tokens: number }[];
 	windowEstimate: number;
+}
+
+export interface GoalHistory {
+	goal: { id: string; title: string; status: string; parentId: string | null; createdAt: number };
+	subgoals: { id: string; title: string; status: string }[];
+	attempts: { changeId: string; model: string; status: string; steps: { at: number; kind: string; by?: string; text?: string }[] }[];
+	pr: { url: string; number: number } | null;
+	cost: number;
+	at: number;
 }
 
 export interface ModelStats {
@@ -251,6 +261,7 @@ export const api = {
 		call<Goal>("POST", `/api/repos/${repo}/goals`, { title, description, ...(budget ? { budget } : {}) }),
 	setGoalBudget: (repo: string, goalId: string, budget: number | null) => call("POST", `/api/repos/${repo}/goals/${goalId}/budget`, { budget }),
 	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
+	history: (repo: string) => call<GoalHistory[]>("GET", `/api/repos/${repo}/history`),
 	models: (repo: string) => call<ModelStats[]>("GET", `/api/repos/${repo}/models`),
 	github: (repo: string) => call<GitHubStatus>("GET", `/api/repos/${repo}/github`),
 	lessons: (repo: string) => call<Lesson[]>("GET", `/api/repos/${repo}/lessons`),

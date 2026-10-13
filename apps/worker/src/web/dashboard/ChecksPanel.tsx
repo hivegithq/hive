@@ -203,6 +203,12 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 								onValueChange={(v) => v && save({ decider: v as RepoSettings["decider"] })}
 								items={{ clef: "Clef, on evidence and a review", evidence: "The checks alone (no model calls)" }}
 							/>
+							<Switch
+								label="When a review raises concerns and Clef isn't sure, have an agent fix them once"
+								checked={settings.autoFix}
+								disabled={!canWrite}
+								onCheckedChange={(v) => save({ autoFix: v })}
+							/>
 							<Select
 								label="Who reviews changes"
 								value={settings.reviewModel ?? ""}

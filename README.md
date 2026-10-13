@@ -39,7 +39,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.7.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.8.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 What's next: the [roadmap](docs/ROADMAP.md), with progress per item.
 
 ---
@@ -573,6 +573,7 @@ claude mcp add --transport http hive https://hivegit.dev/mcp \
 | `hive_why` / `hive_comment` / `hive_retry` | Why a line is there; review comments to an agent; try a goal again with context |
 | `hive_steer` / `hive_recurring` | Tell a working agent something; goals on a schedule |
 | `hive_rewind` / `hive_fix` / `hive_context` / `hive_lessons` | Carry on from step N; a fixing pass; where the context went; what agents are told |
+| `hive_history` | A repo's history by goal |
 
 ### `hive` CLI (Rust)
 

@@ -85,6 +85,7 @@ function Nav() {
 		["Security", "#security"],
 		["Plans", "#plans"],
 		["Get started", "#start"],
+		["Repositories", "/repos"],
 		["Docs", "/docs"],
 	];
 	return (

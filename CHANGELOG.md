@@ -4,6 +4,18 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-13
+
+### Added
+- **Repositories page** at [/repos](https://hivegit.dev/repos): every repository on a Hive, busiest
+  first, with landed, in flight, needs you, spend and checks. `GET /api/repos`, `hive repos`. New
+  repositories register themselves; the landing totals use the same list (they missed `hive`).
+- **History by goal** under the map: each goal's attempts, how each ended, its sub-goals, pull
+  request and cost; click an attempt to open it. `GET /api/repos/:repo/history`, `hive history`,
+  `hive_history`.
+- **Automatic fixing pass** (`autoFix`, off by default): when Clef isn't sure and the review raised
+  concerns, one fixing pass starts per goal, within its budget.
+
 ## [1.7.0] - 2026-10-13
 
 Rewinding and fixing agents' work, from [Delta](https://delta.dev)'s playbook, and a lighter site.
@@ -253,6 +265,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.8.0]: https://github.com/hivegithq/hive/releases/tag/v1.8.0
 [1.7.0]: https://github.com/hivegithq/hive/releases/tag/v1.7.0
 [1.6.0]: https://github.com/hivegithq/hive/releases/tag/v1.6.0
 [1.5.0]: https://github.com/hivegithq/hive/releases/tag/v1.5.0

@@ -184,6 +184,13 @@ enum Cmd {
     Steer { change: String, text: String },
     /// Why a line of trunk is what it is: path:line → the change, goal, intent, proof and decision.
     Why { at: String },
+    /// Every repository on this Hive, busiest first.
+    Repos,
+    /// What happened to each goal: attempts, outcomes, pull requests, cost.
+    History {
+        #[arg(long, default_value_t = 10)]
+        limit: u32,
+    },
     /// Where a built-in agent's context window went, per step.
     Context { change: String },
     /// A fixing pass: a fresh agent resolves the review's concerns (and your comments) on top of the attempt's work.
@@ -247,6 +254,9 @@ enum Cmd {
         /// Who writes the review Clef's decision rests on (a model, or `default`).
         #[arg(long)]
         review_model: Option<String>,
+        /// When a review raises concerns and Clef isn't sure, have an agent fix them once: on|off.
+        #[arg(long)]
+        auto_fix: Option<String>,
     },
     /// Clone trunk (or --ledger) with ordinary git, using a one-hour URL.
     Clone {
@@ -921,6 +931,25 @@ fn main() -> Result<()> {
             let m = api.post(&format!("/api/repos/{repo}/changes/{change}/steer"), json!({ "text": text }))?;
             println!("{change}: sent; {} message(s) in the conversation", m.as_array().map_or(0, |a| a.len()));
         }
+        Cmd::Repos => {
+            let list = api.get("/api/repos")?;
+            println!("  {:<18} {:>7} {:>9} {:>8} {:>9}", "repository", "landed", "in flight", "need you", "spent");
+            for r in list.as_array().into_iter().flatten() {
+                println!("  {:<18} {:>7} {:>9} {:>8} {:>9}", s(&r["repo"]), r["landed"].as_u64().unwrap_or(0), r["inFlight"].as_u64().unwrap_or(0), r["needsYou"].as_u64().unwrap_or(0), money(r["spend"].as_f64().unwrap_or(0.0)));
+            }
+        }
+        Cmd::History { limit } => {
+            let repo = repo()?;
+            let h = api.get(&format!("/api/repos/{repo}/history?limit={limit}"))?;
+            for g in h.as_array().into_iter().flatten() {
+                let pr = g["pr"]["url"].as_str().map(|u| format!("  {u}")).unwrap_or_default();
+                println!("{} [{}] {}{}{}", s(&g["goal"]["id"]), s(&g["goal"]["status"]), s(&g["goal"]["title"]), g["cost"].as_f64().filter(|c| *c >= 0.01).map(|c| format!("  ${c:.2}")).unwrap_or_default(), pr);
+                for a in g["attempts"].as_array().into_iter().flatten() {
+                    let path: Vec<String> = a["steps"].as_array().into_iter().flatten().filter(|st| s(&st["kind"]) != "started").map(|st| s(&st["kind"]).to_string()).collect();
+                    println!("    {} {:<28} {}", s(&a["changeId"]), s(&a["model"]).rsplit('/').next().unwrap_or(""), if path.is_empty() { "working".into() } else { path.join(" → ") });
+                }
+            }
+        }
         Cmd::Context { change } => {
             let repo = repo()?;
             let c = api.get(&format!("/api/repos/{repo}/changes/{change}/context"))?;
@@ -1048,7 +1077,7 @@ fn main() -> Result<()> {
                 println!("  problem: {}", s(problem));
             }
         }
-        Cmd::Settings { security, decider, batch, budget, review_model } => {
+        Cmd::Settings { security, decider, batch, budget, review_model, auto_fix } => {
             let repo = repo()?;
             let mut patch = json!({});
             if let Some(v) = security {
@@ -1059,6 +1088,9 @@ fn main() -> Result<()> {
             }
             if let Some(v) = batch {
                 patch["batchMax"] = json!(v);
+            }
+            if let Some(v) = auto_fix {
+                patch["autoFix"] = json!(matches!(v.as_str(), "on" | "true" | "yes" | "1"));
             }
             if let Some(v) = review_model {
                 patch["reviewModel"] = if v == "default" { Value::Null } else { json!(model_id(&v)) };
@@ -1075,6 +1107,7 @@ fn main() -> Result<()> {
             println!("  security  {}", if st["security"] == true { "on" } else { "off" });
             println!("  decider   {}", s(&st["decider"]));
             println!("  batch     {}", st["batchMax"]);
+            println!("  auto fix  {}", if st["autoFix"] == true { "on" } else { "off" });
             println!("  reviewer  {}", st["reviewModel"].as_str().unwrap_or("the deployment's default"));
             println!("  budget    {}", st["goalBudget"].as_f64().map(|b| format!("{} per goal", money(b))).unwrap_or_else(|| "no limit".into()));
         }
