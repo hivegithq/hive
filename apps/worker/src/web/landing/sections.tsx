@@ -213,6 +213,30 @@ function Bar({ label, value, color, delay }: { label: string; value: number; col
 	);
 }
 
+export function WorkWithAgents() {
+	const items = [
+		["Comment on a line", "Click a line of the diff, say what's wrong, and send it back. The agent reads it before its next step."],
+		["Why is this line here?", "Pick a line and see the change, goal, intent, proof and decision behind it."],
+		["Rewind and try again", "Carry on from step N of an attempt with its edits redone, or try again on another model, told what went wrong last time."],
+		["Plans with scouts", "A planner splits a big goal into sub-goals. A cheap read-only scout briefs each worker first, and workers can ask whoever owns the code."],
+		["Reviewers that fix", "The reviewer model can fix its own concerns from a copy of the change, and merge the conflicts structural merge leaves, before anything goes back to an agent."],
+		["Any model, your key", "Workers AI's free models by default, or any OpenAI-compatible endpoint with your own key. Costs are counted per goal, with budgets."],
+	];
+	return (
+		<Section id="working-with-agents" title="Review, steer and rewind agents' work">
+			<p className="mb-12 max-w-2xl text-lg text-kumo-subtle">Agents do the work; you keep the say. Everything here is on the dashboard, the CLI and over MCP.</p>
+			<div className="grid gap-px bg-comb-line sm:grid-cols-2 lg:grid-cols-3">
+				{items.map(([title, text], i) => (
+					<motion.div key={title} {...rise} transition={{ ...rise.transition, delay: i * 0.05 }} className="bg-night p-6">
+						<p className="font-display text-lg font-semibold text-wax">{title}</p>
+						<p className="mt-2 text-kumo-subtle">{text}</p>
+					</motion.div>
+				))}
+			</div>
+		</Section>
+	);
+}
+
 export function Record() {
 	return (
 		<Section id="record" title="Why the code is like this, in git">

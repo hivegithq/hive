@@ -63,6 +63,7 @@ What's next: the [roadmap](docs/ROADMAP.md), with progress per item.
 - [Evidence, in any language](#evidence-in-any-language)
 - [Race mode](#race-mode)
 - [Plans: big goals, many agents](#plans-big-goals-many-agents)
+- [Reviewing, steering and rewinding](#reviewing-steering-and-rewinding)
 - [The ledger](#the-ledger)
 - [Security model](#security-model)
 - [Ways in: dashboard, MCP, CLI, git](#ways-in-dashboard-mcp-cli-git)
@@ -465,6 +466,26 @@ module at a time; parallel sub-goals touch different code.
 
 ---
 
+## Reviewing, steering and rewinding
+
+Agents' work is open to a person at every step, on the dashboard, over MCP and in the CLI:
+
+- **Review comments**: comment on a line of the diff and send it; the agent reads it before its
+  next step. Mark files as seen; the mark clears when the agent edits the file again.
+- **Why is this line here?** A line leads to its change, goal, intent, proof and decision.
+- **Steer** a working agent: tell it something and it reads it before its next step.
+- **Rewind**: carry on from step N of an attempt with its edits redone, or **try again** on another
+  model or with guidance, told what the last attempt ran into. Both attempts stay to compare.
+- **Fix**: a fixing pass resolves a review's concerns on top of the attempt's work, by the author's
+  model or by the reviewer (`fixBy`), once or automatically (`autoFix`).
+- **Conflicts**: with `autoResolve`, the reviewer model merges what structural merge leaves.
+- **History and graph**: every goal with its attempts, how each ended, the pull request and the
+  cost, as a list or drawn as a graph.
+- **Lessons and recurring goals**: what reviewers asked for is told to every new agent; goals can
+  run on a schedule.
+- **Budgets and any model**: a per-goal budget (and per-repository default); models from Workers
+  AI, or any OpenAI-compatible endpoint with your own key.
+
 ## The ledger
 
 Every decision is mirrored, debounced, into `<repo>.hive` with isomorphic-git, straight from the
@@ -720,6 +741,18 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`. Also at <https://hivegit.dev/d
 | `POST` | `/api/repos/:repo/goals/:goal/assign` | Start a built-in agent (`model` optional) |
 | `POST` | `/api/repos/:repo/goals/:goal/race` | Race several models (`models`) |
 | `POST` | `/api/repos/:repo/goals/:goal/plan` | Plan a big goal into sub-goals (`model`, `agentModels` used in turn, `maxParallel`, `scouts`) |
+| `GET` | `/api/repos/:repo/history` | History by goal: attempts, how each ended, the pull request, cost |
+| `GET` | `/api/repos/:repo/why` | Why is this line here: `path`, `line` → the change, goal, intent, proof and decision |
+| `GET`/`POST` | `/api/repos/:repo/changes/:change/comments` | Review comments on the diff; `POST …/comments/send` delivers the pending ones to the agent |
+| `POST` | `/api/repos/:repo/changes/:change/steer` | Tell a working agent something; it reads it before its next step |
+| `GET` | `/api/repos/:repo/changes/:change/steps` | An attempt's steps, for rewinding |
+| `POST` | `/api/repos/:repo/changes/:change/rewind` | Carry on from step N with its edits redone (`step`, `model`, `guidance`) |
+| `POST` | `/api/repos/:repo/changes/:change/retry` | Try the goal again on another model or with guidance |
+| `POST` | `/api/repos/:repo/changes/:change/fix` | A fixing pass on the review's concerns (`model`, `reviewer`) |
+| `GET` | `/api/repos/:repo/changes/:change/context` | Where an agent's context window went |
+| `GET`/`POST` | `/api/repos/:repo/lessons` | What reviewers asked for, told to every new agent |
+| `GET`/`POST` | `/api/repos/:repo/recurring` | Goals on a schedule (nightly lint, weekly dependency updates) |
+| `GET` | `/api/byo/models` | The models of the OpenAI-compatible endpoint this deployment was given |
 | `POST` | `/api/repos/:repo/goals/:goal/claim` | External agent claims a goal |
 | `POST` | `/api/repos/:repo/changes/:change/intent` | Declare intent |
 | `POST` | `/api/repos/:repo/changes/:change/submit` | Submit to the queue |

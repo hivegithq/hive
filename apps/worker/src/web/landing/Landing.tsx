@@ -11,7 +11,7 @@ import { GITHUB, LIVE_REPO } from "../links.ts";
 import { VERSION } from "../version.ts";
 import { BatchDemo } from "./BatchDemo.tsx";
 import { AnyCodebase, SecurityAndPlans } from "./codebase.tsx";
-import { GetStarted, Lifecycle, Overlaps, Problem, Race, Record, Stack } from "./sections.tsx";
+import { GetStarted, Lifecycle, Overlaps, Problem, Race, Record, Stack, WorkWithAgents } from "./sections.tsx";
 import { Account } from "../ui/Account.tsx";
 
 
@@ -70,6 +70,7 @@ export function Landing() {
 			<SecurityAndPlans />
 			<Overlaps />
 			<Race />
+			<WorkWithAgents />
 			<Record />
 			<Stack />
 			<GetStarted />
