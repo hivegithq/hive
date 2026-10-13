@@ -503,6 +503,7 @@ hive show                         # evidence, review, decision`}</Code>
 						[<C>batchMax</C>, "16", "Changes stacked and checked together; a failing batch is split to find the culprit"],
 						[<C>reviewModel</C>, "the deployment's", "The model that writes the review Clef's decision rests on."],
 						[<C>fixBy</C>, "author", "Who does a fixing pass: the model that wrote the change, or the reviewer, which carries on from a copy of the change."],
+						[<C>autoResolve</C>, "off", "When structural merge leaves a conflict, the reviewer model merges it before the change goes back to its agent. The tests and the review still decide, and it is recorded on the change."],
 						[<C>autoFix</C>, "off", "Start one fixing pass on its own when Clef isn't sure and the review raised concerns."],
 						[<C>goalBudget</C>, "none", "USD a goal (with its sub-goals) may spend unless it sets its own budget"],
 					]}

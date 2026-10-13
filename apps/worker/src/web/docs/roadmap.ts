@@ -9,6 +9,7 @@ export interface RoadmapItem {
 }
 
 export const SHIPPED: { title: string; version: string }[] = [
+	{ title: "Conflicts merged in the queue: a model merges what structural merge leaves, so a change lands without a round trip to its agent", version: "1.13.0" },
 	{ title: "Agents ask whoever owns the code: ask_owner messages the agent working on it and answers from what landed there", version: "1.11.0" },
 	{ title: "Scouts in plans: a cheap read-only agent briefs each sub-goal's worker; workers are told who built what they build on", version: "1.11.0" },
 	{ title: "A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found", version: "1.10.0" },

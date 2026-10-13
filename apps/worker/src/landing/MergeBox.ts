@@ -4,6 +4,9 @@ import { Box, sh } from "../sandbox/box.ts";
 import { gatherEvidence } from "../evidence/run.ts";
 import { REGISTRY_HOSTS } from "../sandbox/registries.ts";
 import { UNION_SCRIPT } from "./union.ts";
+import { createAI, type WorkersAIModelId } from "agents/models/ai-sdk";
+import { generateText } from "ai";
+import { coordinatorOf } from "../bindings.ts";
 
 const DIR = "/workspace/trunk";
 // Fork fetches cost about a second of CPU each (TLS through the egress gateway, then git). Measured
@@ -73,6 +76,36 @@ while read -r id fork; do
     printf 'CONFLICT\\t%s\\t%s\\n' "$id" "$excerpt"
   fi
 done
+`;
+
+// Resolving a conflict with a model, one commit at a time. Prints DONE (the new tip and the files it
+// touched) when the range applies, FILE lines (conflicted files, base64) when it stops on conflicts,
+// or FAIL when there is nothing a model can merge (deleted or binary files, a git error).
+// start: begin the cherry-pick on $TIP; continue: stage $FILES and carry on.
+const RESOLVE_SCRIPT = `set -u
+cd ${"$"}{DIR:-/workspace/trunk}
+fail() { printf 'FAIL\\t%s\\n' "$(tail -c 600 /tmp/hive-pick.log 2>/dev/null | base64 -w0)"; git cherry-pick --abort >/dev/null 2>&1; git reset -q --hard "$TIP"; exit 0; }
+list() {
+  u=$(git diff --name-only --diff-filter=U)
+  [ -z "$u" ] && fail
+  for f in $u; do
+    [ "$(wc -c < "$f")" -gt 60000 ] && fail
+    grep -q '^<<<<<<<' "$f" || fail
+    printf 'FILE\\t%s\\t%s\\n' "$f" "$(base64 -w0 < "$f")"
+  done
+}
+case "$1" in
+  start)
+    git cherry-pick --abort >/dev/null 2>&1
+    git checkout -q -f -B land "$TIP" && git clean -qfd
+    base=$(git merge-base origin/main "$FORK/main" 2>/dev/null) || fail
+    git config merge.conflictStyle diff3
+    if git cherry-pick --allow-empty --keep-redundant-commits "$base..$FORK/main" >/tmp/hive-pick.log 2>&1; then :; else list; exit 0; fi ;;
+  continue)
+    git add -- $FILES
+    if GIT_EDITOR=true git cherry-pick --continue >/tmp/hive-pick.log 2>&1; then :; else list; exit 0; fi ;;
+esac
+printf 'DONE\\t%s\\t%s\\n' "$(git rev-parse HEAD)" "$(git diff --name-only "$TIP" HEAD | base64 -w0)"
 `;
 
 interface BoxConfig {
@@ -441,7 +474,77 @@ export class MergeBox extends DurableObject<Env> {
 				out.push({ changeId: f[0], ok: false, conflicts: conflicts.length ? conflicts : [{ path: "(unknown)", excerpt: "cherry-pick failed" }] });
 			}
 		}
+		// Changes that conflicted go to the resolver, each on top of everything that applied.
+		const resolver = (await this.ctx.storage.get<{ model: string; contexts: Record<string, string> }>("resolver")) ?? null;
+		if (resolver && out.some((e) => !e.ok && "conflicts" in e)) {
+			for (const e of [...out]) {
+				if (e.ok || !("conflicts" in e)) continue;
+				const fork = entries.find((x) => x.changeId === e.changeId)?.fork;
+				const fixed = fork ? await this.resolveOnto({ changeId: e.changeId, fork }, tip, resolver).catch(() => null) : null;
+				if (!fixed) continue;
+				out.splice(out.indexOf(e), 1);
+				out.push({ changeId: e.changeId, ok: true, prev: tip, tip: fixed.tip, files: fixed.files, resolved: fixed.resolved });
+				tip = fixed.tip;
+			}
+		}
 		return { trunk, tip, entries: out };
+	}
+
+	// Conflicts the structural merge couldn't resolve go to a model (this repository's `autoResolve`
+	// setting). The tests and the review still decide whether the result lands; if the model can't
+	// produce a clean merge, the change goes back to its agent as before.
+	async useResolver(resolver: { model: string; contexts: Record<string, string> } | null) {
+		await this.ctx.storage.put("resolver", resolver);
+	}
+
+	private async resolveOnto(entry: { changeId: string; fork: string }, tip: string, resolver: { model: string; contexts: Record<string, string> }) {
+		const b64 = (x: string) => (x ? new TextDecoder().decode(Uint8Array.from(atob(x), (c) => c.charCodeAt(0))) : "");
+		const enc = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+		await this.box.files().writeFile("/tmp/hive-resolve.sh", RESOLVE_SCRIPT);
+		const { repo } = await this.cfg();
+		const ai = createAI({ binding: this.env.AI, id: "default" });
+		const env = `TIP=${sh(tip)} FORK=${sh(entry.fork)}`;
+		let mode = "start";
+		let files = "";
+		const resolved: string[] = [];
+		for (let round = 0; round < 6; round++) {
+			const r = await this.run(`${env} FILES=${sh(files)} bash /tmp/hive-resolve.sh ${mode}`, 5 * 60 * 1000);
+			const lines = r.stdout.split("\n").filter((l) => /^(DONE|FAIL|FILE)\t/.test(l));
+			const done = lines.find((l) => l.startsWith("DONE\t"));
+			if (done) {
+				const [, newTip, names] = done.split("\t");
+				return { tip: newTip, files: b64(names).split("\n").filter(Boolean), resolved };
+			}
+			const conflicted = lines.filter((l) => l.startsWith("FILE\t")).map((l) => {
+				const [, path, content] = l.split("\t");
+				return { path, text: b64(content) };
+			});
+			if (conflicted.length === 0) return null; // FAIL: the script has already put things back
+			for (const f of conflicted) {
+				const out = await generateText({
+					model: ai(resolver.model as WorkersAIModelId),
+					system:
+						"You resolve git merge conflicts. The file below has conflict markers in diff3 style: <<<<<<< (trunk's version), ||||||| (the common ancestor), ======= and >>>>>>> (the change's version). Produce the complete merged file that keeps the intent of both sides and compiles. Reply with ONLY the file's full contents: no markers, no explanation, no code fences.",
+					prompt: `The change's goal: ${resolver.contexts[entry.changeId] ?? "(unknown)"}\n\nFile ${f.path}:\n${f.text}`,
+					maxOutputTokens: 16000,
+					timeout: { stepMs: 3 * 60_000 },
+				}).catch(() => null);
+				if (out) {
+					this.ctx.waitUntil(coordinatorOf(this.ctx.exports, repo).recordUsage({ model: resolver.model, purpose: "merge-resolve", changeId: entry.changeId, inputTokens: out.usage.inputTokens ?? 0, outputTokens: out.usage.outputTokens ?? 0 }).catch(() => {}));
+				}
+				const text = out?.text.replace(/^```[a-z]*\n/i, "").replace(/\n```\s*$/, "") ?? "";
+				if (!text.trim() || /^(<<<<<<<|=======$|>>>>>>>|\|\|\|\|\|\|\|)/m.test(text)) {
+					await this.run(`git cherry-pick --abort >/dev/null 2>&1; git reset -q --hard ${sh(tip)}`);
+					return null;
+				}
+				await this.box.files().writeFile(`${DIR}/${f.path}`, text.endsWith("\n") ? text : `${text}\n`);
+				resolved.push(f.path);
+			}
+			mode = "continue";
+			files = conflicted.map((f) => f.path).join(" ");
+		}
+		await this.run(`git cherry-pick --abort >/dev/null 2>&1; git reset -q --hard ${sh(tip)}`);
+		return null;
 	}
 
 	// One change's slice of the stack, for review.

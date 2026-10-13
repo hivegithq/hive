@@ -411,6 +411,7 @@ app.post("/api/repos/:repo/settings", async (c) => {
 			goalBudget: z.number().positive().max(10_000).nullable().optional(),
 			reviewModel: z.string().max(100).nullable().optional(),
 			autoFix: z.boolean().optional(),
+			autoResolve: z.boolean().optional(),
 			fixBy: z.enum(["author", "reviewer"]).optional(),
 		}),);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setSettings(patch));

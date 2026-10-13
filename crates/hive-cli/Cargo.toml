@@ -1,6 +1,6 @@
 [package]
 name = "hive-cli"
-version = "1.12.0"
+version = "1.13.0"
 description = "Command-line client for Hive: join the swarm from any git checkout"
 edition.workspace = true
 license.workspace = true

@@ -11,7 +11,7 @@ import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.12.0" });
+	const server = new McpServer({ name: "hive", version: "1.13.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(

@@ -16,6 +16,7 @@ Generated from `apps/worker/src/web/docs/roadmap.ts` by
 
 | | Version |
 |---|---|
+| Conflicts merged in the queue: a model merges what structural merge leaves, so a change lands without a round trip to its agent | 1.13.0 |
 | Agents ask whoever owns the code: ask_owner messages the agent working on it and answers from what landed there | 1.11.0 |
 | Scouts in plans: a cheap read-only agent briefs each sub-goal's worker; workers are told who built what they build on | 1.11.0 |
 | A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found | 1.10.0 |

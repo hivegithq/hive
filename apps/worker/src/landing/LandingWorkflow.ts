@@ -53,6 +53,12 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			return { settings: await coordinator.settings(), mirrors: await coordinator.mirrors(), items: loaded };
 		});
 		const byId = new Map(items.map((i) => [i.change.id, i]));
+		// Conflicts structural merge can't resolve: a model tries before a change goes back to its agent.
+		if (settings.autoResolve) {
+			await step.do("set up the conflict resolver", () =>
+				box.useResolver({ model: settings.reviewModel ?? this.env.REVIEW_MODEL, contexts: Object.fromEntries(items.map((i) => [i.change.id, `${i.goal.title}. ${i.goal.description}`.slice(0, 1500)])) }),
+			);
+		}
 		const entries = (ids: string[]): StackEntry[] => ids.map((id) => ({ changeId: id, fork: byId.get(id)!.change.fork }));
 		const race = mode === "evaluate" ? items[0]?.change.race : null;
 
@@ -121,6 +127,23 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			});
 			await step.do("finish batch", () => coordinator.batchFinished(event.instanceId));
 			return { landed: 0, trunkRed: red.commit };
+		}
+
+		// Files a model merged: say so on the change, for the review and for whoever looks later.
+		const merged = (outcome.attempt?.stack.entries ?? []).flatMap((e) => (e.ok && e.resolved?.length ? [{ changeId: e.changeId, files: e.resolved }] : []));
+		if (merged.length) {
+			await step.do("record merged conflicts", async () => {
+				for (const m of merged) {
+					await coordinator.recordEvidence({
+						changeId: m.changeId,
+						kind: "merge",
+						command: `conflicts merged by ${settings.reviewModel ?? this.env.REVIEW_MODEL}`,
+						ok: true,
+						output: `Structural merge left conflicts in ${m.files.join(", ")}; a model merged them, and the checks ran on the result.`,
+						commit: outcome.attempt?.stack.trunk ?? "",
+					});
+				}
+			});
 		}
 
 		// Changes that can't land in this batch: conflicts and culprits go back to their agents

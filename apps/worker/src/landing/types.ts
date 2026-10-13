@@ -7,7 +7,7 @@ export interface StackEntry {
 }
 
 export type Stacked =
-	| { changeId: string; ok: true; prev: string; tip: string; files: string[]; unioned?: string[] } // unioned: additive conflicts resolved
+	| { changeId: string; ok: true; prev: string; tip: string; files: string[]; unioned?: string[]; resolved?: string[] } // unioned: additive conflicts kept both sides; resolved: files a model merged
 	| { changeId: string; ok: false; conflicts: { path: string; excerpt: string }[] }
 	| { changeId: string; ok: false; empty: true };
 

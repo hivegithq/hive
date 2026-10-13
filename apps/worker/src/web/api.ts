@@ -27,6 +27,7 @@ export interface RepoSettings {
 	goalBudget: number | null;
 	reviewModel: string | null;
 	autoFix: boolean;
+	autoResolve: boolean;
 	fixBy: "author" | "reviewer";
 }
 

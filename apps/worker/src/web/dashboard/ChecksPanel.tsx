@@ -204,6 +204,12 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 								items={{ clef: "Clef, on evidence and a review", evidence: "The checks alone (no model calls)" }}
 							/>
 							<Switch
+								label="Merge conflicts: let a model merge them before sending a change back"
+								checked={settings.autoResolve}
+								disabled={!canWrite}
+								onCheckedChange={(v) => save({ autoResolve: v })}
+							/>
+							<Switch
 								label="When a review raises concerns and Clef isn't sure, have an agent fix them once"
 								checked={settings.autoFix}
 								disabled={!canWrite}

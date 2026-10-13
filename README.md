@@ -47,7 +47,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.12.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.13.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 What's next: the [roadmap](docs/ROADMAP.md), with progress per item.
 
 ---
@@ -293,6 +293,10 @@ Containers (classes, impls, traits) are hashed with their members cut out. Addin
 There's no merge button. Submitted changes enter a queue that **only the coordinator drains**, so
 trunk always has a single writer. It drains in **batches** (the Bors/Zuul idea): stack many
 changes on trunk, verify the stack once, land everything that's good in one push.
+
+When structural merge leaves a conflict, the change normally goes back to its agent. With the
+`autoResolve` setting on, the reviewer model merges it in the queue first, and the tests and the
+review still decide; if the model can't produce a clean merge, the change goes back as before.
 
 ```mermaid
 flowchart TD

@@ -4,6 +4,11 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-13
+
+### Added
+- **Conflicts merged in the queue.** A repository setting, `autoResolve` (Checks panel: "Merge conflicts: let a model merge them"), has the reviewer model merge what structural merge leaves, instead of sending the change back to its agent. The tests and the review still decide whether the result lands; if the model can't produce a clean merge, the change goes back as before. Each change it merged says which files on its evidence. On a live run, two agents rewording the same line landed one after the other with no round trip: the conflicted change landed on its first attempt, where a bounce had cost about four minutes of an agent redoing the merge.
+
 ## [1.12.0] - 2026-10-13
 
 ### Changed
