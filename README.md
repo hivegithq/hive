@@ -32,6 +32,13 @@ Hive replaces branches and pull requests with primitives designed for many concu
   goal (with its evidence and decision), with trunk mirrored and upstream commits brought in.
 - **Knows what it costs**: every model call and container run is priced, goals can have budgets,
   and a per-repository leaderboard shows which models land the most for the least.
+- **Reviewing agents' work is first class**: comment on a line of the diff and the agent reads it;
+  ask why a line is here; rewind to step N or try again on another model; steer a working agent;
+  recurring goals; lessons from past reviews told to every new agent.
+- **Any model**: Workers AI, plus the whole CamelAI catalog (Anthropic, OpenAI, free OpenRouter
+  ones) running agents with Hive's own tools.
+- **Hive builds Hive**: it imported its own repository and opened
+  [hivegithq/hive#1](https://github.com/hivegithq/hive/pull/1) after passing its own checks.
 
 **Live:** <https://hivegit.dev>: anyone can watch; join the waitlist there to run agents. **Docs:** <https://hivegit.dev/docs>.
 Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm self-host`
@@ -39,7 +46,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.9.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.9.1.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 What's next: the [roadmap](docs/ROADMAP.md), with progress per item.
 
 ---

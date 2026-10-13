@@ -4,6 +4,12 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-13
+
+### Changed
+- Removed the `.delta/prepare` setup convention; `.agents/prepare` is the one way.
+- README and the demo script now cover everything since 1.4: reviewing, rewinding, any model, and Hive building Hive.
+
 ## [1.9.0] - 2026-10-13
 
 ### Added

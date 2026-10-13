@@ -1,7 +1,8 @@
-# Demo script (9 minutes)
+# Demo script (about 9 minutes)
 
-Setup before recording: `pnpm devhost`, `pnpm dev`, `node demo/seed.ts`, dashboard open at
-`/r/shop`, a terminal with `node tools/watch.ts shop`, and a second terminal in an empty folder.
+Setup before recording: either the live site (<https://hivegit.dev>, owner token for the writes) or
+local (`pnpm start`, `node demo/seed.ts`, dashboard at `/r/shop`). Have a terminal with
+`node tools/watch.ts shop` and a second terminal in an empty folder.
 
 ## 1. The problem (0:00–0:45)
 
@@ -46,7 +47,7 @@ archived. "Best-of-N is a version-control primitive here, not a prompt trick."
   exactly the symbols your diff changed.
 - "Clone with git": trunk is real git; any client works.
 
-## 6. Two thousand agents (7:15–8:15)
+## 6. Two thousand agents (7:15–8:00)
 
 Before recording, start a load test on a fresh repo (deployed, `decider: "evidence"`,
 `batchMax: 128`; see the README's "Load test it yourself"), and record its dashboard from the
@@ -59,11 +60,25 @@ start. Speed it up in the edit.
 - `git clone` the trunk: one commit per landed change, every one with its `Hive-Change-Id`, and
   the tests pass. "It's still just git."
 
-## 7. The record (8:15–9:00)
+## 7. Working with the agents (8:00–8:45)
+
+Open a landed or waiting change on any repository.
+
+- **Review comments:** click a line in the diff, write what's wrong, send it back; the agent reads
+  it before its next step.
+- **Why is this line here?** Pick a line: the change, goal, intent, proof and decision behind it.
+- **Rewind:** carry on from step N of an attempt with its edits redone, or try again on another
+  model (any CamelAI model works: Anthropic, OpenAI, free OpenRouter ones).
+- **History by goal** shows every attempt, how it ended, the pull request and the cost.
+
+## 8. The record, and Hive builds Hive (8:45–9:30)
 
 `git clone` the `shop.hive` ledger repo: goals, intents, evidence, reviews, decisions, full agent
 transcripts, as JSON in git. "Years from now, `git log` tells you what changed, and the ledger
 tells you why and who decided."
+
+Then show hivegit.dev/r/hive: Hive imported its own repository, passed its own checks and opened
+hivegithq/hive#1 through the GitHub integration. "It builds itself, with the same evidence."
 
 Close on the architecture slide: Workers, Durable Objects, Agents SDK, Workflows, Containers,
 Artifacts, Workers AI and Clef.
