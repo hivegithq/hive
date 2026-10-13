@@ -47,6 +47,7 @@ export function GoalComposer({ repo }: { repo: string }) {
 	const [planner, setPlanner] = useState(DEFAULT_PLANNER);
 	const [crew, setCrew] = useState<string[]>([MODELS[0].id]);
 	const [parallel, setParallel] = useState(6);
+	const [scouts, setScouts] = useState(true);
 	const [budget, setBudget] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -63,7 +64,7 @@ export function GoalComposer({ repo }: { repo: string }) {
 			goalId = (await api.createGoal(repo, title, description, Number(budget) > 0 ? Number(budget) : undefined)).id;
 			if (mode === "one") await api.assign(repo, goalId, model);
 			else if (mode === "race") await api.race(repo, goalId, racers);
-			else await api.plan(repo, goalId, { model: planner, agentModels: crew, maxParallel: parallel });
+			else await api.plan(repo, goalId, { model: planner, agentModels: crew, maxParallel: parallel, scouts });
 			setTitle("");
 			setDescription("");
 		} catch (err) {
@@ -131,6 +132,7 @@ export function GoalComposer({ repo }: { repo: string }) {
 							<Checkbox key={m.id} label={label(m)} checked={crew.includes(m.id)} onCheckedChange={() => toggle(crew, setCrew, m.id)} />
 						))}
 					</Checkbox.Group>
+					<Checkbox label="Scout each sub-goal first: a cheap read-only agent briefs the worker" checked={scouts} onCheckedChange={() => setScouts(!scouts)} />
 					<Input
 						label="Agents at once"
 						type="number"

@@ -26,8 +26,13 @@ describe("plan models", () => {
 		expect(modelForSubgoal(["only"], 7)).toBe("only");
 	});
 
+	it("reads scout settings", () => {
+		const s = readPlanSettings(JSON.stringify({ model: "glm", agentModels: ["a"], scouts: true, scoutModel: "cheap" }), "default");
+		expect([s.scouts, s.scoutModel]).toEqual([true, "cheap"]);
+	});
+
 	it("reads plans saved before agentModels existed", () => {
-		expect(readPlanSettings(JSON.stringify({ model: "glm", agentModel: "kimi", maxParallel: 4 }), "default")).toEqual({ model: "glm", agentModels: ["kimi"], maxParallel: 4 });
+		expect(readPlanSettings(JSON.stringify({ model: "glm", agentModel: "kimi", maxParallel: 4 }), "default")).toEqual({ model: "glm", agentModels: ["kimi"], maxParallel: 4, scouts: false, scoutModel: "default" });
 		expect(readPlanSettings(JSON.stringify({ model: "glm", agentModels: ["a", "b"], maxParallel: 2 }), "default").agentModels).toEqual(["a", "b"]);
 		expect(readPlanSettings("{}", "default").agentModels).toEqual(["default"]);
 	});

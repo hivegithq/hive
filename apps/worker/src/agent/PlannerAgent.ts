@@ -23,6 +23,7 @@ interface PlannerState {
 }
 
 const MAX_STEPS = 45;
+const SCOUT_STEPS = 16;
 const clip = (s: string, max = 12000) => (s.length > max ? `${s.slice(0, max)}\n…[${s.length - max} more chars]` : s);
 
 export class PlannerAgent extends Agent<Env, PlannerState> {
@@ -37,6 +38,76 @@ export class PlannerAgent extends Agent<Env, PlannerState> {
 		return this.state;
 	}
 
+	// A scout looks at the code for one sub-goal, read-only and cheaply, and leaves the worker a
+	// briefing: where to change, who depends on it, what to mirror, what to watch for.
+	async scout(input: { repo: string; goalId: string; model: string }) {
+		this.setState({ ...this.initialState, ...input, phase: "planning" });
+		await this.schedule(0, "scoutWork");
+	}
+
+	async scoutWork() {
+		this.ctx.waitUntil(
+			this.keepAliveWhile(() => this.scoutRun())
+				.catch((err) => {
+					this.setState({ ...this.state, phase: "failed", error: String((err as Error)?.message ?? err) });
+				})
+				.finally(() => {
+					// A scout that gave no briefing lets the worker start without one.
+					if (this.state.phase !== "done") return coordinatorOf(this.ctx.exports, this.state.repo).scoutDone(this.state.goalId, null, this.name);
+				}),
+		);
+	}
+
+	private async scoutRun() {
+		const { repo, goalId, model } = this.state;
+		const coordinator = coordinatorOf(this.ctx.exports, repo);
+		const host = repoHost(this.env);
+		const { goal, index } = await coordinator.planningContext(goalId);
+		const files = await host.listFiles(repo, "main");
+		const read = (path: string) => host.readFile(repo, "main", path);
+		let briefing: string | null = null;
+		const tools = {
+			...this.readTools(coordinator, files, read, index),
+			report: tool({
+				description: "Hand the worker your briefing. Ends your turn.",
+				inputSchema: z.object({ briefing: z.string().describe("Under 250 words: files and symbols to change, who calls them, existing code or tests to mirror, pitfalls") }),
+				execute: async ({ briefing: text }) => {
+					briefing = text.slice(0, 3000);
+					return "Briefing delivered.";
+				},
+			}),
+		};
+		const gate = gateOf(this.ctx.exports, model);
+		const ai = createAI({ binding: this.env.AI, id: "default" });
+		await generateText({
+			model: ai(model as WorkersAIModelId),
+			system: `You scout one task in Hive for the coding agent who will do it next. You can only read: list_files, read_file, search, symbols, references. Find where the change belongs, what calls the code, the nearest existing code and tests to follow, and anything likely to trip the worker up. Then call report once, briefly. Do not write the change.
+
+The task (${goal.id}): ${goal.title}
+${goal.description}`,
+			messages: [{ role: "user", content: "Look around, then call report." }],
+			tools,
+			stopWhen: [() => briefing !== null, isStepCount(SCOUT_STEPS)],
+			prepareStep: async () => {
+				const over = await coordinator.overBudget(goalId);
+				if (over) throw new Error(`budget reached: $${over.spent.toFixed(2)} of $${over.limit.toFixed(2)}`);
+				const wait = await gate.acquire();
+				if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+				return {};
+			},
+			timeout: { stepMs: 5 * 60_000, toolMs: 2 * 60_000 },
+			onStepEnd: (step) => {
+				this.setState({ ...this.state, steps: this.state.steps + 1 });
+				this.ctx.waitUntil(
+					coordinator.recordUsage({ model, purpose: "scout", goalId, agentId: this.name, inputTokens: step.usage.inputTokens ?? 0, outputTokens: step.usage.outputTokens ?? 0 }).catch(() => {}),
+				);
+			},
+		});
+		if (briefing === null) throw new Error(`no briefing after ${this.state.steps} steps`);
+		this.setState({ ...this.state, phase: "done" });
+		await coordinator.scoutDone(goalId, briefing, this.name);
+	}
+
 	async work() {
 		this.ctx.waitUntil(
 			this.keepAliveWhile(() => this.run()).catch((err) => {
@@ -47,22 +118,9 @@ export class PlannerAgent extends Agent<Env, PlannerState> {
 		);
 	}
 
-	private async run() {
-		const { repo, goalId, model } = this.state;
-		const coordinator = coordinatorOf(this.ctx.exports, repo);
-		const host = repoHost(this.env);
-		const { goal, index } = await coordinator.planningContext(goalId);
-		const files = await host.listFiles(repo, "main");
-		const read = (path: string) => host.readFile(repo, "main", path);
-
-		// What the merge queue will check, so the plan only proposes steps that can pass it.
-		const probes: Record<string, string> = {};
-		for (const f of PROBE_FILES.filter((p) => files.includes(p))) probes[f] = (await read(f)) ?? "";
-		const checks = describePlan(planEvidence(probes));
-		const notes = (await read("AGENTS.md")) ?? (await read("README.md")) ?? "";
-
-		let proposed = false;
-		const tools = {
+	// What a planner or scout can look at: trunk's files and the code graph. Nothing here writes.
+	private readTools(coordinator: ReturnType<typeof coordinatorOf>, files: string[], read: (path: string) => Promise<string | null>, index: { files: { path: string; symbols: number }[] }) {
+		return {
 			list_files: tool({
 				description: "List files on trunk, optionally under a directory.",
 				inputSchema: z.object({ dir: z.string().optional() }),
@@ -124,6 +182,26 @@ export class PlannerAgent extends Agent<Env, PlannerState> {
 					return refs.length ? refs.map((r) => `${r.path}#${r.name}`).join("\n") : "Nothing indexed refers to it.";
 				},
 			}),
+		};
+	}
+
+	private async run() {
+		const { repo, goalId, model } = this.state;
+		const coordinator = coordinatorOf(this.ctx.exports, repo);
+		const host = repoHost(this.env);
+		const { goal, index } = await coordinator.planningContext(goalId);
+		const files = await host.listFiles(repo, "main");
+		const read = (path: string) => host.readFile(repo, "main", path);
+
+		// What the merge queue will check, so the plan only proposes steps that can pass it.
+		const probes: Record<string, string> = {};
+		for (const f of PROBE_FILES.filter((p) => files.includes(p))) probes[f] = (await read(f)) ?? "";
+		const checks = describePlan(planEvidence(probes));
+		const notes = (await read("AGENTS.md")) ?? (await read("README.md")) ?? "";
+
+		let proposed = false;
+		const tools = {
+			...this.readTools(coordinator, files, read, index),
 			propose_plan: tool({
 				description: "Submit the plan. Each sub-goal becomes a goal an agent works on in its own fork; it starts once the sub-goals it depends on have landed.",
 				inputSchema: z.object({

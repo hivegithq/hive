@@ -8,8 +8,6 @@ Generated from `apps/worker/src/web/docs/roadmap.ts` by
 
 | Item | Progress | |
 |---|---|---|
-| **Agent roles in plans: scouts, workers, reviewers** | `█████░░░░░` 45% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal. |
-| **Agents talking across work** | `███████░░░` 65% | Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between. *Today:* Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols. |
 | **Watchers, mentions and read-only sharing** | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
 | **Repository-level memory** | `██████░░░░` 60% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs. |
 | **Personal API keys and MCP sign-in** | `█░░░░░░░░░` 10% | People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token. *Today:* Clerk sign-in for the dashboard; budgets per goal. |
@@ -18,6 +16,8 @@ Generated from `apps/worker/src/web/docs/roadmap.ts` by
 
 | | Version |
 |---|---|
+| Agents ask whoever owns the code: ask_owner messages the agent working on it and answers from what landed there | 1.11.0 |
+| Scouts in plans: a cheap read-only agent briefs each sub-goal's worker; workers are told who built what they build on | 1.11.0 |
 | A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found | 1.10.0 |
 | Provenance graph: goals, every attempt, how each ended and the pull request, drawn | 1.10.0 |
 | Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools | 1.9.0 |

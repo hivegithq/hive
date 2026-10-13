@@ -133,6 +133,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			box: this.box,
 			declareIntent: (input) => this.declareIntent(input),
 			message: (to, text) => this.coordinator.message(this.name, to, text),
+			askOwner: (input) => this.coordinator.askOwner(this.state.changeId, input),
 			drainInbox: () => {
 				const inbox = this.state.inbox;
 				this.setState({ ...this.state, inbox: [] });

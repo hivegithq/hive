@@ -37,12 +37,14 @@ export interface PlanSettings {
 	model: string;
 	agentModels: string[];
 	maxParallel: number;
+	scouts: boolean; // a read-only scout briefs each sub-goal's worker before it starts
+	scoutModel: string;
 }
 
 export function readPlanSettings(raw: string, fallbackModel: string): PlanSettings {
 	const s = JSON.parse(raw) as Partial<PlanSettings> & { agentModel?: string };
 	const agentModels = s.agentModels?.length ? s.agentModels : [s.agentModel ?? fallbackModel];
-	return { model: s.model ?? "", agentModels, maxParallel: s.maxParallel ?? 6 };
+	return { model: s.model ?? "", agentModels, maxParallel: s.maxParallel ?? 6, scouts: s.scouts === true, scoutModel: s.scoutModel || fallbackModel };
 }
 
 // Sub-goals take the plan's agent models in turn (by their order in the plan), so a plan with

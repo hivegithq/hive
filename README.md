@@ -46,7 +46,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.10.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.11.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 What's next: the [roadmap](docs/ROADMAP.md), with progress per item.
 
 ---
@@ -448,6 +448,11 @@ big for one agent. Plan it first (`POST /api/repos/:repo/goals/:goal/plan`, the 
    sends a rejected one back to the planner.
 3. Hive starts an agent on every sub-goal whose dependencies have landed, up to `maxParallel` at a
    time, and starts the next ones as each lands. The parent goal is achieved when all of them are.
+4. With `scouts` on (the dashboard's default), a cheap **read-only scout** looks at the code before
+   each worker starts and leaves it a briefing: where the change belongs, what calls it, what to
+   mirror. A worker is also told who built what it builds on, and can `ask_owner` on any file or
+   symbol: the agent working on it is messaged, and the change that landed there last answers from
+   the ledger.
 
 The planner's brief encodes how such work lands safely: security fixes each come with a test that
 fails before the fix; ports pin current behaviour with tests both versions can run, then move one
@@ -709,7 +714,7 @@ Writes need `Authorization: Bearer <HIVE_TOKEN>`. Also at <https://hivegit.dev/d
 | `POST` | `/api/repos/:repo/goals` | Create a goal |
 | `POST` | `/api/repos/:repo/goals/:goal/assign` | Start a built-in agent (`model` optional) |
 | `POST` | `/api/repos/:repo/goals/:goal/race` | Race several models (`models`) |
-| `POST` | `/api/repos/:repo/goals/:goal/plan` | Plan a big goal into sub-goals (`model`, `agentModels` used in turn, `maxParallel`) |
+| `POST` | `/api/repos/:repo/goals/:goal/plan` | Plan a big goal into sub-goals (`model`, `agentModels` used in turn, `maxParallel`, `scouts`) |
 | `POST` | `/api/repos/:repo/goals/:goal/claim` | External agent claims a goal |
 | `POST` | `/api/repos/:repo/changes/:change/intent` | Declare intent |
 | `POST` | `/api/repos/:repo/changes/:change/submit` | Submit to the queue |

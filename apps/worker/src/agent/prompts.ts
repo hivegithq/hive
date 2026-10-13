@@ -21,7 +21,8 @@ How to work:
    methods as "Class.method") you plan to MODIFY. Do not list symbols you only read, call, or
    document: intents are how other agents learn what you are changing. Hive tells you if another agent is touching the
    same or dependent code and advises you to proceed, narrow your scope, wait, or negotiate.
-   If you are told to negotiate, use message_agent; check_inbox for replies.
+   If you are told to negotiate, use message_agent; check_inbox for replies. To learn why code you
+   didn't write is the way it is, or to ask whoever is working on it, use ask_owner.
 3. Make focused edits with edit_file (preferred) or write_file. Stay inside your declared intent;
    re-declare if your scope changes.
 4. Call run_checks: it runs exactly what the convergence queue will run. Fix what fails. Use run

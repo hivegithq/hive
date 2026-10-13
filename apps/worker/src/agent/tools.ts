@@ -10,6 +10,7 @@ export interface ToolHost {
 	box: Box;
 	declareIntent(input: { summary: string; paths: string[]; symbols: { path: string; name: string }[] }): Promise<string>;
 	message(to: string, text: string): Promise<void>;
+	askOwner(input: { path: string; name?: string; question: string }): Promise<string>;
 	drainInbox(): string[];
 	submit(message: string): Promise<string>;
 	syncTrunk(): Promise<string>;
@@ -92,6 +93,12 @@ export function codingTools(host: ToolHost) {
 				await host.message(agentId, text);
 				return { sent: true };
 			},
+		}),
+		ask_owner: tool({
+			description:
+				"Ask whoever owns a file or symbol: the agent working on it right now (it is messaged; read its answer with check_inbox), and the change that landed there last, with why. Use it before changing code you did not write.",
+			inputSchema: z.object({ path: z.string(), name: z.string().optional().describe('The symbol, e.g. "Cart.total"'), question: z.string() }),
+			execute: async (input) => host.askOwner(input),
 		}),
 		check_inbox: tool({
 			description: "Read messages other agents or Hive sent you.",

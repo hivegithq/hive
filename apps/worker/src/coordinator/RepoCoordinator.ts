@@ -20,6 +20,7 @@ import { repoPath } from "../agent/paths.ts";
 import { PROBE_FILES, planEvidence } from "../evidence/plan.ts";
 import { selectBatch } from "../landing/batch.ts";
 import { INTENT_SCHEMA, IntentStore, toIntent, touched } from "./intents.ts";
+import { owners } from "./owners.ts";
 import { ForkPool } from "./forks.ts";
 import { SCHEMA } from "./schema.ts";
 import { type LedgerFiles, writeLedger } from "../ledger/ledger.ts";
@@ -469,7 +470,7 @@ export class RepoCoordinator extends Agent<Env> {
 	// ── Plans ────────────────────────────────────────────────────────────────
 
 	// A planner breaks a big goal into sub-goals; Hive runs them as their dependencies land.
-	async plan(goalId: string, opts: { model?: string; agentModel?: string; agentModels?: string[]; maxParallel?: number } = {}) {
+	async plan(goalId: string, opts: { model?: string; agentModel?: string; agentModels?: string[]; maxParallel?: number; scouts?: boolean; scoutModel?: string } = {}) {
 		const goal = this.goal(goalId);
 		if (!goal) throw new Error(`unknown goal ${goalId}`);
 		if (!["open", "planning"].includes(goal.status)) throw new Error(`goal ${goalId} is ${goal.status}`);
@@ -478,6 +479,8 @@ export class RepoCoordinator extends Agent<Env> {
 			model: opts.model ?? PLANNER_MODEL,
 			agentModels,
 			maxParallel: Math.max(1, Math.min(32, opts.maxParallel ?? 6)),
+			scouts: opts.scouts ?? false,
+			scoutModel: opts.scoutModel || this.env.CODER_MODEL,
 		};
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", `plan:${goalId}`, JSON.stringify(settings));
 		this.setGoalStatus(goalId, "planning");
@@ -534,7 +537,8 @@ export class RepoCoordinator extends Agent<Env> {
 	async advancePlan(goalId: string) {
 		const row = this.db.exec("SELECT value FROM meta WHERE key = ?", `plan:${goalId}`).toArray()[0];
 		if (!row) return;
-		const { agentModels, maxParallel } = readPlanSettings(String(row.value), this.env.CODER_MODEL);
+		const settings = readPlanSettings(String(row.value), this.env.CODER_MODEL);
+		const { agentModels, maxParallel } = settings;
 		const subgoals = () =>
 			this.db
 				.exec("SELECT id, status FROM goals WHERE parent_id = ? ORDER BY created_at", goalId)
@@ -557,12 +561,60 @@ export class RepoCoordinator extends Agent<Env> {
 			if (!next) return;
 			this.setGoalStatus(next, "in_progress"); // claimed: no await between choosing and this
 			try {
-				await this.assign(next, modelForSubgoal(agentModels, order.indexOf(next)));
+				await this.startSubgoal(next, modelForSubgoal(agentModels, order.indexOf(next)), settings);
 			} catch (err) {
 				this.setGoalStatus(next, "open");
 				throw err;
 			}
 		}
+	}
+
+	// Start a sub-goal's worker. With scouts on, a read-only scout looks at the code first and its
+	// briefing goes to the worker; either way the worker is told who built what it builds on.
+	private async startSubgoal(subId: string, model: string, settings: PlanSettings) {
+		if (!settings.scouts) {
+			await this.assign(subId, model, this.dependencyBrief(subId) ?? undefined);
+			return;
+		}
+		const scoutId = id("s");
+		this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", `scout:${subId}`, JSON.stringify({ scoutId, model }));
+		this.log(scoutId, `scouting "${this.goal(subId)?.title}" with ${settings.scoutModel}`);
+		await this.schedule(8 * 60, "scoutTimeout", subId);
+		await plannerOf(this.ctx.exports, scoutId).scout({ repo: this.repo, goalId: subId, model: settings.scoutModel });
+	}
+
+	// The scout's briefing (or nothing, if it failed) arrives: the worker starts with it.
+	async scoutDone(subId: string, briefing: string | null, scoutId?: string) {
+		const row = this.db.exec("SELECT value FROM meta WHERE key = ?", `scout:${subId}`).toArray()[0];
+		if (!row) return; // already started (the scout finished, or timed out)
+		this.db.exec("DELETE FROM meta WHERE key = ?", `scout:${subId}`);
+		const { scoutId: sid, model } = JSON.parse(String(row.value)) as { scoutId: string; model: string };
+		const brief = [this.dependencyBrief(subId), briefing ? `A scout read the code for you and left this briefing:\n${briefing}` : null].filter(Boolean).join("\n\n");
+		const change = await this.assign(subId, model, brief || undefined);
+		if (briefing) {
+			// Shown in the change's conversation; the worker already has it in its brief.
+			this.db.exec("INSERT INTO messages VALUES (?, ?, ?, ?, ?)", id("m"), scoutId ?? sid, change.agentId, briefing, now());
+			this.emit({ type: "message", from: scoutId ?? sid, to: change.agentId, text: briefing });
+		} else this.log(sid, "the scout found nothing to report; the worker starts without a briefing");
+	}
+
+	async scoutTimeout(subId: string) {
+		if (this.db.exec("SELECT 1 FROM meta WHERE key = ?", `scout:${subId}`).toArray().length) await this.scoutDone(subId, null);
+	}
+
+	// Who built what this sub-goal builds on: the agents and changes behind its dependencies.
+	private dependencyBrief(subId: string): string | null {
+		const lines = this.db
+			.exec("SELECT depends_on FROM goal_deps WHERE goal_id = ?", subId)
+			.toArray()
+			.flatMap((d) => {
+				const dep = this.goal(String(d.depends_on));
+				const c = this.db.exec("SELECT id, agent_id, model FROM changes WHERE goal_id = ? AND status = 'landed' ORDER BY created_at DESC LIMIT 1", String(d.depends_on)).toArray()[0];
+				if (!dep || !c) return [];
+				const intent = this.intents.forChange(String(c.id));
+				return [`- "${dep.title}" landed as ${c.id} (${c.model}${intent ? `: ${intent.summary}` : ""}).`];
+			});
+		return lines.length ? `This builds on work that has landed:\n${lines.join("\n")}\nIf something in it is unclear, use ask_owner on that code.` : null;
 	}
 
 	goal(goalId: string): Goal | null {
@@ -936,6 +988,44 @@ export class RepoCoordinator extends Agent<Env> {
 		this.emit({ type: "message", from, to, text });
 		const target = this.db.exec("SELECT id FROM changes WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1", to).toArray()[0];
 		if (target && this.isBuiltin(to)) await agentOf(this.ctx.exports, to).receiveMessage(from, text);
+	}
+
+	// Who holds a file or symbol: live intents first, then the changes that landed there, newest first.
+	whoOwns(changeId: string, path: string, name?: string) {
+		const p = cleanPath(path);
+		const live = owners(this.intents.live().map((i) => ({ agentId: i.agentId, changeId: i.changeId, summary: i.summary, paths: i.paths, symbols: i.symbols })), p, name, changeId).slice(0, 5);
+		const rows = this.db
+			.exec(
+				`SELECT i.* FROM intents i JOIN changes c ON c.id = i.change_id
+				 WHERE c.status = 'landed' AND c.id != ? ORDER BY c.updated_at DESC LIMIT 200`,
+				changeId,
+			)
+			.toArray()
+			.map(toIntent)
+			.map((i) => ({ agentId: i.agentId, changeId: i.changeId, summary: i.summary, paths: i.paths, symbols: i.symbols }));
+		const past = owners(rows, p, name, changeId).slice(0, 3).map((o) => {
+			const d = this.db.exec("SELECT rationale FROM decisions WHERE change_id = ? ORDER BY created_at DESC LIMIT 1", o.changeId).toArray()[0];
+			return { ...o, model: this.change(o.changeId)?.model ?? "", decision: d ? String(d.rationale).split("\n")[0].slice(0, 240) : "" };
+		});
+		return { live, past };
+	}
+
+	// An agent asks whoever owns some code. Agents working on it are messaged (they answer into the
+	// asker's inbox); what landed there last is answered at once, from the ledger.
+	async askOwner(changeId: string, input: { path: string; name?: string; question: string }): Promise<string> {
+		const asker = this.change(changeId);
+		if (!asker) throw new Error(`unknown change ${changeId}`);
+		const target = `${cleanPath(input.path)}${input.name ? `#${input.name}` : ""}`;
+		const { live, past } = this.whoOwns(changeId, input.path, input.name);
+		const lines: string[] = [];
+		for (const o of live) {
+			await this.message(asker.agentId, o.agentId, `Question about ${target} from ${asker.agentId} (${changeId}): ${input.question}\nAnswer with message_agent to ${asker.agentId}.`);
+			lines.push(`Asked ${o.agentId} (working on "${o.summary}", ${o.match} match). Their answer arrives in your inbox: read it with check_inbox.`);
+		}
+		for (const o of past) lines.push(`Landed there before: ${o.changeId} by ${o.model || o.agentId}: "${o.summary}".${o.decision ? ` Why it landed: ${o.decision}` : ""}`);
+		if (lines.length === 0) lines.push(`Nobody is working on ${target} and no change has landed there: trunk is the only source. Read it with read_file.`);
+		this.log(asker.agentId, `asked about ${target}: ${live.length} working on it, ${past.length} landed before`);
+		return lines.join("\n");
 	}
 
 	log(agentId: string, text: string) {

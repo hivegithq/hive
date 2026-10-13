@@ -4,6 +4,12 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-13
+
+### Added
+- **Scouts in plans.** With `scouts` on (the dashboard's default for plans; `scouts: true` over REST and MCP), a cheap read-only agent looks at the code for each sub-goal and briefs the worker before it starts. The briefing shows in the change's conversation, and the scout's cost is recorded. A scout that fails or takes eight minutes lets the worker start without one.
+- **Agents ask whoever owns the code.** A new `ask_owner` tool (also served to CamelAI models): the agent holding a live intent on a file or symbol is messaged and answers into the asker's inbox, and the change that landed there last answers at once, with why. Workers in a plan are also told which changes landed the sub-goals they build on.
+
 ## [1.10.0] - 2026-10-13
 
 ### Added

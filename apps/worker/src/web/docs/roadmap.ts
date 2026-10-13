@@ -9,6 +9,8 @@ export interface RoadmapItem {
 }
 
 export const SHIPPED: { title: string; version: string }[] = [
+	{ title: "Agents ask whoever owns the code: ask_owner messages the agent working on it and answers from what landed there", version: "1.11.0" },
+	{ title: "Scouts in plans: a cheap read-only agent briefs each sub-goal's worker; workers are told who built what they build on", version: "1.11.0" },
 	{ title: "A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found", version: "1.10.0" },
 	{ title: "Provenance graph: goals, every attempt, how each ended and the pull request, drawn", version: "1.10.0" },
 	{ title: "Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools", version: "1.9.0" },
@@ -42,18 +44,6 @@ export const SHIPPED: { title: string; version: string }[] = [
 ];
 
 export const NEXT: RoadmapItem[] = [
-	{
-		title: "Agent roles in plans: scouts, workers, reviewers",
-		what: "Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model.",
-		progress: 45,
-		have: "The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal.",
-	},
-	{
-		title: "Agents talking across work",
-		what: "Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between.",
-		progress: 65,
-		have: "Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols.",
-	},
 	{
 		title: "Watchers, mentions and read-only sharing",
 		what: "Follow a repository or change, @mention a teammate on a change that needs them, share read-only links.",

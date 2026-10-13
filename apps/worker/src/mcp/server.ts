@@ -11,7 +11,7 @@ import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.10.0" });
+	const server = new McpServer({ name: "hive", version: "1.11.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -62,9 +62,11 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 				agentModels: z.array(z.string()).min(1).max(8).optional().describe("models for the sub-goals' agents, used in turn"),
 				agentModel: z.string().optional().describe("one model for every sub-goal (same as agentModels with one entry)"),
 				maxParallel: z.number().int().min(1).max(32).optional(),
+				scouts: z.boolean().optional().describe("a cheap read-only scout briefs each sub-goal's agent before it starts"),
+				scoutModel: z.string().optional(),
 			},
 		},
-		async ({ repo, goal, model, agentModels, agentModel, maxParallel }) => text(await coordinator(repo).plan(goal, { model, agentModels, agentModel, maxParallel })),
+		async ({ repo, goal, model, agentModels, agentModel, maxParallel, scouts, scoutModel }) => text(await coordinator(repo).plan(goal, { model, agentModels, agentModel, maxParallel, scouts, scoutModel })),
 	);
 
 	server.registerTool(

@@ -684,6 +684,7 @@ hive notify test h-…`}</Code>
 					<li>A planner model reads trunk and Hive's code graph: files, symbols, and who references what.</li>
 					<li>It proposes sub-goals with dependencies. Each is one coherent change that keeps the checks green and names the test that proves it.</li>
 					<li>Hive starts an agent on every sub-goal whose dependencies have landed, up to the parallelism you set, and starts the next as each lands.</li>
+					<li>With <C>scouts</C> on, a cheap read-only agent looks at the code first and briefs each worker. Workers are told who built what they build on, and can ask the owner of any file or symbol with <C>ask_owner</C>: the agent working on it is messaged, and the change that landed there last answers with why.</li>
 				</List>
 				<P>The dashboard draws the plan as a live dependency graph. The parent goal is achieved when every sub-goal has landed.</P>
 				<Code>{`curl -X POST https://hivegit.dev/api/repos/shop/goals/g-…/plan -H "authorization: Bearer $HIVE_TOKEN" \\
@@ -758,7 +759,7 @@ const API: [string, string, string][] = [
 	["POST", "/api/repos/:repo/goals", "Create a goal"],
 	["POST", "/api/repos/:repo/goals/:goal/assign", "Start a built-in agent (model optional)"],
 	["POST", "/api/repos/:repo/goals/:goal/race", "Race several models (models)"],
-	["POST", "/api/repos/:repo/goals/:goal/plan", "Plan into sub-goals (model, agentModels, maxParallel)"],
+	["POST", "/api/repos/:repo/goals/:goal/plan", "Plan into sub-goals (model, agentModels, maxParallel, scouts)"],
 	["POST", "/api/repos/:repo/goals/:goal/claim", "An external agent claims a goal"],
 	["POST", "/api/repos/:repo/changes/:change/intent", "Declare intent"],
 	["POST", "/api/repos/:repo/changes/:change/submit", "Submit to the queue"],

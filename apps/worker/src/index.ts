@@ -373,6 +373,8 @@ app.post("/api/repos/:repo/goals/:goalId/plan", async (c) => {
 			agentModel: z.string().optional(),
 			agentModels: z.array(z.string()).min(1).max(8).optional(),
 			maxParallel: z.number().int().min(1).max(32).optional(),
+			scouts: z.boolean().optional(),
+			scoutModel: z.string().optional(),
 		}),);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).plan(c.req.param("goalId"), opts), 202);
 });
