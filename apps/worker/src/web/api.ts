@@ -37,6 +37,45 @@ export interface Costs {
 	goalBudget: number | null;
 }
 
+export interface ReviewComment {
+	id: string;
+	changeId: string;
+	path: string | null;
+	line: number | null;
+	side: "new" | "old";
+	excerpt: string | null;
+	body: string;
+	author: string;
+	createdAt: number;
+	sentAt: number | null;
+}
+
+export type Why =
+	| { path: string; line: number; found: false }
+	| {
+			path: string;
+			line: number;
+			found: true;
+			text: string;
+			commit: string;
+			author: string;
+			at: number;
+			subject: string;
+			hive: {
+				changeId: string;
+				goal: { id: string; title: string; description: string } | null;
+				issue: { ref: string; url: string } | null;
+				model: string;
+				agent: string;
+				intent: { summary: string; symbols: string[] } | null;
+				evidence: { kind: string; command: string; ok: boolean }[];
+				review: string | null;
+				decision: { outcome: string; rationale: string; decidedBy: string; confidence: number } | null;
+				comments: string[];
+				transcript: string | null;
+			} | null;
+	  };
+
 export interface ModelStats {
 	model: string;
 	started: number;
@@ -108,6 +147,7 @@ export interface ChangeDetail {
 	evaluations: Evaluation[];
 	decisions: Decision[];
 	cost?: ChangeCost;
+	comments?: ReviewComment[];
 	issue?: { ref: string; url: string } | null;
 }
 
@@ -161,6 +201,13 @@ export const api = {
 	snapshot: (repo: string) => call<Snapshot>("GET", `/api/repos/${repo}`),
 	trunk: (repo: string) => call<TrunkCommit[]>("GET", `/api/repos/${repo}/trunk?limit=40`),
 	change: (repo: string, id: string) => call<ChangeDetail>("GET", `/api/repos/${repo}/changes/${id}`),
+	addComment: (repo: string, id: string, c: { path?: string | null; line?: number | null; side?: "new" | "old"; excerpt?: string | null; body: string }) =>
+		call<ReviewComment[]>("POST", `/api/repos/${repo}/changes/${id}/comments`, c),
+	deleteComment: (repo: string, id: string, commentId: string) => call<ReviewComment[]>("POST", `/api/repos/${repo}/changes/${id}/comments/${commentId}/delete`, {}),
+	tryAgain: (repo: string, id: string, opts: { model?: string; guidance?: string; replace?: boolean }) =>
+		call<Change>("POST", `/api/repos/${repo}/changes/${id}/retry`, opts),
+	why: (repo: string, path: string, line: number) => call<Why>("GET", `/api/repos/${repo}/why?path=${encodeURIComponent(path)}&line=${line}`),
+	sendComments: (repo: string, id: string) => call<{ sent: number }>("POST", `/api/repos/${repo}/changes/${id}/comments/send`, {}),
 	diff: (repo: string, id: string) =>
 		call<{ source: string; base: string; head: string; diff: string; truncated: boolean; createdAt: number }>("GET", `/api/repos/${repo}/changes/${id}/diff`),
 	createGoal: (repo: string, title: string, description: string, budget?: number) =>
@@ -262,6 +309,7 @@ export function useHive(repo: string) {
 						return refresh();
 					case "evidence":
 					case "evaluation":
+					case "comment":
 						return setTick((t) => t + 1);
 					default:
 						setTick((t) => t + 1);

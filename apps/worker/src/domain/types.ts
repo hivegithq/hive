@@ -117,4 +117,5 @@ export type HiveEvent =
 	| { type: "decision"; decision: Decision }
 	| { type: "trunk"; commit: string; changeId: string | null }
 	| { type: "message"; from: string; to: string; text: string }
-	| { type: "log"; agentId: string; text: string };
+	| { type: "log"; agentId: string; text: string }
+	| { type: "comment"; changeId: string };

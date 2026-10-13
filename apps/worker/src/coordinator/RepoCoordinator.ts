@@ -31,6 +31,7 @@ import { gh, goalFromIssue, listOpenIssues, parseGitHubRepo, selectIssues, upser
 import { type PrGoal, prBody, prTitle } from "../github/pr.ts";
 import { open as openSecret, seal as sealSecret } from "../github/secret.ts";
 import { checkUrl, EVENTS, emailFor, maskUrl, type Format, formatFor, type Hook, type Notice, type NotifyEvent, payload, sign } from "../notify/notify.ts";
+import { feedback, type ReviewComment } from "../review/comments.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -557,10 +558,35 @@ export class RepoCoordinator extends Agent<Env> {
 	// ── Putting agents to work ───────────────────────────────────────────────
 
 	// One agent, one fork, one change.
-	async assign(goalId: string, model: string = this.env.CODER_MODEL): Promise<Change> {
+	async assign(goalId: string, model: string = this.env.CODER_MODEL, brief?: string): Promise<Change> {
 		const agentId = id("a");
 		const change = await this.startChange({ goalId, agentId, model });
-		await agentOf(this.ctx.exports, agentId).start({ repo: this.repo, changeId: change.id });
+		await agentOf(this.ctx.exports, agentId).start({ repo: this.repo, changeId: change.id, brief });
+		return change;
+	}
+
+	// Try a goal again from a fresh fork: another model, a person's guidance, and what the earlier
+	// attempt ran into. The earlier attempt stays for comparison unless `replace` archives it.
+	async tryAgain(changeId: string, opts: { model?: string; guidance?: string; replace?: boolean; by?: string } = {}) {
+		const previous = this.changeDetail(changeId);
+		if (!previous) throw new Error(`unknown change ${changeId}`);
+		if (previous.change.status === "landed") throw new Error(`${changeId} already landed`);
+		if (previous.goal?.status === "achieved") throw new Error("its goal is already achieved");
+		const last = previous.decisions.at(-1);
+		const failed = previous.evidence.filter((e) => !e.ok).map((e) => `${e.command}: ${e.output.slice(-400)}`);
+		const brief = [
+			`This goal was attempted before (${changeId}, by ${previous.change.model}) and didn't land.`,
+			last ? `What happened: ${last.rationale.slice(0, 600)}` : null,
+			failed.length ? `Checks that failed then:\n${failed.slice(0, 3).join("\n")}` : null,
+			previous.comments.length ? `A reviewer's comments on it:\n${previous.comments.map((c) => `- ${c.path ? `${c.path}${c.line ? `:${c.line}` : ""}: ` : ""}${c.body}`).join("\n")}` : null,
+			opts.guidance ? `Guidance for this attempt: ${opts.guidance}` : null,
+			"Start from trunk; don't assume anything from the earlier attempt is present.",
+		]
+			.filter(Boolean)
+			.join("\n\n");
+		if (opts.replace && !["landed", "archived"].includes(previous.change.status)) await this.abandon(changeId, opts.by ?? "retry");
+		const change = await this.assign(previous.change.goalId, opts.model ?? previous.change.model, brief);
+		this.log(change.agentId, `retrying ${changeId}${opts.model ? ` with ${opts.model}` : ""}`);
 		return change;
 	}
 
@@ -1193,6 +1219,98 @@ export class RepoCoordinator extends Agent<Env> {
 		return (this.env as { HIVE_SITE_URL?: string }).HIVE_SITE_URL || "https://hivegit.dev";
 	}
 
+	// ── Provenance ───────────────────────────────────────────────────────────
+
+	// Why a line of trunk is what it is: the commit that last changed it, and, when Hive landed it,
+	// the goal, the agent's declared intent, the evidence and the decision behind it.
+	async why(path: string, line: number) {
+		const blame = await mergeBoxOf(this.ctx.exports, `${this.repo}:checks`).blame({ repo: this.repo, path, line });
+		if (!blame) return { path, line, found: false as const };
+		const trailers = parseTrailers(blame.message);
+		const changeId = trailers["Hive-Change-Id"];
+		const detail = changeId ? this.changeDetail(changeId) : null;
+		const base = { path, line, found: true as const, text: blame.text, commit: blame.commit, author: blame.author, at: blame.at * 1000, subject: blame.message.split("\n")[0] };
+		if (!detail) return { ...base, hive: null };
+		const decision = detail.decisions.filter((d) => d.outcome === "land" || d.outcome === "win").at(-1) ?? detail.decisions.at(-1) ?? null;
+		return {
+			...base,
+			hive: {
+				changeId,
+				goal: detail.goal ? { id: detail.goal.id, title: detail.goal.title, description: detail.goal.description.slice(0, 1000) } : null,
+				issue: detail.issue,
+				model: detail.change.model,
+				agent: detail.change.agentId,
+				intent: detail.intent ? { summary: detail.intent.summary, symbols: detail.intent.symbols.map((s) => `${s.path}#${s.name}`) } : null,
+				evidence: detail.evidence.map((e) => ({ kind: e.kind, command: e.command, ok: e.ok })),
+				review: detail.evaluations.at(-1)?.summary ?? null,
+				decision: decision ? { outcome: decision.outcome, rationale: decision.rationale, decidedBy: decision.decidedBy, confidence: decision.confidence } : null,
+				comments: detail.comments.map((c) => c.body),
+				transcript: this.isBuiltin(detail.change.agentId) ? `/api/agents/${detail.change.agentId}/transcript` : null,
+			},
+		};
+	}
+
+	// ── Review comments ──────────────────────────────────────────────────────
+
+	comments(changeId: string): ReviewComment[] {
+		return this.db
+			.exec("SELECT * FROM comments WHERE change_id = ? ORDER BY created_at", changeId)
+			.toArray()
+			.map((r) => ({
+				id: String(r.id),
+				changeId: String(r.change_id),
+				path: r.path === null ? null : String(r.path),
+				line: r.line === null ? null : Number(r.line),
+				side: String(r.side) === "old" ? "old" : "new",
+				excerpt: r.excerpt === null ? null : String(r.excerpt),
+				body: String(r.body),
+				author: String(r.author),
+				createdAt: Number(r.created_at),
+				sentAt: r.sent_at === null ? null : Number(r.sent_at),
+			}));
+	}
+
+	addComment(input: { changeId: string; path?: string | null; line?: number | null; side?: "new" | "old"; excerpt?: string | null; body: string; author: string }) {
+		if (!this.change(input.changeId)) throw new Error(`unknown change ${input.changeId}`);
+		const comment = { id: id("rc"), ...input };
+		this.db.exec(
+			"INSERT INTO comments VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+			comment.id,
+			input.changeId,
+			input.path ?? null,
+			input.line ?? null,
+			input.side ?? "new",
+			input.excerpt?.slice(0, 500) ?? null,
+			input.body.slice(0, 4000),
+			input.author,
+			now(),
+		);
+		this.emit({ type: "comment", changeId: input.changeId });
+		return this.comments(input.changeId);
+	}
+
+	deleteComment(changeId: string, commentId: string) {
+		this.db.exec("DELETE FROM comments WHERE id = ? AND change_id = ? AND sent_at IS NULL", commentId, changeId);
+		return this.comments(changeId);
+	}
+
+	// Send the pending comments to the change's agent as one round of feedback: a change waiting
+	// for a person goes back to its agent; an agent still working gets them in its inbox.
+	async sendComments(changeId: string, by: string) {
+		const change = this.change(changeId);
+		if (!change) throw new Error(`unknown change ${changeId}`);
+		const pending = this.comments(changeId).filter((c) => c.sentAt === null);
+		if (!pending.length) throw new Error("no comments to send");
+		const text = feedback(pending);
+		if (change.status === "escalated") await this.humanDecision(changeId, "bounce", by, text);
+		else if (["drafting", "bounced"].includes(change.status) && this.isBuiltin(change.agentId)) await this.message(`human:${by}`, change.agentId, text);
+		else if (["drafting", "bounced"].includes(change.status)) this.log(change.agentId, `review comments waiting (read them with hive_change): ${pending.length}`);
+		else throw new Error(`change ${changeId} is ${change.status}: comments can go to its agent while it's working or waiting for a person`);
+		this.db.exec(`UPDATE comments SET sent_at = ? WHERE id IN (${pending.map(() => "?").join(",")})`, now(), ...pending.map((c) => c.id));
+		this.emit({ type: "comment", changeId });
+		return { sent: pending.length, comments: this.comments(changeId) };
+	}
+
 	// ── Notifications ────────────────────────────────────────────────────────
 
 	private hooks(): Hook[] {
@@ -1775,6 +1893,7 @@ export class RepoCoordinator extends Agent<Env> {
 			change,
 			goal: this.goal(change.goalId),
 			issue: this.goalIssue(change.goalId),
+			comments: this.comments(changeId),
 			intent: this.intentFor(changeId),
 			evidence: all("SELECT * FROM evidence WHERE change_id = ? ORDER BY created_at", toEvidence),
 			evaluations: all("SELECT * FROM evaluations WHERE change_id = ? ORDER BY created_at", toEvaluation),

@@ -14,6 +14,16 @@ describe("planEvidence", () => {
 		expect(p.checks.map((c) => c.command)).toEqual(["pnpm run -s typecheck", "pnpm run -s test"]);
 	});
 
+	it("prepares checkouts with .agents/prepare (or .delta/prepare) when a repository has one", () => {
+		const p = planEvidence({ "package.json": pkg({ test: "vitest" }), "pnpm-lock.yaml": "", ".agents/prepare": "#!/bin/sh\npnpm install" });
+		expect(p.setup.map((x) => x.command)).toEqual(["sh .agents/prepare"]);
+		expect(p.setup[0].cache?.local).toEqual(["node_modules"]);
+		expect(p.checks.map((c) => c.command)).toEqual(["pnpm run -s test"]);
+		expect(planEvidence({ ".agents/prepare": "", ".delta/prepare": "" }).setup[0].command).toBe("sh .delta/prepare");
+		// hive.json's own setup still wins
+		expect(planEvidence({ ".agents/prepare": "", "hive.json": JSON.stringify({ setup: ["make deps"] }) }).setup[0].command).toBe("make deps");
+	});
+
 	it("detects Rust, Python and Go, together in one repository", () => {
 		const p = planEvidence({ "Cargo.toml": "", "requirements.txt": "", "go.mod": "" });
 		expect(p.languages).toEqual(["rust", "python", "go"]);

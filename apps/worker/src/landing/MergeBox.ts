@@ -216,6 +216,21 @@ export class MergeBox extends DurableObject<Env> {
 		return { unavailable };
 	}
 
+	// Which trunk commit last changed a line, with its message (for "why is this line here?").
+	async blame(input: { repo: string; path: string; line: number }): Promise<{ commit: string; author: string; at: number; message: string; text: string } | null> {
+		await this.prepare({ repo: input.repo, canPush: false });
+		const r = await this.run(
+			`git fetch -q origin 2>/dev/null; out=$(git blame -L ${input.line},${input.line} --porcelain origin/main -- ${sh(input.path)} 2>&1) || { echo "NOBLAME $out"; exit 0; }
+			sha=$(printf '%s\n' "$out" | head -1 | cut -d' ' -f1)
+			printf '%s\n' "$out" | sed -n 's/^author //p;s/^author-time //p;s/^\t//p' | head -3 | sed 's/^/L /'
+			echo "SHA $sha"; echo "MSG"; git log -1 --format=%B "$sha"`,
+		);
+		if (r.stdout.includes("NOBLAME") || !r.stdout.includes("SHA ")) return null;
+		const [head, message = ""] = r.stdout.split("\nMSG\n");
+		const l = head.split("\n").filter((x) => x.startsWith("L ")).map((x) => x.slice(2));
+		return { commit: /SHA (\S+)/.exec(head)?.[1] ?? "", author: l[0] ?? "", at: Number(l[1] ?? 0), text: l[2] ?? "", message: message.trim() };
+	}
+
 	// Run the repository's checks on trunk itself: what an agent's change will be measured against.
 	// Useful straight after an import, to see that Hive can build and test the repository.
 	async checkTrunk(input: { repo: string; security?: boolean }) {

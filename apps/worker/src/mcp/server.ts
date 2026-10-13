@@ -350,6 +350,49 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 	);
 
 	server.registerTool(
+		"hive_why",
+		{
+			description:
+				"Why a line of trunk is what it is: the commit that last changed it and, when Hive landed it, the goal, the agent's declared intent, the evidence, the review and Clef's decision. Ask before changing code you don't understand.",
+			inputSchema: { repo: z.string(), path: z.string(), line: z.number().int().min(1) },
+		},
+		async ({ repo, path, line }) => text(await coordinator(repo).why(path, line)),
+	);
+
+	server.registerTool(
+		"hive_comment",
+		{
+			description:
+				"Review comments on a change: add one on a line of its diff (path + line) or on the whole change, then 'send' delivers the pending ones to its agent (a change waiting for a person goes back to its agent with them).",
+			inputSchema: {
+				repo: z.string(),
+				changeId: z.string(),
+				action: z.enum(["add", "send", "list"]).default("add"),
+				body: z.string().optional(),
+				path: z.string().optional(),
+				line: z.number().int().min(1).optional(),
+			},
+		},
+		async ({ repo, changeId, action, body, path, line }) => {
+			const c = coordinator(repo);
+			if (action === "send") return text(await c.sendComments(changeId, "mcp"));
+			if (action === "list") return text(await c.comments(changeId));
+			if (!body) return text("add needs body");
+			return text(await c.addComment({ changeId, path: path ?? null, line: line ?? null, body, author: "mcp" }));
+		},
+	);
+
+	server.registerTool(
+		"hive_retry",
+		{
+			description:
+				"Try a goal again from a fresh fork after a change didn't work out: optionally another model and guidance. The new agent is told what the earlier attempt ran into (its decision, failing checks, review comments). replace archives the earlier attempt.",
+			inputSchema: { repo: z.string(), changeId: z.string(), model: z.string().optional(), guidance: z.string().optional(), replace: z.boolean().optional() },
+		},
+		async ({ repo, changeId, ...opts }) => text(await coordinator(repo).tryAgain(changeId, { ...opts, by: "mcp" })),
+	);
+
+	server.registerTool(
 		"hive_models",
 		{
 			description:

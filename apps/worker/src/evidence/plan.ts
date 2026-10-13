@@ -44,6 +44,8 @@ export interface HiveConfig {
 // Files Hive looks at (repository root only; monorepos say what they want in hive.json).
 export const PROBE_FILES = [
 	"hive.json",
+	".delta/prepare",
+	".agents/prepare",
 	"package.json",
 	"package-lock.json",
 	"pnpm-lock.yaml",
@@ -78,7 +80,13 @@ export function planEvidence(files: Record<string, string>, opts: { security?: b
 
 	const detected = detect(files);
 	const custom = config?.cache?.length ? cacheSpec(config.cache) : undefined;
-	const setup = config?.setup ? config.setup.map((command) => ({ command, keyFiles: ["hive.json", ...LOCKFILES], cache: custom })) : detected.setup;
+	// A repository already set up for agents says how to prepare a checkout: .agents/prepare (the
+	// shared convention) or .delta/prepare, which overrides it. hive.json's setup wins over both.
+	const prepare = [".delta/prepare", ".agents/prepare"].find((f) => files[f] !== undefined);
+	const preparedSetup: Setup[] | null = prepare
+		? [{ command: `sh ${prepare}`, keyFiles: [prepare, ...LOCKFILES], cache: custom ?? mergeSpecs(detected.setup.map((x) => x.cache)) }]
+		: null;
+	const setup = config?.setup ? config.setup.map((command) => ({ command, keyFiles: ["hive.json", ...LOCKFILES], cache: custom })) : (preparedSetup ?? detected.setup);
 	const checks = config?.checks
 		? Object.entries(config.checks).map(([name, command]) => ({ kind: (KNOWN.has(name) ? name : "check") as CheckKind, name, command }))
 		: detected.checks;
@@ -95,6 +103,11 @@ export function planEvidence(files: Record<string, string>, opts: { security?: b
 }
 
 const LOCKFILES = ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.lock", "go.sum", "requirements.txt", "poetry.lock", "uv.lock", "Gemfile.lock"];
+
+const mergeSpecs = (specs: (CacheSpec | undefined)[]): CacheSpec | undefined => {
+	const all = specs.filter((x): x is CacheSpec => !!x);
+	return all.length ? { local: [...new Set(all.flatMap((x) => x.local))], absolute: [...new Set(all.flatMap((x) => x.absolute))] } : undefined;
+};
 
 // hive.json's cache paths: relative ones live in the checkout; absolute ones ($HOME/…, ~/…, /…) don't.
 function cacheSpec(paths: string[]): CacheSpec {

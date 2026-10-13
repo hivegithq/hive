@@ -282,6 +282,16 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		// What this change adds on top of the stack below it: kept for the dashboard's diff view.
 		const { diff, structuralDiff } = await box.diff(slice.prev, slice.tip);
 		await coordinator.recordDiff(change.id, { source: "merge", base: slice.prev, head: slice.tip, diff });
+		// Nothing left once stacked on trunk: trunk already has this. Say so instead of asking Clef.
+		if (!diff.trim() && mode === "land") {
+			return {
+				outcome: "escalate",
+				confidence: 1,
+				probabilities: { escalate: 1 },
+				rationale: "This change adds nothing to trunk: trunk already has the same edits. Abandon it, or try again with a different approach.",
+				decidedBy: "hive:evidence",
+			};
+		}
 
 		if (mode === "land" && (await coordinator.humanApproved(change.id))) {
 			return { outcome: "land", confidence: 1, probabilities: { land: 1 }, rationale: "Approved by a human reviewer.", decidedBy: "human" };

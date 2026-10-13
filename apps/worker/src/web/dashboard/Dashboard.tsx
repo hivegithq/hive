@@ -22,6 +22,7 @@ import { ChecksPanel } from "./ChecksPanel.tsx";
 import { Account, SignInToAct, useCanWrite, useGuard } from "../ui/Account.tsx";
 import { GoalComposer } from "./GoalComposer.tsx";
 import { IssueImport } from "./IssueImport.tsx";
+import { WhyLine } from "./WhyLine.tsx";
 import { ModelBoard } from "./ModelBoard.tsx";
 
 const CARDS_PER_STAGE = 60;
@@ -77,7 +78,7 @@ export function Dashboard({ repo }: { repo: string }) {
 					<Stages snapshot={snapshot} overlaps={hive.overlaps} selected={selected} onSelect={setSelected} />
 					<ModelBoard repo={repo} tick={hive.tick} />
 				</main>
-				<TrunkColumn trunk={hive.trunk} onSelect={setSelected} />
+				<TrunkColumn repo={repo} trunk={hive.trunk} onSelect={setSelected} />
 			</div>
 			<Ticker log={hive.log} />
 			<AnimatePresence>
@@ -474,12 +475,13 @@ function GoalTree({
 	);
 }
 
-function TrunkColumn({ trunk, onSelect }: { trunk: TrunkCommit[]; onSelect: (id: string) => void }) {
+function TrunkColumn({ repo, trunk, onSelect }: { repo: string; trunk: TrunkCommit[]; onSelect: (id: string) => void }) {
 	return (
 		<aside className="bg-night p-5" aria-label="Trunk history">
 			<h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold text-wax">
 				<GitCommitIcon size={20} className="text-honey" /> Trunk
 			</h2>
+			<WhyLine repo={repo} onSelect={onSelect} />
 			{trunk.length === 0 ? (
 				<p className="text-sm text-kumo-subtle">Trunk is empty. Push a first commit with git, or seed the demo repo.</p>
 			) : (

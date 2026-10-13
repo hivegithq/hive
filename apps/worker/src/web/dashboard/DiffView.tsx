@@ -1,10 +1,17 @@
-import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
+import { Button } from "@cloudflare/kumo/components/button";
+import { CaretDownIcon, CaretRightIcon, ChatCircleTextIcon } from "@phosphor-icons/react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { Intent } from "../../domain/types.ts";
-import { api, modelLabel } from "../api.ts";
+import { api, modelLabel, type ReviewComment } from "../api.ts";
 import { type DiffFile, parseDiff } from "./diff.ts";
 
 const BIG = 400; // lines; bigger files start collapsed
+
+// Commenting on lines: the comments on this change, and how to add one (absent when read-only).
+export interface Review {
+	comments: ReviewComment[];
+	add?: (c: { path: string; line: number; side: "new" | "old"; excerpt: string; body: string }) => Promise<void>;
+}
 
 const SOURCE: Record<string, string> = {
 	merge: "as checked by the merge queue",
@@ -14,7 +21,7 @@ const SOURCE: Record<string, string> = {
 
 // What the change does to the code, file by file. Files and functions the agent declared in its
 // intent are marked; files it touched without declaring them are flagged.
-export function DiffView({ repo, changeId, intent, tick }: { repo: string; changeId: string; intent: Intent | null; tick: number }) {
+export function DiffView({ repo, changeId, intent, tick, review }: { repo: string; changeId: string; intent: Intent | null; tick: number; review?: Review }) {
 	const [state, setState] = useState<{ files: DiffFile[]; source: string; truncated: boolean } | "none" | null>(null);
 	useEffect(() => {
 		api.diff(repo, changeId).then(
@@ -40,16 +47,18 @@ export function DiffView({ repo, changeId, intent, tick }: { repo: string; chang
 			</p>
 			<div className="space-y-3">
 				{state.files.map((f) => (
-					<FileDiff key={`${f.oldPath ?? ""}${f.path}`} file={f} declared={!intent || declaredPaths.has(f.path)} names={declaredNames} />
+					<FileDiff key={`${f.oldPath ?? ""}${f.path}`} file={f} declared={!intent || declaredPaths.has(f.path)} names={declaredNames} review={review} />
 				))}
 			</div>
 		</div>
 	);
 }
 
-function FileDiff({ file, declared, names }: { file: DiffFile; declared: boolean; names: string[] }) {
+function FileDiff({ file, declared, names, review }: { file: DiffFile; declared: boolean; names: string[]; review?: Review }) {
 	const size = file.hunks.reduce((n, h) => n + h.lines.length, 0);
 	const [open, setOpen] = useState(size <= BIG);
+	const [editing, setEditing] = useState<string | null>(null); // "new:21"
+	const here = (review?.comments ?? []).filter((c) => c.path === file.path);
 	const Caret = open ? CaretDownIcon : CaretRightIcon;
 	return (
 		<section className="overflow-hidden ring-1 ring-comb-line">
@@ -84,22 +93,58 @@ function FileDiff({ file, declared, names }: { file: DiffFile; declared: boolean
 												{touches && <span className="ml-2 text-[11px] text-honey/80">declared</span>}
 											</td>
 										</tr>,
-										...h.lines.map((l, i) => (
+										...h.lines.flatMap((l, i) => {
+											const side: "new" | "old" = l.type === "del" ? "old" : "new";
+											const line = (side === "old" ? l.oldNo : l.newNo) ?? 0;
+											const key = `${side}:${line}`;
+											const notes = here.filter((c) => c.line === line && c.side === side);
+											const canAdd = !!review?.add;
+											return [
 											<tr
 												// biome-ignore lint/suspicious/noArrayIndexKey: lines have no identity beyond position
 												key={`${h.header}:${i}`}
-												className={l.type === "add" ? "bg-honey/[0.08]" : l.type === "del" ? "bg-alarm/[0.09]" : ""}
+												className={`group ${l.type === "add" ? "bg-honey/[0.08]" : l.type === "del" ? "bg-alarm/[0.09]" : ""}`}
 											>
 												<td className="w-10 select-none px-2 text-right text-white/25">{l.oldNo ?? ""}</td>
-												<td className="w-10 select-none px-2 text-right text-white/25">{l.newNo ?? ""}</td>
+												<td className="w-10 select-none px-2 text-right text-white/25">
+													{canAdd ? (
+														<button type="button" onClick={() => setEditing(editing === key ? null : key)} className="w-full text-right hover:text-honey" title="Comment on this line">
+															<span className="group-hover:hidden">{l.newNo ?? (l.oldNo ? "·" : "")}</span>
+															<ChatCircleTextIcon size={12} className="ml-auto hidden text-honey group-hover:block" />
+														</button>
+													) : (
+														(l.newNo ?? "")
+													)}
+												</td>
 												<td className="whitespace-pre pr-4">
 													<span className={`mr-2 select-none ${l.type === "add" ? "text-honey" : l.type === "del" ? "text-alarm" : "text-white/20"}`}>
 														{l.type === "add" ? "+" : l.type === "del" ? "−" : " "}
 													</span>
 													<span className={l.type === "ctx" ? "text-kumo-subtle" : "text-wax"}>{l.text}</span>
 												</td>
-											</tr>
-										)),
+											</tr>,
+											...notes.map((c) => (
+												<tr key={c.id}>
+													<td colSpan={3} className="px-3 py-1.5">
+														<CommentNote comment={c} />
+													</td>
+												</tr>
+											)),
+											editing === key && review?.add ? (
+												<tr key={`${key}:edit`}>
+													<td colSpan={3} className="px-3 py-2">
+														<CommentEditor
+															onCancel={() => setEditing(null)}
+															onSave={async (body) => {
+																await review.add?.({ path: file.path, line, side, excerpt: l.text, body });
+																setEditing(null);
+															}}
+														/>
+													</td>
+												</tr>
+											) : null,
+										];
+										}),
 									];
 								})}
 							</tbody>
@@ -111,7 +156,16 @@ function FileDiff({ file, declared, names }: { file: DiffFile; declared: boolean
 }
 
 // A race lane's diff, optionally next to another lane's: the same goal, solved differently.
-export function RaceDiff(props: { repo: string; changeId: string; group: string; intent: Intent | null; tick: number; wide: boolean; setWide: (w: boolean) => void }) {
+export function RaceDiff(props: {
+	repo: string;
+	changeId: string;
+	group: string;
+	intent: Intent | null;
+	tick: number;
+	wide: boolean;
+	setWide: (w: boolean) => void;
+	review?: Review;
+}) {
 	const [lanes, setLanes] = useState<{ id: string; model: string; index: number }[]>([]);
 	const [other, setOther] = useState<string | null>(null);
 	useEffect(() => {
@@ -151,7 +205,7 @@ export function RaceDiff(props: { repo: string; changeId: string; group: string;
 				<div className="grid gap-4 lg:grid-cols-2">
 					<div className="min-w-0">
 						<p className="mb-2 text-xs text-honey">This change</p>
-						<DiffView repo={props.repo} changeId={props.changeId} intent={props.intent} tick={props.tick} />
+						<DiffView repo={props.repo} changeId={props.changeId} intent={props.intent} tick={props.tick} review={props.review} />
 					</div>
 					<div className="min-w-0">
 						<p className="mb-2 text-xs text-honey">{lanes.find((l) => l.id === other) ? `Lane ${(lanes.find((l) => l.id === other)?.index ?? 0) + 1}` : other}</p>
@@ -159,8 +213,59 @@ export function RaceDiff(props: { repo: string; changeId: string; group: string;
 					</div>
 				</div>
 			) : (
-				<DiffView repo={props.repo} changeId={props.changeId} intent={props.intent} tick={props.tick} />
+				<DiffView repo={props.repo} changeId={props.changeId} intent={props.intent} tick={props.tick} review={props.review} />
 			)}
 		</div>
+	);
+}
+
+function CommentNote({ comment }: { comment: ReviewComment }) {
+	return (
+		<div className="cut-sm whitespace-normal bg-[#18181c] px-3 py-2 font-sans text-[13px] ring-1 ring-honey/25">
+			<span className="text-xs text-kumo-subtle">
+				{comment.author}
+				{comment.sentAt ? " · sent to the agent" : " · not sent yet"}
+			</span>
+			<p className="mt-0.5 text-kumo-default">{comment.body}</p>
+		</div>
+	);
+}
+
+export function CommentEditor({ onSave, onCancel, placeholder }: { onSave: (body: string) => Promise<void>; onCancel?: () => void; placeholder?: string }) {
+	const [body, setBody] = useState("");
+	const [busy, setBusy] = useState(false);
+	const submit = async (e: FormEvent) => {
+		e.preventDefault();
+		if (!body.trim()) return;
+		setBusy(true);
+		try {
+			await onSave(body.trim());
+			setBody("");
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<form onSubmit={submit} className="space-y-2 font-sans">
+			<textarea
+				// biome-ignore lint/a11y/noAutofocus: opened on purpose by clicking a line
+				autoFocus={!!onCancel}
+				value={body}
+				onChange={(e) => setBody(e.target.value)}
+				rows={2}
+				placeholder={placeholder ?? "What should the agent change here?"}
+				className="w-full resize-y rounded bg-black/40 px-3 py-2 text-[13px] text-wax ring-1 ring-white/10 focus:outline-none focus:ring-honey/50"
+			/>
+			<div className="flex gap-2">
+				<Button type="submit" size="sm" variant="secondary" loading={busy} disabled={!body.trim()}>
+					Add comment
+				</Button>
+				{onCancel && (
+					<Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+						Cancel
+					</Button>
+				)}
+			</div>
+		</form>
 	);
 }

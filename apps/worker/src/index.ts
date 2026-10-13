@@ -232,6 +232,41 @@ app.post("/api/repos/:repo/notifications", async (c) => {
 app.post("/api/repos/:repo/notifications/:hookId/test", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).testHook(c.req.param("hookId"))));
 app.post("/api/repos/:repo/notifications/:hookId/remove", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).removeHook(c.req.param("hookId"))));
 
+// Why a line of trunk is what it is: blame, then the change, intent, evidence and decision behind it.
+app.get("/api/repos/:repo/why", async (c) => {
+	const path = c.req.query("path");
+	const line = Number(c.req.query("line"));
+	if (!path || !Number.isInteger(line) || line < 1) return c.json({ error: "pass path and line" }, 400);
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).why(path, line));
+});
+
+// Review comments on a change's diff; send delivers the pending ones to its agent.
+app.get("/api/repos/:repo/changes/:changeId/comments", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).comments(c.req.param("changeId"))));
+app.post("/api/repos/:repo/changes/:changeId/comments", async (c) => {
+	const input = await body(
+		c.req.raw,
+		z.object({
+			path: z.string().max(500).nullish(),
+			line: z.number().int().min(1).nullish(),
+			side: z.enum(["new", "old"]).optional(),
+			excerpt: z.string().max(500).nullish(),
+			body: z.string().min(1).max(4000),
+			author: z.string().max(80).optional(),
+		}),
+	);
+	return c.json(
+		await coordinator(c.executionCtx.exports, c.req.param("repo")).addComment({ ...input, changeId: c.req.param("changeId"), author: input.author ?? "reviewer" }),
+		201,
+	);
+});
+app.post("/api/repos/:repo/changes/:changeId/comments/:commentId/delete", async (c) =>
+	c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).deleteComment(c.req.param("changeId"), c.req.param("commentId"))),
+);
+app.post("/api/repos/:repo/changes/:changeId/comments/send", async (c) => {
+	const { by } = await body(c.req.raw, z.object({ by: z.string().max(80).default("reviewer") }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).sendComments(c.req.param("changeId"), by));
+});
+
 // How each model has done on this repository.
 app.get("/api/repos/:repo/models", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).models()));
 
@@ -333,6 +368,15 @@ app.get("/api/repos/:repo/changes/:changeId", async (c) => {
 app.get("/api/repos/:repo/changes/:changeId/diff", async (c) => {
 	const d = await coordinator(c.executionCtx.exports, c.req.param("repo")).diffOf(c.req.param("changeId"));
 	return d ? c.json(d) : c.json({ error: "no diff recorded yet" }, 404);
+});
+
+// Try the goal again: a fresh fork and agent, told what the earlier attempt ran into.
+app.post("/api/repos/:repo/changes/:changeId/retry", async (c) => {
+	const opts = await body(c.req.raw, z.object({ model: z.string().nullish(), guidance: z.string().max(4000).nullish(), replace: z.boolean().optional() }));
+	return c.json(
+		await coordinator(c.executionCtx.exports, c.req.param("repo")).tryAgain(c.req.param("changeId"), { model: opts.model ?? undefined, guidance: opts.guidance ?? undefined, replace: opts.replace }),
+		201,
+	);
 });
 
 app.post("/api/repos/:repo/changes/:changeId/restart", async (c) =>

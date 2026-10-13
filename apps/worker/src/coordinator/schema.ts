@@ -33,6 +33,11 @@ export const SCHEMA = [
 	// Pull requests Hive opened (or chose not to) for goals, when connected to GitHub.
 	`CREATE TABLE IF NOT EXISTS goal_prs (
 		goal_id TEXT PRIMARY KEY, state TEXT NOT NULL, number INTEGER, url TEXT, branch TEXT, reason TEXT, updated_at INTEGER NOT NULL)`,
+	// Review comments on a change's diff, pending until sent to its agent.
+	`CREATE TABLE IF NOT EXISTS comments (
+		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, path TEXT, line INTEGER, side TEXT NOT NULL, excerpt TEXT,
+		body TEXT NOT NULL, author TEXT NOT NULL, created_at INTEGER NOT NULL, sent_at INTEGER)`,
+	`CREATE INDEX IF NOT EXISTS comments_by_change ON comments (change_id)`,
 	`CREATE TABLE IF NOT EXISTS goal_budgets (goal_id TEXT PRIMARY KEY, budget REAL)`,
 	`CREATE TABLE IF NOT EXISTS evaluations (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, model TEXT NOT NULL, score REAL NOT NULL,

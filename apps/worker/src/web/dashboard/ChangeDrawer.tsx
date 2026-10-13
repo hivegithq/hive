@@ -1,14 +1,16 @@
 import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Meter } from "@cloudflare/kumo/components/meter";
-import { ArrowSquareOutIcon, CheckIcon, XIcon } from "@phosphor-icons/react";
+import { Select } from "@cloudflare/kumo/components/select";
+import { Switch } from "@cloudflare/kumo/components/switch";
+import { ArrowCounterClockwiseIcon, ArrowSquareOutIcon, CheckIcon, XIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { Decision } from "../../domain/types.ts";
 import { usd } from "../../domain/pricing.ts";
-import { api, type ChangeDetail, modelLabel } from "../api.ts";
+import { api, type ChangeDetail, MODELS, modelLabel, type ReviewComment } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
-import { DiffView, RaceDiff } from "./DiffView.tsx";
+import { CommentEditor, DiffView, RaceDiff, type Review } from "./DiffView.tsx";
 import { EvidenceList } from "./Evidence.tsx";
 import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
 
@@ -112,6 +114,10 @@ function Body({
 }) {
 	const { change, intent, evidence, evaluations, decisions } = detail;
 	const canWrite = useCanWrite();
+	const lineReview: Review = {
+		comments: detail.comments ?? [],
+		add: canWrite ? async (c) => void (await api.addComment(repo, change.id, c)) : undefined,
+	};
 	const review = evaluations.at(-1);
 	const decision = decisions.at(-1);
 	return (
@@ -187,12 +193,15 @@ function Body({
 					}
 				>
 					{change.race ? (
-						<RaceDiff repo={repo} changeId={change.id} group={change.race.group} intent={intent} tick={tick} wide={wide} setWide={setWide} />
+						<RaceDiff repo={repo} changeId={change.id} group={change.race.group} intent={intent} tick={tick} wide={wide} setWide={setWide} review={lineReview} />
 					) : (
-						<DiffView repo={repo} changeId={change.id} intent={intent} tick={tick} />
+						<DiffView repo={repo} changeId={change.id} intent={intent} tick={tick} review={lineReview} />
 					)}
+					<ReviewRound repo={repo} changeId={change.id} status={change.status} comments={detail.comments ?? []} canWrite={canWrite} act={act} busy={busy} />
 				</Block>
 			)}
+
+			{canWrite && !["landed"].includes(change.status) && change.model !== "sim" && detail.goal?.status !== "achieved" && <TryAgain repo={repo} change={change} act={act} busy={busy} />}
 
 			<Block title="Evidence">
 				{evidence.length === 0 ? (
@@ -275,6 +284,82 @@ function Body({
 				)}
 				{change.head && <span className="font-mono text-xs text-kumo-subtle">{change.head.slice(0, 10)}</span>}
 			</footer>
+		</div>
+	);
+}
+
+// A fresh attempt at the same goal, told what this one ran into; this one stays unless replaced.
+function TryAgain({ repo, change, act, busy }: { repo: string; change: ChangeDetail["change"]; act: (fn: () => Promise<unknown>) => void; busy: boolean }) {
+	const [open, setOpen] = useState(false);
+	const [model, setModel] = useState(change.model.startsWith("@cf/") ? change.model : MODELS[0].id);
+	const [guidance, setGuidance] = useState("");
+	const [replace, setReplace] = useState(change.status !== "drafting");
+	if (!open)
+		return (
+			<button type="button" onClick={() => setOpen(true)} className="flex items-center gap-2 text-sm text-kumo-subtle hover:text-honey">
+				<ArrowCounterClockwiseIcon size={14} /> Try again with another model or guidance
+			</button>
+		);
+	return (
+		<Block title="Try again">
+			<p className="mb-3 text-sm text-kumo-subtle">A new agent starts from trunk, told what this attempt ran into: its decision, failing checks and your comments.</p>
+			<div className="space-y-3">
+				<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(MODELS.map((m) => [m.id, m.label]))} />
+				<textarea
+					value={guidance}
+					onChange={(e) => setGuidance(e.target.value)}
+					rows={3}
+					placeholder="Guidance for this attempt (optional): an approach, a file to start from, something to avoid"
+					className="w-full resize-y rounded bg-black/40 px-3 py-2 text-sm text-wax ring-1 ring-white/10 focus:outline-none focus:ring-honey/50"
+				/>
+				<Switch label="Archive this attempt" checked={replace} onCheckedChange={setReplace} />
+				<Button variant="primary" size="sm" loading={busy} onClick={() => act(() => api.tryAgain(repo, change.id, { model, guidance: guidance.trim() || undefined, replace }))}>
+					Start the new attempt
+				</Button>
+			</div>
+		</Block>
+	);
+}
+
+// Comments that aren't on a line, and sending the pending ones to the agent as one round.
+function ReviewRound(props: {
+	repo: string;
+	changeId: string;
+	status: string;
+	comments: ReviewComment[];
+	canWrite: boolean;
+	act: (fn: () => Promise<unknown>) => void;
+	busy: boolean;
+}) {
+	const general = props.comments.filter((c) => !c.path);
+	const pending = props.comments.filter((c) => c.sentAt === null);
+	const deliverable = ["escalated", "drafting", "bounced"].includes(props.status);
+	if (!props.canWrite && props.comments.length === 0) return null;
+	return (
+		<div className="mt-4 space-y-3">
+			{general.map((c) => (
+				<p key={c.id} className="cut-sm bg-[#18181c] px-3 py-2 text-sm ring-1 ring-honey/25">
+					<span className="block text-xs text-kumo-subtle">
+						{c.author} · {c.sentAt ? "sent to the agent" : "not sent yet"}
+					</span>
+					{c.body}
+				</p>
+			))}
+			{props.canWrite && (
+				<>
+					<CommentEditor placeholder="A comment on the whole change (or click a line number above)" onSave={async (body) => void (await api.addComment(props.repo, props.changeId, { body }))} />
+					{pending.length > 0 && (
+						<div className="flex items-center gap-3">
+							<Button variant="primary" size="sm" loading={props.busy} disabled={!deliverable} onClick={() => props.act(() => api.sendComments(props.repo, props.changeId))}>
+								Send {pending.length} comment{pending.length === 1 ? "" : "s"} to the agent
+							</Button>
+							<span className="text-xs text-kumo-subtle">
+								{props.status === "escalated" ? "Sends the change back with them." : deliverable ? "The agent gets them while it works." : "Only while the agent works on it, or it waits for you."}
+							</span>
+						</div>
+					)}
+				</>
+			)}
 		</div>
 	);
 }

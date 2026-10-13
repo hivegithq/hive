@@ -21,7 +21,7 @@ interface AgentState {
 	lastError: string | null;
 }
 
-type WorkPayload = { kind: "start" } | { kind: "bounce"; reason: string };
+type WorkPayload = { kind: "start"; brief?: string } | { kind: "bounce"; reason: string };
 type Checkpoint = { payload: WorkPayload; messages: ModelMessage[] };
 
 const MAX_STEPS = 60;
@@ -47,12 +47,13 @@ export class CodingAgent extends Agent<Env, AgentState> {
 
 	// ── Lifecycle (RPC from the coordinator) ─────────────────────────────────
 
-	async start(input: { repo: string; changeId: string }) {
+	// `brief`: extra context for this attempt (a person's guidance, what an earlier attempt ran into).
+	async start(input: { repo: string; changeId: string; brief?: string }) {
 		// A restart replaces whatever loop is running (it may be stuck on a dead connection).
 		this.abort.abort(new Error("restarted"));
 		this.running = false;
 		this.setState({ ...this.initialState, repo: input.repo, changeId: input.changeId, phase: "working" });
-		await this.schedule(0, "work", { kind: "start" } satisfies WorkPayload);
+		await this.schedule(0, "work", { kind: "start", brief: input.brief } satisfies WorkPayload);
 	}
 
 	async onBounced(reason: string) {
@@ -134,7 +135,12 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			if (!resumed) {
 				messages =
 					payload.kind === "start"
-						? [{ role: "user", content: "Begin. Explore the repository, declare your intent, implement the goal, test it, and submit." }]
+						? [
+								{
+									role: "user",
+									content: `${payload.brief ? `${payload.brief}\n\n` : ""}Begin. Explore the repository, declare your intent, implement the goal, test it, and submit.`,
+								},
+							]
 						: [...messages, { role: "user", content: bouncePrompt(payload.reason) }];
 			}
 

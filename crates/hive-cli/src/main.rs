@@ -156,6 +156,32 @@ enum Cmd {
         #[arg(short, long)]
         message: String,
     },
+    /// Review comments for a change's agent: add one (on a line with --file/--line), or --send the pending ones.
+    Comment {
+        change: String,
+        /// The comment.
+        text: Option<String>,
+        #[arg(long)]
+        file: Option<String>,
+        #[arg(long)]
+        line: Option<u32>,
+        /// Deliver the pending comments to the agent (a change waiting for you goes back with them).
+        #[arg(long)]
+        send: bool,
+    },
+    /// Why a line of trunk is what it is: path:line → the change, goal, intent, proof and decision.
+    Why { at: String },
+    /// Try a goal again from a fresh fork; the new agent is told what this change ran into.
+    Retry {
+        change: String,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        guidance: Option<String>,
+        /// Archive the earlier attempt.
+        #[arg(long)]
+        replace: bool,
+    },
     /// Pick a race's winner instead of waiting for Clef.
     Winner { change: String },
     /// Restart a built-in agent on its change.
@@ -764,6 +790,55 @@ fn main() -> Result<()> {
             let repo = repo()?;
             api.post(&format!("/api/repos/{repo}/changes/{change}/decision"), json!({ "outcome": "bounce", "by": "human:cli", "note": message }))?;
             println!("{change}: sent back");
+        }
+        Cmd::Comment { change, text, file, line, send } => {
+            let repo = repo()?;
+            if let Some(body) = text {
+                let list = api.post(&format!("/api/repos/{repo}/changes/{change}/comments"), json!({ "body": body, "path": file, "line": line, "author": "cli" }))?;
+                println!("{change}: {} comment(s), {} not sent yet", list.as_array().map_or(0, |a| a.len()), list.as_array().into_iter().flatten().filter(|c| c["sentAt"].is_null()).count());
+            }
+            if send {
+                let r = api.post(&format!("/api/repos/{repo}/changes/{change}/comments/send"), json!({ "by": "cli" }))?;
+                println!("sent {} comment(s) to the agent", r["sent"]);
+            }
+        }
+        Cmd::Why { at } => {
+            let repo = repo()?;
+            let (path, line) = at.rsplit_once(':').context("write it as path:line")?;
+            let w = api.get(&format!("/api/repos/{repo}/why?path={}&line={line}", path.replace(' ', "%20")))?;
+            if w["found"] != true {
+                println!("{at}: no such line on trunk");
+                return Ok(());
+            }
+            println!("{at}  {}", s(&w["text"]).trim());
+            let h = &w["hive"];
+            if h.is_null() {
+                println!("  from outside Hive: \"{}\" by {}, {}", s(&w["subject"]), s(&w["author"]), &s(&w["commit"]).chars().take(8).collect::<String>());
+                return Ok(());
+            }
+            println!("  goal      {}{}", s(&h["goal"]["title"]), h["issue"]["ref"].as_str().map(|r| format!(" ({r})")).unwrap_or_default());
+            println!("  change    {} by {}", s(&h["changeId"]), s(&h["model"]));
+            if let Some(i) = h["intent"]["summary"].as_str() {
+                println!("  intent    {i}");
+            }
+            let proof: Vec<String> = h["evidence"].as_array().into_iter().flatten().map(|e| format!("{} {}", if e["ok"] == true { "pass" } else { "FAIL" }, s(&e["kind"]))).collect();
+            if !proof.is_empty() {
+                println!("  proof     {}", proof.join(", "));
+            }
+            if let Some(r) = h["review"].as_str() {
+                println!("  review    {r}");
+            }
+            if !h["decision"].is_null() {
+                println!("  decided   {} by {}: {}", s(&h["decision"]["outcome"]), s(&h["decision"]["decidedBy"]), s(&h["decision"]["rationale"]));
+            }
+            if let Some(t) = h["transcript"].as_str() {
+                println!("  transcript {}{t}", url.trim_end_matches('/'));
+            }
+        }
+        Cmd::Retry { change, model, guidance, replace } => {
+            let repo = repo()?;
+            let c = api.post(&format!("/api/repos/{repo}/changes/{change}/retry"), json!({ "model": model.map(|m| model_id(&m)), "guidance": guidance, "replace": replace }))?;
+            println!("new attempt {} ({}); follow it with `hive watch`", s(&c["id"]), s(&c["model"]));
         }
         Cmd::Winner { change } => {
             let repo = repo()?;
