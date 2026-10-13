@@ -1,7 +1,7 @@
 # Demo video: script and storyboard
 
 Length 9:30, 16:9, 1080p, for the Cloudflare competition (5 to 10 minutes). Narration is spoken
-by one voice, calm and precise, no hype. Total narration is about 1,200 words.
+by one voice, calm and precise, no hype. Total narration is about 950 words (about 6.5 minutes spoken), so the live moments have room to breathe.
 
 ## What the video has to do
 
