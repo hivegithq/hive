@@ -45,7 +45,6 @@ export interface HiveConfig {
 // Files Hive looks at (repository root only; monorepos say what they want in hive.json).
 export const PROBE_FILES = [
 	"hive.json",
-	".delta/prepare",
 	".agents/prepare",
 	"package.json",
 	"package-lock.json",
@@ -81,9 +80,9 @@ export function planEvidence(files: Record<string, string>, opts: { security?: b
 
 	const detected = detect(files);
 	const custom = config?.cache?.length ? cacheSpec(config.cache) : undefined;
-	// A repository already set up for agents says how to prepare a checkout: .agents/prepare (the
-	// shared convention) or .delta/prepare, which overrides it. hive.json's setup wins over both.
-	const prepare = [".delta/prepare", ".agents/prepare"].find((f) => files[f] !== undefined);
+	// A repository already set up for agents says how to prepare a checkout: .agents/prepare.
+	// hive.json's setup wins over it.
+	const prepare = files[".agents/prepare"] !== undefined ? ".agents/prepare" : undefined;
 	const preparedSetup: Setup[] | null = prepare
 		? [{ command: `sh ${prepare}`, keyFiles: [prepare, ...LOCKFILES], cache: custom ?? mergeSpecs(detected.setup.map((x) => x.cache)), pre: detected.setup.find((x) => x.pre)?.pre }]
 		: null;

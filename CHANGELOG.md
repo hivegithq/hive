@@ -32,7 +32,7 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [1.7.0] - 2026-10-13
 
-Rewinding and fixing agents' work, from [Delta](https://delta.dev)'s playbook, and a lighter site.
+Rewinding and fixing agents' work, and a lighter site.
 
 ### Added
 - **Carry on from step N:** a new attempt that keeps an earlier attempt's conversation up to a step,
@@ -58,7 +58,7 @@ Rewinding and fixing agents' work, from [Delta](https://delta.dev)'s playbook, a
 
 ## [1.6.0] - 2026-10-13
 
-More from [Delta](https://delta.dev)'s playbook, and goals on a schedule.
+Steering agents, and goals on a schedule.
 
 ### Added
 - **Steer a working agent:** tell it something and it reads it before its next step (added to its
@@ -74,7 +74,7 @@ More from [Delta](https://delta.dev)'s playbook, and goals on a schedule.
 
 ## [1.5.0] - 2026-10-13
 
-Reviewing agents' work, inspired by [Delta](https://delta.dev), and a public roadmap.
+Reviewing agents' work, and a public roadmap.
 
 ### Added
 - **Review comments** on lines of a change's diff, or on the whole change, sent to its agent as one
@@ -85,7 +85,7 @@ Reviewing agents' work, inspired by [Delta](https://delta.dev), and a public roa
 - **Why is this line here?**: from any line of trunk to the change that wrote it, its goal, the
   agent's intent, the checks, the review and the decision. Trunk column, `hive why path:line`,
   `hive_why` (agents can ask before changing code they don't understand).
-- Repositories set up for agents work as-is: `.agents/prepare` (or `.delta/prepare`) is the setup.
+- Repositories set up for agents work as-is: `.agents/prepare` is the setup.
 - **Email notifications** (`mailto:` hooks) when `HIVE_EMAIL_FROM` is set; race lanes side by side
   in the diff view.
 - **Roadmap** at [hivegit.dev/docs/roadmap](https://hivegit.dev/docs/roadmap) with progress per

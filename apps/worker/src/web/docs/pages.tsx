@@ -488,7 +488,7 @@ hive show                         # evidence, review, decision`}</Code>
   "cache": ["node_modules", "$HOME/.cache/ms-playwright"]
 }`}</Code>
 				<P>
-					A repository already set up for agents works as-is: if it has <C>.agents/prepare</C> (or <C>.delta/prepare</C>, which overrides it), Hive runs that script as setup,
+					A repository already set up for agents works as-is: if it has <C>.agents/prepare</C>, Hive runs that script as setup,
 					unless <C>hive.json</C> says otherwise.
 				</P>
 				<P>
@@ -698,7 +698,7 @@ hive notify test h-…`}</Code>
 		slug: "roadmap",
 		title: "Roadmap",
 		group: "Reference",
-		summary: "What Hive does next, and how far along each piece is. Ideas marked Delta come from delta.dev, the Zed team's multiplayer environment for coding with agents.",
+		summary: "What Hive does next, and how far along each piece is.",
 		body: () => (
 			<>
 				<H2 id="next">Next</H2>
@@ -707,7 +707,6 @@ hive notify test h-…`}</Code>
 						<div key={item.title} className="cut-sm bg-comb/40 p-4 ring-1 ring-comb-line">
 							<div className="flex items-baseline gap-3">
 								<p className="min-w-0 flex-1 font-display text-lg font-semibold text-wax">{item.title}</p>
-								{item.from && <span className="shrink-0 text-xs text-steel">from {item.from}</span>}
 								<span className="shrink-0 tabular text-sm text-honey">{item.progress}%</span>
 							</div>
 							<div className="mt-2 h-1.5 bg-white/5">
@@ -719,7 +718,7 @@ hive notify test h-…`}</Code>
 					))}
 				</div>
 				<H2 id="shipped">Shipped</H2>
-				<Table head={["", "Version"]} rows={SHIPPED.map((s) => [<>{s.title}{s.from && <span className="ml-2 text-xs text-steel">from {s.from}</span>}</>, <C>{s.version}</C>])} />
+				<Table head={["", "Version"]} rows={SHIPPED.map((s) => [s.title, <C>{s.version}</C>])} />
 				<P>
 					Have an idea? <A href="https://github.com/hivegithq/hive/issues/new">Open an issue</A>.
 				</P>
