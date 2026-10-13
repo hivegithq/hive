@@ -4,6 +4,17 @@ Setup before recording: either the live site (<https://hivegit.dev>, owner token
 local (`pnpm start`, `node demo/seed.ts`, dashboard at `/r/shop`). Have a terminal with
 `node tools/watch.ts shop` and a second terminal in an empty folder.
 
+## What the judges score
+
+The rules weigh originality and quality of the prototype for agent-oriented collaboration at 50%;
+multi-agent concurrency, coordination, context preservation, review and conflict handling at 25%;
+and ease of use and experience at 25%. Where each section of this script lands:
+
+- **Originality (50%):** sections 1, 2 and 8 (intents before code, the ledger in git, Hive building Hive).
+- **Concurrency, coordination, context, review, conflicts (25%):** sections 2 to 7 (the swarm, the
+  convergence queue, races, 2,000 agents, reviewing and rewinding, conflicts merged in the queue).
+- **Ease of use (25%):** section 5 (any agent, any client) and the dashboard throughout.
+
 ## 1. The problem (0:00–0:45)
 
 Over the dashboard, empty: "Git was built for a handful of people who coordinate in meetings and
