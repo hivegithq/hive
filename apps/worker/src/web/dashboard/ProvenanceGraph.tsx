@@ -47,12 +47,12 @@ function Goal({ h, y0, onSelect }: { h: GoalHistory; y0: number; onSelect: (id: 
 				return (
 					<g key={a.changeId}>
 						<path d={`M${GOAL_X + 200} ${mid} C ${GOAL_X + 235} ${mid}, ${ATT_X - 35} ${y}, ${ATT_X} ${y}`} className="fill-none stroke-white/20" />
-						{i > 0 && <path d={`M${ATT_X + 6} ${y - ROW + 10} L${ATT_X + 6} ${y - 10}`} className="stroke-white/20" strokeDasharray="3 3" />}
+						{i > 0 && h.subgoals.length === 0 && <path d={`M${ATT_X + 6} ${y - ROW + 10} L${ATT_X + 6} ${y - 10}`} className="stroke-white/20" strokeDasharray="3 3" />}
 						<g role="button" tabIndex={0} className="cursor-pointer outline-none" onClick={() => onSelect(a.changeId)} onKeyDown={(e) => e.key === "Enter" && onSelect(a.changeId)}>
 							<title>{`${who(a.model)}: ${o?.text ?? "working"}${end?.text ? ` — ${end.text}` : ""}`}</title>
 							<rect x={ATT_X} y={y - 14} width={190} height={28} rx={14} className="fill-white/[0.04] stroke-white/20 hover:stroke-honey" />
 							<circle cx={ATT_X + 14} cy={y} r={4} className={o ? o.fill : "fill-steel"} />
-							<text x={ATT_X + 26} y={y + 4} className="fill-kumo-default text-[11px]">
+							<text x={ATT_X + 26} y={y + 4} className="fill-wax text-[11px]">
 								{short(who(a.model), 24)}
 							</text>
 						</g>
