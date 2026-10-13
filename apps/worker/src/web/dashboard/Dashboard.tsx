@@ -10,7 +10,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Change, ChangeStatus, Overlap } from "../../domain/types.ts";
 import { usd } from "../../domain/pricing.ts";
-import { api, type Costs, type LogLine, MODELS, modelLabel, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
+import { api, type Costs, type LogLine, MODELS, modelLabel, useModels, type Snapshot, type TrunkCommit, useHive } from "../api.ts";
 import { HiveMap, MAP_GROUPS, type MapGroup } from "../hex/HiveMap.tsx";
 import { PlanGraph } from "../hex/PlanGraph.tsx";
 import { Wordmark } from "../ui/Logo.tsx";
@@ -369,6 +369,7 @@ function GoalRail({ repo, snapshot, costs }: { repo: string; snapshot: Snapshot;
 
 // Put agents on a goal that has none yet (one imported from an issue, say).
 function StartGoal({ repo, goalId, onDone }: { repo: string; goalId: string; onDone: () => void }) {
+	const models = useModels(true);
 	const [model, setModel] = useState(MODELS[0].id);
 	const [busy, setBusy] = useState<"one" | "plan" | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -387,7 +388,7 @@ function StartGoal({ repo, goalId, onDone }: { repo: string; goalId: string; onD
 	};
 	return (
 		<li className="cut-sm space-y-2 bg-white/[0.03] p-3 ring-1 ring-white/10">
-			<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(MODELS.map((m) => [m.id, m.label]))} />
+			<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(models.map((m) => [m.id, m.label]))} />
 			<div className="flex gap-2">
 				<Button size="sm" variant="primary" loading={busy === "one"} disabled={!!busy} onClick={() => go("one")}>
 					Start an agent

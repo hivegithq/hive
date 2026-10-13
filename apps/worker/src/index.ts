@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { agentOf, coordinatorOf, simOf } from "./bindings.ts";
+import { pickModels, verifyAgent } from "./agent/camel.ts";
+import { handleCamelMcp } from "./mcp/camel.ts";
 import { handleMcp } from "./mcp/server.ts";
 import { authenticatedRemote, parseTrailers, repoHost } from "./repo/index.ts";
 import { actor } from "./auth.ts";
@@ -86,6 +88,22 @@ app.post("/api/repos/import", async (c) => {
 });
 
 // Hive-wide numbers for the landing page: the showcase repositories summed, cached for a minute.
+// The CamelAI models this deployment can use, for the model pickers (needs CAMELAI_API_KEY).
+app.get("/api/camel/models", async (c) => {
+	const key = (c.env as { CAMELAI_API_KEY?: string }).CAMELAI_API_KEY;
+	if (!key) return c.json([]);
+	const cache = caches.default;
+	const cacheKey = new Request(new URL("/api/camel/models", c.req.url).toString());
+	const hit = await cache.match(cacheKey);
+	if (hit) return hit;
+	const res = await fetch("https://run.camelai.com/v1/models?available=true", { headers: { authorization: `Bearer ${key}` } });
+	if (!res.ok) return c.json([]);
+	const catalog = (await res.json()) as Parameters<typeof pickModels>[0];
+	const out = c.json(pickModels(catalog).slice(0, 80), 200, { "cache-control": "public, max-age=3600" });
+	c.executionCtx.waitUntil(cache.put(cacheKey, out.clone()));
+	return out;
+});
+
 // Every repository on this deployment, busiest first: what's in flight, what needs a person, spend.
 app.get("/api/repos", async (c) => {
 	const names = await listRepos(c.env.CACHE);
@@ -520,6 +538,14 @@ app.post("/_dev/events", async (c) => {
 export default {
 	async fetch(request, env, ctx) {
 		const { pathname } = new URL(request.url);
+		// camelRun calling the tools of an agent Hive started a run for: one agent's sandbox, behind a
+		// signature only that run's URL carries. No HIVE_TOKEN here: the signature is the credential.
+		const camel = /^\/camel\/mcp\/([^/]+)\/([0-9a-f]+)$/.exec(pathname);
+		if (camel) {
+			const master = (env as { HIVE_TOKEN?: string }).HIVE_TOKEN || "hive-devhost-secret";
+			if (!(await verifyAgent(master, camel[1], camel[2]))) return Response.json({ error: "bad signature" }, { status: 403 });
+			return handleCamelMcp(request, env, ctx, camel[1]);
+		}
 		if (pathname === "/mcp") {
 			if (!(await authorized(request, env))) {
 				const refused = await refuseMcpWrite(request);

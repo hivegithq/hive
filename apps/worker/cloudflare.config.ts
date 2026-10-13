@@ -7,6 +7,8 @@ import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 //   HIVE_NAMESPACE    Artifacts namespace (default: the worker name)
 //   HIVE_DOMAIN       a domain in your account to serve on, apex and www (or a .hive-domain file);
 //                     without one, Hive serves on <name>.<account>.workers.dev only
+//   CAMELAI           (or CAMELAI_API_KEY, or a line in .env) run agents on CamelAI's models; set as the
+//                     CAMELAI_API_KEY secret when you deploy
 //   HIVE_EMAIL_FROM   send email notifications from this address (or a .hive-email file); its domain
 //                     needs Email Routing, and recipients must be verified destination addresses
 //   HIVE_CLERK_PUBLISHABLE_KEY  sign people in with Clerk (or a .hive-clerk file): signed-in users can
@@ -27,6 +29,9 @@ const NAMESPACE = process.env.HIVE_NAMESPACE || NAME;
 const DOMAIN = process.env.HIVE_DOMAIN || fromFile(".hive-domain");
 const CLERK_KEY = process.env.HIVE_CLERK_PUBLISHABLE_KEY || fromFile(".hive-clerk");
 const EMAIL_FROM = process.env.HIVE_EMAIL_FROM || fromFile(".hive-email");
+// CamelAI: run agents on any model in its catalog. The key is a secret; this only decides whether the
+// binding exists, from the environment or a CAMELAI line in the root .env.
+const CAMEL = !!(process.env.CAMELAI_API_KEY || process.env.CAMELAI || /^CAMELAI(?:_API_KEY)?=\S+/m.test(fromFile(".env") ?? ""));
 
 // Agent workspaces and the merge box share one image (git, mergiraf, difftastic, node, hive-merge),
 // but a Container links to exactly one Durable Object class, so each gets its own definition.
@@ -45,7 +50,7 @@ export default defineConfig(({ mode }) => {
 			compatibilityDate: "2026-09-25",
 			compatibilityFlags: ["nodejs_compat"],
 			entrypoint,
-			assets: { notFoundHandling: "single-page-application", runWorkerFirst: ["/api/*", "/agents/*", "/_dev/*", "/mcp"] },
+			assets: { notFoundHandling: "single-page-application", runWorkerFirst: ["/api/*", "/agents/*", "/_dev/*", "/mcp", "/camel/*"] },
 			observability: { enabled: true },
 			// Keep hive.<account>.workers.dev serving alongside hivegit.dev: links, MCP setups and
 			// clone URLs in the wild use it.
@@ -56,6 +61,7 @@ export default defineConfig(({ mode }) => {
 				// Artifacts has no local simulation and needs a paid plan, so devhost mode leaves it out.
 				...(local ? {} : { ARTIFACTS: bindings.artifacts({ namespace: NAMESPACE, dev: { remote: true } }) }),
 				LANDING: bindings.workflow({ name: `${NAME}-landing`, worker: NAME, exportName: "LandingWorkflow" }),
+				...(CAMEL ? { CAMELAI_API_KEY: bindings.secret() } : {}),
 				...(EMAIL_FROM ? { EMAIL: bindings.sendEmail(), EMAIL_FROM: bindings.text(EMAIL_FROM) } : {}),
 				// Dependencies installed by one box, restored by the next (keyed by lockfiles).
 				CACHE: bindings.r2({ name: `${NAME}-cache` }),

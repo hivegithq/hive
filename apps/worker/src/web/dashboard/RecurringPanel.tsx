@@ -3,7 +3,7 @@ import { Input } from "@cloudflare/kumo/components/input";
 import { Select } from "@cloudflare/kumo/components/select";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react";
 import { type FormEvent, useEffect, useState } from "react";
-import { api, MODELS, modelLabel, type Recurring } from "../api.ts";
+import { api, MODELS, modelLabel, type Recurring, useModels } from "../api.ts";
 
 const inMinutes = (t: number) => {
 	const m = Math.max(0, Math.round((t - Date.now()) / 60_000));
@@ -16,6 +16,7 @@ export function RecurringPanel({ repo, canWrite }: { repo: string; canWrite: boo
 	const [list, setList] = useState<Recurring[] | null>(null);
 	const [title, setTitle] = useState("");
 	const [every, setEvery] = useState("daily");
+	const models = useModels(true);
 	const [model, setModel] = useState(MODELS[0].id);
 	const [budget, setBudget] = useState("1");
 	const [busy, setBusy] = useState(false);
@@ -82,7 +83,7 @@ export function RecurringPanel({ repo, canWrite }: { repo: string; canWrite: boo
 				<div className="grid grid-cols-3 gap-2">
 					<Input label="Every" value={every} onChange={(e) => setEvery(e.target.value)} placeholder="daily, 6h, weekly" />
 					<Input label="USD a run" type="number" min={0} step="0.5" value={budget} onChange={(e) => setBudget(e.target.value)} />
-					<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(MODELS.map((m) => [m.id, m.label]))} />
+					<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(models.map((m) => [m.id, m.label]))} />
 				</div>
 				<Button type="submit" variant="secondary" loading={busy} disabled={title.trim().length < 3}>
 					Add

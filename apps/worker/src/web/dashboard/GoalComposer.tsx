@@ -4,7 +4,7 @@ import { Input, InputArea } from "@cloudflare/kumo/components/input";
 import { Select } from "@cloudflare/kumo/components/select";
 import { PlusIcon } from "@phosphor-icons/react";
 import { type FormEvent, useState } from "react";
-import { api, MODELS, modelLabel } from "../api.ts";
+import { api, MODELS, modelLabel, useModels } from "../api.ts";
 
 type Mode = "one" | "race" | "plan";
 
@@ -17,7 +17,7 @@ const MODES: { id: Mode; title: string; line: string; cells: number }[] = [
 
 const PLANNERS = MODELS.filter((m) => m.paid);
 const DEFAULT_PLANNER = "@cf/zai-org/glm-5.3";
-const label = (m: (typeof MODELS)[number]) => (m.paid ? m.label : `${m.label} (free tier)`);
+const label = (m: { label: string; paid: boolean; camel?: boolean }) => (m.paid || m.camel ? m.label : `${m.label} (free tier)`);
 
 // A small honeycomb: how many agents a mode puts to work.
 function Cells({ n, on }: { n: number; on: boolean }) {
@@ -37,6 +37,8 @@ function Cells({ n, on }: { n: number; on: boolean }) {
 }
 
 export function GoalComposer({ repo }: { repo: string }) {
+	const choices = useModels(); // a few of CamelAI's free ones, for the lists of checkboxes
+	const allChoices = useModels(true); // everything, for a single choice
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
 	const [mode, setMode] = useState<Mode>("one");
@@ -107,11 +109,11 @@ export function GoalComposer({ repo }: { repo: string }) {
 			</fieldset>
 
 			{mode === "one" && (
-				<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(MODELS.map((m) => [m.id, label(m)]))} />
+				<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(allChoices.map((m) => [m.id, label(m)]))} />
 			)}
 			{mode === "race" && (
 				<Checkbox.Group legend="Models in the race (two or more)">
-					{MODELS.map((m) => (
+					{choices.map((m) => (
 						<Checkbox key={m.id} label={label(m)} checked={racers.includes(m.id)} onCheckedChange={() => toggle(racers, setRacers, m.id)} />
 					))}
 				</Checkbox.Group>
@@ -125,7 +127,7 @@ export function GoalComposer({ repo }: { repo: string }) {
 						items={Object.fromEntries(PLANNERS.map((m) => [m.id, m.id === DEFAULT_PLANNER ? `${m.label} (reads the most code)` : m.label]))}
 					/>
 					<Checkbox.Group legend="Models for the agents (sub-goals take them in turn)">
-						{MODELS.map((m) => (
+						{choices.map((m) => (
 							<Checkbox key={m.id} label={label(m)} checked={crew.includes(m.id)} onCheckedChange={() => toggle(crew, setCrew, m.id)} />
 						))}
 					</Checkbox.Group>

@@ -13,7 +13,6 @@ environment for coding with agents. Generated from `apps/worker/src/web/docs/roa
 | **Agent roles in plans: scouts, workers, reviewers** (from Delta) | `█████░░░░░` 45% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal. |
 | **Provenance graph** (from Delta) | `████████░░` 80% | One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them. *Today:* History by goal (attempts, outcomes, pull request, cost), why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. Missing: one drawn graph linking goals, attempts and commits. |
 | **Agents talking across work** (from Delta) | `███████░░░` 65% | Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between. *Today:* Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols. |
-| **Bring your own model provider** (from Delta) | `░░░░░░░░░░` 0% | Agents on Anthropic, OpenAI or any compatible API (through AI Gateway), next to Workers AI, with spend tracked the same way. |
 | **Watchers, mentions and read-only sharing** (from Delta) | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
 | **Repository-level memory** (from Delta) | `██████░░░░` 60% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs. |
 | **Personal API keys and MCP sign-in** | `█░░░░░░░░░` 10% | People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token. *Today:* Clerk sign-in for the dashboard; budgets per goal. |
@@ -22,6 +21,7 @@ environment for coding with agents. Generated from `apps/worker/src/web/docs/roa
 
 | | Version |
 |---|---|
+| Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools (from Delta) | 1.9.0 |
 | History by goal: every attempt, how it ended, the pull request, the cost (from Delta) | 1.8.0 |
 | Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns (from Delta) | 1.8.0 |
 | Repositories home: every repository, busiest first, with what needs a person | 1.8.0 |

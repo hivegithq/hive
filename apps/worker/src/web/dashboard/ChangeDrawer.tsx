@@ -8,7 +8,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { Decision } from "../../domain/types.ts";
 import { usd } from "../../domain/pricing.ts";
-import { api, type ChangeDetail, MODELS, modelLabel, type ReviewComment } from "../api.ts";
+import { api, type ChangeDetail, MODELS, modelLabel, type ReviewComment, useModels } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
 import { ContextView } from "./ContextView.tsx";
 import { CommentEditor, DiffView, RaceDiff, type Review } from "./DiffView.tsx";
@@ -360,8 +360,9 @@ function Conversation({ repo, change, messages, canWrite }: { repo: string; chan
 
 // A fresh attempt at the same goal, told what this one ran into; this one stays unless replaced.
 function TryAgain({ repo, change, act, busy }: { repo: string; change: ChangeDetail["change"]; act: (fn: () => Promise<unknown>) => void; busy: boolean }) {
+	const models = useModels(true);
 	const [open, setOpen] = useState(false);
-	const [model, setModel] = useState(change.model.startsWith("@cf/") ? change.model : MODELS[0].id);
+	const [model, setModel] = useState(change.model.startsWith("@cf/") || change.model.startsWith("camel/") ? change.model : MODELS[0].id);
 	const [guidance, setGuidance] = useState("");
 	const [replace, setReplace] = useState(change.status !== "drafting");
 	const [stepList, setStepList] = useState<{ step: number; calls: string[]; said: string; edits: number }[]>([]);
@@ -379,7 +380,7 @@ function TryAgain({ repo, change, act, busy }: { repo: string; change: ChangeDet
 		<Block title="Try again">
 			<p className="mb-3 text-sm text-kumo-subtle">A new agent starts from trunk, told what this attempt ran into: its decision, failing checks and your comments.</p>
 			<div className="space-y-3">
-				<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(MODELS.map((m) => [m.id, m.label]))} />
+				<Select label="Model" value={model} onValueChange={(v) => v && setModel(v as string)} items={Object.fromEntries(models.map((m) => [m.id, m.label]))} />
 				<textarea
 					value={guidance}
 					onChange={(e) => setGuidance(e.target.value)}

@@ -10,6 +10,7 @@ import { REGISTRY_HOSTS } from "../sandbox/registries.ts";
 import { bouncePrompt, systemPrompt } from "./prompts.ts";
 import { repoPath } from "./paths.ts";
 import { codingTools, REPO_DIR } from "./tools.ts";
+import { abortRun, camelModelId, errorText, getRun, isCamel, isTransientRun, runBody, signAgent, startRun, toolsUrl } from "./camel.ts";
 import { contextBreakdown } from "./context.ts";
 import type { Msg, Replay } from "./rewind.ts";
 
@@ -103,7 +104,9 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	private running = false;
 	// What people told this agent while it worked: added to its instructions from the next step on.
 	private steering: string[] = [];
-	private cachePrefix: string | null = null; // the repository's dependency cache, once the workspace is set up
+	private cachePrefix: string | null = null;
+	private submittedFlag = false;
+	private activeTools: ReturnType<typeof codingTools> | null = null; // the repository's dependency cache, once the workspace is set up
 	private abort = new AbortController();
 
 	private detach(name: string, fn: (fiber: FiberContext) => Promise<void>) {
@@ -122,6 +125,107 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	// Called by the coordinator's heartbeat; activation alone triggers fiber recovery.
 	ping(): Phase {
 		return this.state.phase;
+	}
+
+	// The tools an agent works with, bound to this workspace. Both the Workers AI loop and camelRun's use them.
+	private buildTools(change: Change, goal: Goal) {
+		return codingTools({
+			box: this.box,
+			declareIntent: (input) => this.declareIntent(input),
+			message: (to, text) => this.coordinator.message(this.name, to, text),
+			drainInbox: () => {
+				const inbox = this.state.inbox;
+				this.setState({ ...this.state, inbox: [] });
+				return inbox;
+			},
+			syncTrunk: () => this.syncTrunk(change),
+			runChecks: () => this.runChecks(),
+			submit: async (message) => {
+				const result = await this.commitAndSubmit(change, goal, message);
+				this.submittedFlag = result.startsWith("submitted");
+				return result;
+			},
+		});
+	}
+
+	// A tool call from a camelRun run working on this change (the Worker verified its signed URL).
+	async camelTool(name: string, argsJson: string): Promise<string> {
+		if (!this.activeTools) {
+			const detail = await this.coordinator.changeDetail(this.state.changeId);
+			if (!detail?.goal) throw new Error("this agent has no change");
+			this.activeTools = this.buildTools(detail.change, detail.goal);
+		}
+		const t = (this.activeTools as unknown as Record<string, { execute?: (a: unknown, o: unknown) => Promise<unknown> }>)[name];
+		if (!t?.execute) throw new Error(`no tool ${name}`);
+		this.coordinator.log(this.name, `→ ${name}`);
+		this.setState({ ...this.state, steps: this.state.steps + 1 });
+		const out = await t.execute(JSON.parse(argsJson || "{}"), { toolCallId: "camel", messages: [] });
+		return typeof out === "string" ? out : JSON.stringify(out);
+	}
+
+	// One goal's attempt on a camelRun model: up to three runs (a model that ends without submitting is
+	// told so), each capped in spend, usage recorded. The workspace persists across them.
+	private async camelLoop(change: Change, goal: Goal, system: string, firstMessage: string) {
+		const key = (this.env as { CAMELAI_API_KEY?: string }).CAMELAI_API_KEY;
+		if (!key) throw new Error("CamelAI isn't set up on this deployment (CAMELAI_API_KEY)");
+		const master = (this.env as { HIVE_TOKEN?: string }).HIVE_TOKEN || "hive-devhost-secret";
+		const site = (this.env as { HIVE_SITE_URL?: string }).HIVE_SITE_URL || "https://hivegit.dev";
+		const url = toolsUrl(site, this.name, await signAgent(master, this.name));
+		const model = camelModelId(change.model);
+		let input = firstMessage;
+		let interruptions = 0;
+		for (let attempt = 0; attempt < 6 && !this.submittedFlag; attempt++) {
+			const left = await this.coordinator.budgetLeft(goal.id);
+			if (left !== null && left <= 0) {
+				this.setState({ ...this.state, phase: "failed", lastError: "budget reached" });
+				await this.coordinator.budgetStopped(change.id);
+				return;
+			}
+			const spend = Math.max(0.01, Math.min(left ?? 2, 5));
+			let run = await startRun(key, runBody({ model, system, input, toolsUrl: url, spendUsd: spend }));
+			this.coordinator.log(this.name, `camelRun ${run.id} on ${model}`);
+			let seen = 0;
+			let polled = false;
+			await this.keepAliveWhile(async () => {
+				while (run.status === "running") {
+					if (this.abort.signal.aborted) {
+						await abortRun(key, run.id);
+						throw new Error("restarted");
+					}
+					run = await getRun(key, run.id, 25);
+					if (!polled) {
+						polled = true;
+						this.coordinator.log(this.name, `camelRun ${run.id}: ${run.status}`);
+					}
+					const calls = run.toolCalls?.length ?? 0;
+					if (calls > seen) {
+						seen = calls;
+						this.setState({ ...this.state, steps: calls });
+					}
+				}
+			});
+			const u = run.usage ?? {};
+			this.coordinator.log(this.name, `camelRun ${run.status}: ${run.toolCalls?.length ?? 0} tool calls, ${u.input ?? 0} in / ${u.output ?? 0} out${run.error ? `, ${errorText(run.error).slice(0, 200)}` : ""}`);
+			await this.coordinator
+				.recordUsage({ model: change.model, purpose: "agent", changeId: change.id, goalId: goal.id, agentId: this.name, inputTokens: u.input ?? 0, outputTokens: u.output ?? 0, costUsd: u.costUsd ?? 0 })
+				.catch(() => {});
+			if (run.status === "failed") {
+				// The model's provider was busy: wait, then carry on in a new run (the workspace has the edits).
+				if (isTransientRun(run.error) && interruptions < 4) {
+					interruptions++;
+					const seconds = 20 * interruptions;
+					this.coordinator.log(this.name, `the model's provider is busy; trying again in ${seconds}s (${interruptions}/4)`);
+					await this.keepAliveWhile(() => new Promise<void>((r) => setTimeout(r, seconds * 1000)));
+					input = `Your previous run was interrupted (${errorText(run.error).slice(0, 120)}). Your edits so far are in the workspace: look at the repository state, carry on, run_checks, and submit.`;
+					continue;
+				}
+				throw new Error(`the CamelAI run failed: ${errorText(run.error) || "unknown error"}`);
+			}
+			if (this.submittedFlag) break;
+			input = `You ended your turn without calling submit. Your edits are still in the workspace. Keep going with the tools: finish the change, call run_checks, and call submit when they pass.`;
+		}
+		this.setState({ ...this.state, phase: this.submittedFlag ? "submitted" : "failed", lastError: this.submittedFlag ? null : "stopped without submitting" });
+		if (!this.submittedFlag) this.coordinator.log(this.name, "the CamelAI model stopped without submitting");
 	}
 
 	// For the heartbeat: has this agent given up on its change, and why.
@@ -162,34 +266,24 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			// Checkpoint before the first model call, so an interruption during setup still resumes.
 			fiber.stash({ payload, messages } satisfies Checkpoint);
 			const ai = createAI({ binding: this.env.AI, id: "default" });
-			let submitted = false;
-			const tools = codingTools({
-				box: this.box,
-				declareIntent: (input) => this.declareIntent(input),
-				message: (to, text) => this.coordinator.message(this.name, to, text),
-				drainInbox: () => {
-					const inbox = this.state.inbox;
-					this.setState({ ...this.state, inbox: [] });
-					return inbox;
-				},
-				syncTrunk: () => this.syncTrunk(change),
-				runChecks: () => this.runChecks(),
-				submit: async (message) => {
-					const result = await this.commitAndSubmit(change, goal, message);
-					submitted = result.startsWith("submitted");
-					return result;
-				},
-			});
+			this.submittedFlag = false;
+			const tools = this.buildTools(change, goal);
+			this.activeTools = tools;
 
 			const gate = gateOf(this.ctx.exports, change.model);
 			const plan = await readPlan(this.shell(), { security: (await this.coordinator.settings()).security });
 			const lessons = await this.coordinator.lessonsFor().catch(() => [] as string[]);
 			const system = systemPrompt(goal, change, notes.exitCode === 0 && notes.stdout.trim() ? notes.stdout : null, describePlan(plan), lessons);
 			this.setState({ ...this.state, systemChars: system.length });
+			if (isCamel(change.model)) {
+				// camelRun runs the model loop; Hive serves it these tools (see mcp/camel.ts).
+				await this.camelLoop(change, goal, system, String(messages[0]?.content ?? ""));
+				return;
+			}
 			let steps = 0;
 			// Models sometimes end a turn without a tool call (or leak template tokens). Nudge them
 			// back to work a few times before giving up, within the overall step budget.
-			for (let nudge = 0; !submitted && steps < MAX_STEPS && nudge <= MAX_NUDGES; nudge++) {
+			for (let nudge = 0; !this.submittedFlag && steps < MAX_STEPS && nudge <= MAX_NUDGES; nudge++) {
 				if (nudge > 0) {
 					messages = [...messages, { role: "user", content: NUDGE }];
 					this.coordinator.log(this.name, "nudged to continue");
@@ -267,8 +361,8 @@ export class CodingAgent extends Agent<Env, AgentState> {
 				messages = [...base, ...generated];
 				this.saveConversation(messages);
 			}
-			this.setState({ ...this.state, phase: submitted ? "submitted" : "failed", lastError: submitted ? null : "stopped without submitting" });
-			if (!submitted) this.coordinator.log(this.name, `stopped without submitting after ${steps} steps`);
+			this.setState({ ...this.state, phase: this.submittedFlag ? "submitted" : "failed", lastError: this.submittedFlag ? null : "stopped without submitting" });
+			if (!this.submittedFlag) this.coordinator.log(this.name, `stopped without submitting after ${steps} steps`);
 		} catch (err) {
 			if (budgetHit) {
 				this.setState({ ...this.state, phase: "failed", lastError: "budget reached" });

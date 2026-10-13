@@ -59,6 +59,9 @@ enum Cmd {
     Models {
         #[arg(long)]
         stats: bool,
+        /// CamelAI's catalog, when this Hive has a key (free and tool-capable models first). Use as camel/<id>.
+        #[arg(long)]
+        camel: bool,
     },
     /// Create an empty repo (trunk and ledger) and make it the default.
     Init { name: String },
@@ -644,7 +647,19 @@ fn main() -> Result<()> {
                 std::thread::sleep(Duration::from_secs(every.max(1)));
             }
         }
-        Cmd::Models { stats: true } => {
+        Cmd::Models { camel: true, .. } => {
+            let list = api.get("/api/camel/models")?;
+            let models = list.as_array().cloned().unwrap_or_default();
+            if models.is_empty() {
+                println!("no CamelAI models: this Hive has no CAMELAI_API_KEY");
+            }
+            for m in models.iter().take(40) {
+                let price = if m["free"] == true { "free".to_string() } else { format!("${}/${} per M", m["costIn"], m["costOut"]) };
+                println!("  {:<62} {:<14} {}", s(&m["id"]), price, if m["tools"] == true { "tools" } else { "tools: unverified" });
+            }
+            println!("run an agent on one: hive goal \"…\" --assign <id>");
+        }
+        Cmd::Models { stats: true, .. } => {
             let repo = repo()?;
             let list = api.get(&format!("/api/repos/{repo}/models"))?;
             println!("{repo}: how each model did");
@@ -665,7 +680,7 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Cmd::Models { stats: false } => {
+        Cmd::Models { stats: false, camel: false } => {
             for (short, id) in MODELS {
                 println!("  {short:<10} {id}");
             }

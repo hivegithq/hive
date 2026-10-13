@@ -4,6 +4,20 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-13
+
+### Added
+- **Agents on any CamelAI model.** With a [CamelAI](https://camelai.com) key (`CAMELAI`), its catalog
+  (466 models here: Anthropic, OpenAI, and 19 free OpenRouter ones) appears in the model pickers and
+  works for one agent, races, plans and recurring goals. camelRun runs the model loop; Hive serves it
+  its agent tools as an MCP server at a per-agent signed URL, each call landing in that attempt's own
+  sandbox. Runs are capped by the goal's budget, usage and cost are recorded, a busy provider is retried
+  with backoff, and failures are reported with their reason. `hive models --camel`.
+  Verified on hivegit.dev: Qwen 3.7 Flash, run by CamelAI, wrote a change, passed typecheck and
+  tests, and landed for under a cent. (The free Cohere mini model reached Hive's tools but was
+  rate-limited by its provider.)
+- `pnpm self-host` passes the CamelAI key to the deployment when it finds one.
+
 ## [1.8.0] - 2026-10-13
 
 ### Added
@@ -265,6 +279,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.9.0]: https://github.com/hivegithq/hive/releases/tag/v1.9.0
 [1.8.0]: https://github.com/hivegithq/hive/releases/tag/v1.8.0
 [1.7.0]: https://github.com/hivegithq/hive/releases/tag/v1.7.0
 [1.6.0]: https://github.com/hivegithq/hive/releases/tag/v1.6.0

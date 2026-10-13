@@ -1668,11 +1668,11 @@ export class RepoCoordinator extends Agent<Env> {
 		return metered(this.env.AI, (u) => this.recordUsage({ model: CLEF_MODEL, purpose, changeId, goalId, inputTokens: u.input_tokens, outputTokens: u.output_tokens }));
 	}
 
-	recordUsage(u: { model: string; purpose: string; changeId?: string | null; goalId?: string | null; agentId?: string | null; inputTokens?: number; outputTokens?: number; seconds?: number; instance?: string }) {
+	recordUsage(u: { model: string; purpose: string; changeId?: string | null; goalId?: string | null; agentId?: string | null; inputTokens?: number; outputTokens?: number; seconds?: number; instance?: string; costUsd?: number }) {
 		const inputTokens = Math.max(0, Math.round(u.inputTokens ?? 0));
 		const outputTokens = Math.max(0, Math.round(u.outputTokens ?? 0));
 		const seconds = Math.max(0, u.seconds ?? 0);
-		const cost = u.instance ? containerCost(u.instance, seconds) : modelCost(u.model, inputTokens, outputTokens);
+		const cost = u.costUsd !== undefined ? u.costUsd : u.instance ? containerCost(u.instance, seconds) : modelCost(u.model, inputTokens, outputTokens);
 		const goalId = u.goalId ?? (u.changeId ? (this.change(u.changeId)?.goalId ?? null) : null);
 		this.db.exec(
 			"INSERT INTO usage (at, model, purpose, change_id, goal_id, agent_id, input_tokens, output_tokens, seconds, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1721,6 +1721,21 @@ export class RepoCoordinator extends Agent<Env> {
 		const why = `The agent stopped after ${steps} step${steps === 1 ? "" : "s"} without submitting${reason ? ` (${reason.slice(0, 200)})` : ""}. Restart it, start another model on the goal, or abandon the change.`;
 		this.log(change.agentId, why);
 		await this.escalated(changeId, { confidence: 1, probabilities: { escalate: 1 }, rationale: why, decidedBy: "hive:agent" });
+	}
+
+	// What a goal may still spend before a budget stops it (the tightest one up its chain); null when none applies.
+	budgetLeft(goalId: string): number | null {
+		const goals = this.goalNodes();
+		const spend = this.goalSpend();
+		const byId = new Map(goals.map((g) => [g.id, g]));
+		let left: number | null = null;
+		const seen = new Set<string>();
+		for (let n = byId.get(goalId); n && !seen.has(n.id); n = n.parentId ? byId.get(n.parentId) : undefined) {
+			seen.add(n.id);
+			const limit = n.budget ?? (n.parentId === null ? this.settings().goalBudget : null);
+			if (limit !== null) left = Math.min(left ?? Infinity, limit - (spend.get(n.id) ?? 0));
+		}
+		return left;
 	}
 
 	// An agent stopped by a budget: the change waits for a person, with the numbers.

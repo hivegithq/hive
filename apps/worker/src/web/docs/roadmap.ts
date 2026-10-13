@@ -11,6 +11,7 @@ export interface RoadmapItem {
 }
 
 export const SHIPPED: { title: string; version: string; from?: "Delta" }[] = [
+	{ title: "Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools", version: "1.9.0", from: "Delta" },
 	{ title: "History by goal: every attempt, how it ended, the pull request, the cost", version: "1.8.0", from: "Delta" },
 	{ title: "Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns", version: "1.8.0", from: "Delta" },
 	{ title: "Repositories home: every repository, busiest first, with what needs a person", version: "1.8.0" },
@@ -67,12 +68,6 @@ export const NEXT: RoadmapItem[] = [
 		what: "Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between.",
 		progress: 65,
 		have: "Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols.",
-		from: "Delta",
-	},
-	{
-		title: "Bring your own model provider",
-		what: "Agents on Anthropic, OpenAI or any compatible API (through AI Gateway), next to Workers AI, with spend tracked the same way.",
-		progress: 0,
 		from: "Delta",
 	},
 	{

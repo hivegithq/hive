@@ -209,7 +209,35 @@ export const MODELS = [
 	{ id: "@cf/nvidia/nemotron-3-120b-a12b", label: "Nemotron 3 120B", paid: false },
 ];
 
-export const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? id.split("/").at(-1) ?? id;
+// CamelAI's catalog, when this deployment has a key: free and tool-capable models first. Loaded once.
+export interface PickerModel {
+	id: string;
+	label: string;
+	paid: boolean;
+	camel?: boolean;
+}
+let camelLoaded: Promise<PickerModel[]> | null = null;
+const loadCamel = () =>
+	(camelLoaded ??= fetch("/api/camel/models")
+		.then((r) => (r.ok ? (r.json() as Promise<{ id: string; name: string; provider: string; free: boolean; costOut: number }[]>) : []))
+		.then((ms) => ms.map((m) => ({ id: m.id, label: `${m.name}${m.free ? " (free)" : ""} · ${m.provider}`, paid: !m.free, camel: true })))
+		.catch(() => []));
+
+// The models to offer: Workers AI's, then CamelAI's. `all`: every CamelAI model (for a single choice);
+// otherwise the first few, which are the free ones (for lists of checkboxes).
+export function useModels(all = false): PickerModel[] {
+	const [camel, setCamel] = useState<PickerModel[]>([]);
+	useEffect(() => {
+		let live = true;
+		loadCamel().then((m) => live && setCamel(m));
+		return () => {
+			live = false;
+		};
+	}, []);
+	return [...MODELS, ...(all ? camel : camel.slice(0, 8))];
+}
+
+export const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? (id.startsWith("camel/") ? `${(id.split("/").at(-1) ?? id).replace(/:free$/, "")} (CamelAI)` : (id.split("/").at(-1) ?? id));
 
 const readToken = () => {
 	try {
