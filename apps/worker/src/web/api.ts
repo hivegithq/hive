@@ -106,6 +106,22 @@ export type GitHubStatus =
 			lastRun: number | null;
 			error: string | null;
 	  };
+export interface Recurring {
+	id: string;
+	title: string;
+	description: string;
+	every: string;
+	everyMinutes: number;
+	mode: "one" | "plan" | "race";
+	models: string[];
+	budget: number | null;
+	enabled: boolean;
+	nextRun: number;
+	lastGoal: string | null;
+	lastGoalStatus: string | null;
+	runs: number;
+}
+
 export interface Hook {
 	id: string;
 	url: string;
@@ -148,6 +164,7 @@ export interface ChangeDetail {
 	decisions: Decision[];
 	cost?: ChangeCost;
 	comments?: ReviewComment[];
+	messages?: { from: string; to: string; text: string; at: number }[];
 	issue?: { ref: string; url: string } | null;
 }
 
@@ -207,6 +224,7 @@ export const api = {
 	tryAgain: (repo: string, id: string, opts: { model?: string; guidance?: string; replace?: boolean }) =>
 		call<Change>("POST", `/api/repos/${repo}/changes/${id}/retry`, opts),
 	why: (repo: string, path: string, line: number) => call<Why>("GET", `/api/repos/${repo}/why?path=${encodeURIComponent(path)}&line=${line}`),
+	steer: (repo: string, id: string, text: string) => call<{ from: string; to: string; text: string; at: number }[]>("POST", `/api/repos/${repo}/changes/${id}/steer`, { text }),
 	sendComments: (repo: string, id: string) => call<{ sent: number }>("POST", `/api/repos/${repo}/changes/${id}/comments/send`, {}),
 	diff: (repo: string, id: string) =>
 		call<{ source: string; base: string; head: string; diff: string; truncated: boolean; createdAt: number }>("GET", `/api/repos/${repo}/changes/${id}/diff`),
@@ -216,6 +234,11 @@ export const api = {
 	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
 	models: (repo: string) => call<ModelStats[]>("GET", `/api/repos/${repo}/models`),
 	github: (repo: string) => call<GitHubStatus>("GET", `/api/repos/${repo}/github`),
+	recurring: (repo: string) => call<Recurring[]>("GET", `/api/repos/${repo}/recurring`),
+	addRecurring: (repo: string, input: { title: string; description?: string; every: string; mode?: string; models?: string[]; budget?: number }) =>
+		call<Recurring>("POST", `/api/repos/${repo}/recurring`, input),
+	runRecurring: (repo: string, id: string) => call<{ skipped: boolean; reason?: string; goalId?: string }>("POST", `/api/repos/${repo}/recurring/${id}/run`, {}),
+	setRecurring: (repo: string, id: string, patch: { enabled?: boolean; remove?: boolean }) => call<Recurring[]>("POST", `/api/repos/${repo}/recurring/${id}`, patch),
 	hooks: (repo: string) => call<Hook[]>("GET", `/api/repos/${repo}/notifications`),
 	addHook: (repo: string, input: { url: string; events?: string[] }) => call<Hook & { signingSecret: string | null }>("POST", `/api/repos/${repo}/notifications`, input),
 	testHook: (repo: string, id: string) => call<Hook["last"]>("POST", `/api/repos/${repo}/notifications/${id}/test`, {}),

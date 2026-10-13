@@ -203,6 +203,10 @@ function Body({
 
 			{canWrite && !["landed"].includes(change.status) && change.model !== "sim" && detail.goal?.status !== "achieved" && <TryAgain repo={repo} change={change} act={act} busy={busy} />}
 
+			{((detail.messages?.length ?? 0) > 0 || (canWrite && ["drafting", "bounced"].includes(change.status) && change.model !== "sim")) && (
+				<Conversation repo={repo} change={change} messages={detail.messages ?? []} canWrite={canWrite} />
+			)}
+
 			<Block title="Evidence">
 				{evidence.length === 0 ? (
 					<p className="text-kumo-subtle">Nothing has run yet. Evidence appears once the change is in a batch.</p>
@@ -285,6 +289,60 @@ function Body({
 				{change.head && <span className="font-mono text-xs text-kumo-subtle">{change.head.slice(0, 10)}</span>}
 			</footer>
 		</div>
+	);
+}
+
+// Messages to and from this agent (other agents, people), and a box to tell a working agent something.
+function Conversation({ repo, change, messages, canWrite }: { repo: string; change: ChangeDetail["change"]; messages: NonNullable<ChangeDetail["messages"]>; canWrite: boolean }) {
+	const [text, setText] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const working = ["drafting", "bounced"].includes(change.status) && change.model !== "sim";
+	const who = (id: string) => (id === change.agentId ? "this agent" : id.startsWith("human:") ? id.slice(6) : id);
+	const send = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!text.trim()) return;
+		setBusy(true);
+		setError(null);
+		try {
+			await api.steer(repo, change.id, text.trim());
+			setText("");
+		} catch (err) {
+			setError((err as Error).message);
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<Block title="Conversation">
+			{messages.length > 0 && (
+				<ul className="mb-3 space-y-2">
+					{messages.map((m) => (
+						<li key={`${m.at}${m.from}${m.text.slice(0, 20)}`} className="text-sm">
+							<span className="text-xs text-kumo-subtle">
+								{who(m.from)} to {who(m.to)}
+							</span>
+							<p className="whitespace-pre-wrap text-kumo-default">{m.text.length > 500 ? `${m.text.slice(0, 500)}…` : m.text}</p>
+						</li>
+					))}
+				</ul>
+			)}
+			{canWrite && working && (
+				<form onSubmit={send} className="space-y-2">
+					<textarea
+						value={text}
+						onChange={(e) => setText(e.target.value)}
+						rows={2}
+						placeholder="Tell the agent something while it works: a hint, a correction"
+						className="w-full resize-y rounded bg-black/40 px-3 py-2 text-sm text-wax ring-1 ring-white/10 focus:outline-none focus:ring-honey/50"
+					/>
+					<Button type="submit" size="sm" variant="secondary" loading={busy} disabled={!text.trim()}>
+						Send to the agent
+					</Button>
+					{error && <p className="text-xs text-kumo-danger">{error}</p>}
+				</form>
+			)}
+		</Block>
 	);
 }
 

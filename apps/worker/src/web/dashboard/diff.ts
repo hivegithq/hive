@@ -71,3 +71,11 @@ export function parseDiff(text: string): DiffFile[] {
 	}
 	return files;
 }
+
+// A short fingerprint of what a file's diff says, so a "seen" mark can clear itself when the
+// agent edits the file again.
+export function fingerprint(file: DiffFile): string {
+	let h = 5381;
+	for (const hunk of file.hunks) for (const l of hunk.lines) if (l.type !== "ctx") for (let i = 0; i < l.text.length; i++) h = ((h * 33) ^ l.text.charCodeAt(i)) >>> 0;
+	return `${file.additions}.${file.deletions}.${h.toString(36)}`;
+}

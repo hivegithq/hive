@@ -38,6 +38,11 @@ export const SCHEMA = [
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, path TEXT, line INTEGER, side TEXT NOT NULL, excerpt TEXT,
 		body TEXT NOT NULL, author TEXT NOT NULL, created_at INTEGER NOT NULL, sent_at INTEGER)`,
 	`CREATE INDEX IF NOT EXISTS comments_by_change ON comments (change_id)`,
+	// Goals that come back on a schedule.
+	`CREATE TABLE IF NOT EXISTS recurring (
+		id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, every_minutes INTEGER NOT NULL,
+		mode TEXT NOT NULL, models TEXT NOT NULL, budget REAL, enabled INTEGER NOT NULL DEFAULT 1,
+		next_run INTEGER NOT NULL, last_goal TEXT, runs INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS goal_budgets (goal_id TEXT PRIMARY KEY, budget REAL)`,
 	`CREATE TABLE IF NOT EXISTS evaluations (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, model TEXT NOT NULL, score REAL NOT NULL,

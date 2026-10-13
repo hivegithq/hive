@@ -11,7 +11,7 @@ import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.5.0" });
+	const server = new McpServer({ name: "hive", version: "1.6.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -357,6 +357,47 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 			inputSchema: { repo: z.string(), path: z.string(), line: z.number().int().min(1) },
 		},
 		async ({ repo, path, line }) => text(await coordinator(repo).why(path, line)),
+	);
+
+	server.registerTool(
+		"hive_steer",
+		{
+			description: "Send a built-in agent that is working on a change a message (a correction, a hint); it reads it between steps. Returns the conversation so far.",
+			inputSchema: { repo: z.string(), changeId: z.string(), text: z.string() },
+		},
+		async ({ repo, changeId, text: body }) => text(await coordinator(repo).steer(changeId, body, "mcp")),
+	);
+
+	server.registerTool(
+		"hive_recurring",
+		{
+			description:
+				"Goals that come back on a schedule (at least hourly): list, add (title, every 'daily'|'weekly'|'6h'…, mode one|plan|race, models, budget), run now, pause/resume, remove. A run is skipped while the previous one is still going.",
+			inputSchema: {
+				repo: z.string(),
+				action: z.enum(["list", "add", "run", "pause", "resume", "remove"]).default("list"),
+				id: z.string().optional(),
+				title: z.string().optional(),
+				description: z.string().optional(),
+				every: z.string().optional(),
+				mode: z.enum(["one", "plan", "race"]).optional(),
+				models: z.array(z.string()).optional(),
+				budget: z.number().positive().optional(),
+			},
+		},
+		async ({ repo, action, id: rid, title, description, every, mode, models, budget }) => {
+			const c = coordinator(repo);
+			if (action === "add") {
+				if (!title || !every) return text("add needs title and every");
+				return text(await c.addRecurring({ title, description, every, mode, models, budget }));
+			}
+			if (action !== "list" && !rid) return text(`${action} needs id`);
+			if (action === "run") return text(await c.runRecurring(rid!, true));
+			if (action === "pause") return text(await c.setRecurring(rid!, { enabled: false }));
+			if (action === "resume") return text(await c.setRecurring(rid!, { enabled: true }));
+			if (action === "remove") return text(await c.setRecurring(rid!, { remove: true }));
+			return text(await c.listRecurring());
+		},
 	);
 
 	server.registerTool(

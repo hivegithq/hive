@@ -240,6 +240,44 @@ app.get("/api/repos/:repo/why", async (c) => {
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).why(path, line));
 });
 
+// Goals that come back on a schedule (at least hourly); a run is skipped while the last is still going.
+app.get("/api/repos/:repo/recurring", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).listRecurring()));
+app.post("/api/repos/:repo/recurring", async (c) => {
+	const input = await body(
+		c.req.raw,
+		z.object({
+			title: z.string().min(3).max(200),
+			description: z.string().max(8000).nullish(),
+			every: z.string().min(2).max(40),
+			mode: z.enum(["one", "plan", "race"]).nullish(),
+			models: z.array(z.string()).max(8).nullish(),
+			budget: z.number().positive().max(10_000).nullish(),
+		}),
+	);
+	return c.json(
+		await coordinator(c.executionCtx.exports, c.req.param("repo")).addRecurring({
+			title: input.title,
+			description: input.description ?? undefined,
+			every: input.every,
+			mode: input.mode ?? undefined,
+			models: input.models ?? undefined,
+			budget: input.budget ?? undefined,
+		}),
+		201,
+	);
+});
+app.post("/api/repos/:repo/recurring/:rid/run", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).runRecurring(c.req.param("rid"), true)));
+app.post("/api/repos/:repo/recurring/:rid", async (c) => {
+	const patch = await body(c.req.raw, z.object({ enabled: z.boolean().optional(), remove: z.boolean().optional() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setRecurring(c.req.param("rid"), patch));
+});
+
+// Messages to and from a change's agent; steer sends one to a working agent.
+app.post("/api/repos/:repo/changes/:changeId/steer", async (c) => {
+	const { text, by } = await body(c.req.raw, z.object({ text: z.string().min(1).max(4000), by: z.string().max(80).default("reviewer") }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).steer(c.req.param("changeId"), text, by));
+});
+
 // Review comments on a change's diff; send delivers the pending ones to its agent.
 app.get("/api/repos/:repo/changes/:changeId/comments", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).comments(c.req.param("changeId"))));
 app.post("/api/repos/:repo/changes/:changeId/comments", async (c) => {

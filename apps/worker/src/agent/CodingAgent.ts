@@ -52,6 +52,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 		// A restart replaces whatever loop is running (it may be stuck on a dead connection).
 		this.abort.abort(new Error("restarted"));
 		this.running = false;
+		this.steering = [];
 		this.setState({ ...this.initialState, repo: input.repo, changeId: input.changeId, phase: "working" });
 		await this.schedule(0, "work", { kind: "start", brief: input.brief } satisfies WorkPayload);
 	}
@@ -94,6 +95,8 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	// One work loop per agent at a time; a second start while one runs is ignored,
 	// unless start() explicitly aborted the old one.
 	private running = false;
+	// What people told this agent while it worked: added to its instructions from the next step on.
+	private steering: string[] = [];
 	private cachePrefix: string | null = null; // the repository's dependency cache, once the workspace is set up
 	private abort = new AbortController();
 
@@ -188,6 +191,12 @@ export class CodingAgent extends Agent<Env, AgentState> {
 						stopWhen: [hasToolCall("submit"), isStepCount(MAX_STEPS - steps)],
 						// Every model call waits for its slot in the model's shared, adaptive rate gate.
 						prepareStep: async () => {
+							const told = this.state.inbox.filter((m) => m.startsWith("human:"));
+							if (told.length) {
+								this.steering.push(...told);
+								this.setState({ ...this.state, inbox: this.state.inbox.filter((m) => !m.startsWith("human:")) });
+								this.coordinator.log(this.name, `reading ${told.length} message${told.length === 1 ? "" : "s"} from a person`);
+							}
 							// Every step is checked against the goal's budget before it's paid for.
 							if (await this.coordinator.overBudget(goal.id)) {
 								budgetHit = true;
@@ -195,7 +204,7 @@ export class CodingAgent extends Agent<Env, AgentState> {
 							}
 							const wait = await gate.acquire();
 							if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-							return {};
+							return this.steering.length ? { instructions: `${system}\n\nA person watching your work has told you:\n${this.steering.map((m) => `- ${m}`).join("\n")}\nTake it into account now.` } : {};
 						},
 						abortSignal: AbortSignal.any([fiber.signal, this.abort.signal]),
 						// A hung model call (network drop, host sleep) must not stall the agent forever.

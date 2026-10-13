@@ -13,22 +13,23 @@ environment for coding with agents. Generated from `apps/worker/src/web/docs/roa
 | **A reviewer that fixes** (from Delta) | `██░░░░░░░░` 15% | A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review. *Today:* A model review and Clef's decision on every change; review comments from people. |
 | **Agent roles in plans: scouts, workers, reviewers** (from Delta) | `██░░░░░░░░` 20% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner and parallel workers, with models per plan. |
 | **Provenance graph** (from Delta) | `███░░░░░░░` 30% | One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them. *Today:* Why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. |
-| **Agents talking across work** (from Delta) | `████░░░░░░` 40% | Agent-to-agent messages visible in the dashboard, and plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”). *Today:* hive_message and agent inboxes; intents say who is touching which symbols. |
-| **Steer a working agent live** (from Delta) | `███░░░░░░░` 30% | Join an agent while it works: watch its steps stream, send a correction mid-run, pause or stop it. *Today:* Comments reach a working agent's inbox; the activity ticker; restart and abandon. |
-| **Review progress: files seen** (from Delta) | `░░░░░░░░░░` 0% | Mark files seen while reviewing a change, cleared when the agent edits them again (3/17 reviewed). |
+| **Agents talking across work** (from Delta) | `███████░░░` 65% | Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between. *Today:* Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols. |
 | **Bring your own model provider** (from Delta) | `░░░░░░░░░░` 0% | Agents on Anthropic, OpenAI or any compatible API (through AI Gateway), next to Workers AI, with spend tracked the same way. |
 | **Context window breakdown** (from Delta) | `██░░░░░░░░` 20% | Per agent step: how much went to the system prompt, history, tool output; where the tokens (and money) go. *Today:* Tokens and cost per call and per change. |
 | **Watchers, mentions and read-only sharing** (from Delta) | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
 | **Repository-level memory** (from Delta) | `██░░░░░░░░` 15% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* The ledger records every intent, review and decision; try again carries one attempt's lessons forward. |
 | **“Your repos” home page** | `░░░░░░░░░░` 0% | A signed-in home listing your repositories, what needs you, and spend. |
 | **Personal API keys and MCP sign-in** | `█░░░░░░░░░` 10% | People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token. *Today:* Clerk sign-in for the dashboard; budgets per goal. |
-| **Recurring goals** | `░░░░░░░░░░` 0% | Goals that run on a schedule: nightly “fix new lint warnings”, weekly “update dependencies”. |
 | **Lazy-load sign-in** | `░░░░░░░░░░` 0% | Load Clerk only when someone signs in, instead of 145 KB on every page. |
 
 ## Shipped
 
 | | Version |
 |---|---|
+| Steer a working agent: tell it something and it reads it before its next step (from Delta) | 1.6.0 |
+| Conversations visible: messages to and from an agent in its change (from Delta) | 1.6.0 |
+| Files seen: mark files reviewed; the mark clears when the agent edits the file again (from Delta) | 1.6.0 |
+| Recurring goals: nightly lint, weekly dependency updates, skipped while the last run is going | 1.6.0 |
 | Review comments on the diff, sent to the agent (from Delta) | 1.5.0 |
 | Try again with another model or guidance, told what the last attempt ran into (from Delta) | 1.5.0 |
 | Why is this line here? (line → change, goal, intent, proof, decision) (from Delta) | 1.5.0 |

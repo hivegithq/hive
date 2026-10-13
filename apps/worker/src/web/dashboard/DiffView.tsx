@@ -3,9 +3,35 @@ import { CaretDownIcon, CaretRightIcon, ChatCircleTextIcon } from "@phosphor-ico
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { Intent } from "../../domain/types.ts";
 import { api, modelLabel, type ReviewComment } from "../api.ts";
-import { type DiffFile, parseDiff } from "./diff.ts";
+import { type DiffFile, fingerprint, parseDiff } from "./diff.ts";
 
 const BIG = 400; // lines; bigger files start collapsed
+
+// Which files of a change a reviewer has looked at, kept in this browser. A mark clears when the
+// agent changes that file again (its fingerprint differs).
+function useSeen(repo: string, changeId: string) {
+	const key = `hive-seen:${repo}:${changeId}`;
+	const read = (): Record<string, string> => {
+		try {
+			return JSON.parse(localStorage.getItem(key) ?? "{}");
+		} catch {
+			return {};
+		}
+	};
+	const [seen, setSeen] = useState<Record<string, string>>(read);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: re-read when the change changes
+	useEffect(() => setSeen(read()), [key]);
+	const toggle = (path: string, print: string) => {
+		const next = { ...seen };
+		if (next[path] === print) delete next[path];
+		else next[path] = print;
+		setSeen(next);
+		try {
+			localStorage.setItem(key, JSON.stringify(next));
+		} catch {}
+	};
+	return { isSeen: (path: string, print: string) => seen[path] === print, toggle };
+}
 
 // Commenting on lines: the comments on this change, and how to add one (absent when read-only).
 export interface Review {
@@ -30,6 +56,7 @@ export function DiffView({ repo, changeId, intent, tick, review }: { repo: strin
 		);
 	}, [repo, changeId, tick]);
 
+	const seen = useSeen(repo, changeId);
 	const declaredPaths = useMemo(() => new Set([...(intent?.paths ?? []), ...(intent?.symbols ?? []).map((s) => s.path)]), [intent]);
 	const declaredNames = useMemo(() => (intent?.symbols ?? []).map((s) => s.name.split(".").at(-1) ?? s.name), [intent]);
 
@@ -37,6 +64,7 @@ export function DiffView({ repo, changeId, intent, tick, review }: { repo: strin
 	if (state === "none")
 		return <p className="text-sm text-kumo-subtle">No diff yet. It appears when the agent submits, and again when the merge queue checks the change.</p>;
 
+	const reviewed = state.files.filter((f) => seen.isSeen(f.path, fingerprint(f))).length;
 	const adds = state.files.reduce((n, f) => n + f.additions, 0);
 	const dels = state.files.reduce((n, f) => n + f.deletions, 0);
 	return (
@@ -44,17 +72,32 @@ export function DiffView({ repo, changeId, intent, tick, review }: { repo: strin
 			<p className="mb-3 text-sm text-kumo-subtle">
 				{state.files.length} {state.files.length === 1 ? "file" : "files"}, <span className="text-honey">+{adds}</span> <span className="text-alarm">−{dels}</span>,{" "}
 				{SOURCE[state.source] ?? state.source}.{state.truncated && " Cut short: the full change is in its fork."}
+				{state.files.length > 1 && <span className="ml-2 text-kumo-default">{reviewed} of {state.files.length} reviewed</span>}
 			</p>
 			<div className="space-y-3">
 				{state.files.map((f) => (
-					<FileDiff key={`${f.oldPath ?? ""}${f.path}`} file={f} declared={!intent || declaredPaths.has(f.path)} names={declaredNames} review={review} />
+					<FileDiff key={`${f.oldPath ?? ""}${f.path}`} file={f} declared={!intent || declaredPaths.has(f.path)} names={declaredNames} review={review} seen={seen.isSeen(f.path, fingerprint(f))} onSeen={() => seen.toggle(f.path, fingerprint(f))} />
 				))}
 			</div>
 		</div>
 	);
 }
 
-function FileDiff({ file, declared, names, review }: { file: DiffFile; declared: boolean; names: string[]; review?: Review }) {
+function FileDiff({
+	file,
+	declared,
+	names,
+	review,
+	seen,
+	onSeen,
+}: {
+	file: DiffFile;
+	declared: boolean;
+	names: string[];
+	review?: Review;
+	seen: boolean;
+	onSeen: () => void;
+}) {
 	const size = file.hunks.reduce((n, h) => n + h.lines.length, 0);
 	const [open, setOpen] = useState(size <= BIG);
 	const [editing, setEditing] = useState<string | null>(null); // "new:21"
@@ -62,7 +105,8 @@ function FileDiff({ file, declared, names, review }: { file: DiffFile; declared:
 	const Caret = open ? CaretDownIcon : CaretRightIcon;
 	return (
 		<section className="overflow-hidden ring-1 ring-comb-line">
-			<button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 bg-comb/60 px-3 py-2 text-left text-sm hover:bg-comb">
+			<div className="flex items-center bg-comb/60">
+			<button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm hover:bg-comb">
 				<Caret size={12} className="shrink-0 text-kumo-subtle" />
 				<span className="min-w-0 flex-1 truncate font-mono text-[13px] text-wax">
 					{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
@@ -77,6 +121,11 @@ function FileDiff({ file, declared, names, review }: { file: DiffFile; declared:
 					<span className="text-honey">+{file.additions}</span> <span className="text-alarm">−{file.deletions}</span>
 				</span>
 			</button>
+			<label className="flex shrink-0 cursor-pointer items-center gap-1.5 px-3 text-xs text-kumo-subtle hover:text-wax" title="Mark as reviewed; clears if the agent changes this file again">
+				<input type="checkbox" checked={seen} onChange={onSeen} className="accent-[#fbad41]" />
+				Seen
+			</label>
+			</div>
 			{open &&
 				(file.binary ? (
 					<p className="px-3 py-2 text-xs text-kumo-subtle">Binary file.</p>

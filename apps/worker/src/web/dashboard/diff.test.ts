@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDiff } from "./diff.ts";
+import { fingerprint, parseDiff } from "./diff.ts";
 
 const DIFF = `diff --git a/src/cart.ts b/src/cart.ts
 index 1111111..2222222 100644
@@ -52,5 +52,17 @@ describe("parseDiff", () => {
 			["add", null, 12],
 			["ctx", 12, 13],
 		]);
+	});
+});
+
+describe("fingerprint", () => {
+	it("changes when the agent edits the file again, not when context moves", () => {
+		const a = parseDiff(DIFF)[0];
+		const same = parseDiff(DIFF)[0];
+		expect(fingerprint(a)).toBe(fingerprint(same));
+		const edited = parseDiff(DIFF.replace("sum -= 500;", "sum -= 250;"))[0];
+		expect(fingerprint(edited)).not.toBe(fingerprint(a));
+		const ctxOnly = parseDiff(DIFF.replace("\tlet sum = 0;", "\tlet sum = 1;"))[0];
+		expect(fingerprint(ctxOnly)).toBe(fingerprint(a));
 	});
 });

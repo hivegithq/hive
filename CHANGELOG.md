@@ -4,6 +4,22 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-13
+
+More from [Delta](https://delta.dev)'s playbook, and goals on a schedule.
+
+### Added
+- **Steer a working agent:** tell it something and it reads it before its next step (added to its
+  instructions from then on). `hive steer`, `hive_steer`, the Conversation block in a change.
+  Verified: an agent told to test `price.ts` did, while the same goal unsteered picked `discount.ts`.
+- **Conversations visible:** messages to and from an agent, including other agents', show in its
+  change.
+- **Files seen:** tick files as you review; progress shows on the change, and a tick clears when the
+  agent edits that file again.
+- **Recurring goals:** a goal on a schedule (at least hourly), as one agent, a plan or a race, with a
+  budget per run; skipped while the previous run is still going. Dashboard, `hive recurring`,
+  `hive_recurring`.
+
 ## [1.5.0] - 2026-10-13
 
 Reviewing agents' work, inspired by [Delta](https://delta.dev), and a public roadmap.
@@ -211,6 +227,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.6.0]: https://github.com/hivegithq/hive/releases/tag/v1.6.0
 [1.5.0]: https://github.com/hivegithq/hive/releases/tag/v1.5.0
 [1.4.0]: https://github.com/hivegithq/hive/releases/tag/v1.4.0
 [1.3.0]: https://github.com/hivegithq/hive/releases/tag/v1.3.0

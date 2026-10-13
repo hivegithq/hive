@@ -13,6 +13,7 @@
 //!   hive cost / hive budget <goal> 5      what the work cost; cap a goal's spend
 //!   hive issues import [owner/repo]       open GitHub issues as goals (--assign kimi --budget 1)
 //!   hive github connect < token           mirror trunk and open a PR per landed goal
+//!   hive recurring add "…" --every daily  goals that come back on a schedule
 //!   hive claim <goal> / intent / submit   do the work yourself, in your own fork
 //!
 //! Where and who: flags, then HIVE_URL / HIVE_REPO / HIVE_TOKEN, then `hive login`'s config file.
@@ -82,6 +83,11 @@ enum Cmd {
     Notify {
         #[command(subcommand)]
         action: NotifyCmd,
+    },
+    /// Goals that come back on a schedule (at least hourly).
+    Recurring {
+        #[command(subcommand)]
+        action: RecurringCmd,
     },
     /// GitHub issues as goals.
     Issues {
@@ -169,6 +175,8 @@ enum Cmd {
         #[arg(long)]
         send: bool,
     },
+    /// Tell a working built-in agent something; it reads it before its next step.
+    Steer { change: String, text: String },
     /// Why a line of trunk is what it is: path:line → the change, goal, intent, proof and decision.
     Why { at: String },
     /// Try a goal again from a fresh fork; the new agent is told what this change ran into.
@@ -273,6 +281,34 @@ enum GithubCmd {
     },
     /// Forget the token and stop syncing.
     Disconnect,
+}
+
+#[derive(Subcommand)]
+enum RecurringCmd {
+    List,
+    /// A goal that returns: hive recurring add "Fix new lint warnings" --every daily --budget 1
+    Add {
+        title: String,
+        #[arg(short, long, default_value = "")]
+        description: String,
+        /// hourly, daily, weekly, or 6h / 2d (at least an hour).
+        #[arg(long)]
+        every: String,
+        /// One agent (default), a plan, or a race.
+        #[arg(long, default_value = "one")]
+        mode: String,
+        /// Model(s): one for an agent, several for a plan's crew or a race.
+        #[arg(long, value_delimiter = ',')]
+        models: Vec<String>,
+        /// USD per run.
+        #[arg(long)]
+        budget: Option<f64>,
+    },
+    /// Run it now.
+    Run { id: String },
+    Pause { id: String },
+    Resume { id: String },
+    Remove { id: String },
 }
 
 #[derive(Subcommand)]
@@ -668,6 +704,29 @@ fn main() -> Result<()> {
                 println!("  {:<14} {:<9} {}", s(&p["goalId"]), s(&p["state"]), p["url"].as_str().or(p["reason"].as_str()).unwrap_or(""));
             }
         }
+        Cmd::Recurring { action } => {
+            let repo = repo()?;
+            let list = match action {
+                RecurringCmd::List => api.get(&format!("/api/repos/{repo}/recurring"))?,
+                RecurringCmd::Add { title, description, every, mode, models, budget } => {
+                    let r = api.post(&format!("/api/repos/{repo}/recurring"), json!({ "title": title, "description": description, "every": every, "mode": mode, "models": model_ids(&models), "budget": budget }))?;
+                    println!("added {} ({})", s(&r["id"]), s(&r["every"]));
+                    api.get(&format!("/api/repos/{repo}/recurring"))?
+                }
+                RecurringCmd::Run { id } => {
+                    let r = api.post(&format!("/api/repos/{repo}/recurring/{id}/run"), json!({}))?;
+                    println!("{}", if r["skipped"] == true { format!("skipped: {}", s(&r["reason"])) } else { format!("started {}", s(&r["goalId"])) });
+                    return Ok(());
+                }
+                RecurringCmd::Pause { id } => api.post(&format!("/api/repos/{repo}/recurring/{id}"), json!({ "enabled": false }))?,
+                RecurringCmd::Resume { id } => api.post(&format!("/api/repos/{repo}/recurring/{id}"), json!({ "enabled": true }))?,
+                RecurringCmd::Remove { id } => api.post(&format!("/api/repos/{repo}/recurring/{id}"), json!({ "remove": true }))?,
+            };
+            for r in list.as_array().into_iter().flatten() {
+                let next = r["nextRun"].as_f64().map(|t| format!("next in {} min", ((t - (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.0))) / 60000.0).max(0.0) as u64)).unwrap_or_default();
+                println!("  {:<12} {:<14} {:<7} {:<8} {} runs, {}  {}", s(&r["id"]), s(&r["every"]), s(&r["mode"]), if r["enabled"] == true { "on" } else { "paused" }, r["runs"], next, s(&r["title"]));
+            }
+        }
         Cmd::Notify { action } => {
             let repo = repo()?;
             let print = |list: &Value| {
@@ -801,6 +860,11 @@ fn main() -> Result<()> {
                 let r = api.post(&format!("/api/repos/{repo}/changes/{change}/comments/send"), json!({ "by": "cli" }))?;
                 println!("sent {} comment(s) to the agent", r["sent"]);
             }
+        }
+        Cmd::Steer { change, text } => {
+            let repo = repo()?;
+            let m = api.post(&format!("/api/repos/{repo}/changes/{change}/steer"), json!({ "text": text }))?;
+            println!("{change}: sent; {} message(s) in the conversation", m.as_array().map_or(0, |a| a.len()));
         }
         Cmd::Why { at } => {
             let repo = repo()?;

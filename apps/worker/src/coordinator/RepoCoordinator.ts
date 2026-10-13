@@ -32,6 +32,7 @@ import { type PrGoal, prBody, prTitle } from "../github/pr.ts";
 import { open as openSecret, seal as sealSecret } from "../github/secret.ts";
 import { checkUrl, EVENTS, emailFor, maskUrl, type Format, formatFor, type Hook, type Notice, type NotifyEvent, payload, sign } from "../notify/notify.ts";
 import { feedback, type ReviewComment } from "../review/comments.ts";
+import { describeEvery, dueNow, nextAfter, parseEvery } from "./recurring.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -266,6 +267,7 @@ export class RepoCoordinator extends Agent<Env> {
 	// Waking an agent's Durable Object lets it recover an interrupted fiber (deploys, restarts).
 	async wakeAgents() {
 		await this.reviveStalledLandings();
+		await this.runDueRecurring().catch((e) => console.warn("recurring check failed", e));
 		const gh = this.githubConfig();
 		if (gh?.pull && now() - (gh.lastRun ?? 0) > 10 * 60_000) this.ctx.waitUntil(this.githubSync().catch((e) => console.warn("github sync failed", e)));
 		await this.noticeTrunkPushes().catch((e) => console.warn("trunk check failed", e));
@@ -822,6 +824,26 @@ export class RepoCoordinator extends Agent<Env> {
 
 	// ── Messaging between agents ─────────────────────────────────────────────
 
+	// Messages to or from a change's agent, oldest first.
+	messagesFor(changeId: string) {
+		const change = this.change(changeId);
+		if (!change) return [];
+		return this.db
+			.exec("SELECT from_agent, to_agent, text, created_at FROM messages WHERE from_agent = ? OR to_agent = ? ORDER BY created_at LIMIT 200", change.agentId, change.agentId)
+			.toArray()
+			.map((r) => ({ from: String(r.from_agent), to: String(r.to_agent), text: String(r.text), at: Number(r.created_at) }));
+	}
+
+	// A person steering a working agent: the message lands in its inbox, between steps.
+	async steer(changeId: string, text: string, by: string) {
+		const change = this.change(changeId);
+		if (!change) throw new Error(`unknown change ${changeId}`);
+		if (!this.isBuiltin(change.agentId)) throw new Error(`${change.agentId} is an external agent: message it with hive_message`);
+		if (!["drafting", "bounced"].includes(change.status)) throw new Error(`change ${changeId} is ${change.status}: its agent isn't working on it`);
+		await this.message(`human:${by}`, change.agentId, text.slice(0, 4000));
+		return this.messagesFor(changeId);
+	}
+
 	async message(from: string, to: string, text: string) {
 		this.db.exec("INSERT INTO messages VALUES (?, ?, ?, ?, ?)", id("m"), from, to, text, now());
 		this.emit({ type: "message", from, to, text });
@@ -1028,6 +1050,86 @@ export class RepoCoordinator extends Agent<Env> {
 		});
 		this.log("hive", `imported ${created.length} issue(s) from ${source.owner}/${source.repo} as goals`);
 		return { source: `${source.owner}/${source.repo}`, open: issues.length, alreadyImported: known.size, created };
+	}
+
+	// ── Recurring goals ──────────────────────────────────────────────────────
+
+	listRecurring() {
+		return this.db
+			.exec("SELECT * FROM recurring ORDER BY created_at")
+			.toArray()
+			.map((r) => ({
+				id: String(r.id),
+				title: String(r.title),
+				description: String(r.description),
+				everyMinutes: Number(r.every_minutes),
+				every: describeEvery(Number(r.every_minutes)),
+				mode: String(r.mode) as "one" | "plan" | "race",
+				models: JSON.parse(String(r.models)) as string[],
+				budget: r.budget === null ? null : Number(r.budget),
+				enabled: Number(r.enabled) === 1,
+				nextRun: Number(r.next_run),
+				lastGoal: r.last_goal ? String(r.last_goal) : null,
+				lastGoalStatus: r.last_goal ? (this.goal(String(r.last_goal))?.status ?? null) : null,
+				runs: Number(r.runs),
+			}));
+	}
+
+	addRecurring(input: { title: string; description?: string; every: string; mode?: "one" | "plan" | "race"; models?: string[]; budget?: number | null }) {
+		const minutes = parseEvery(input.every);
+		if (!minutes) throw new Error(`"${input.every}": use hourly, daily, weekly, or a number like 6h, 2d (at least an hour)`);
+		const mode = input.mode ?? "one";
+		if (mode === "race" && (input.models?.length ?? 0) < 2) throw new Error("a race needs at least two models");
+		const rid = id("r");
+		this.db.exec(
+			"INSERT INTO recurring (id, title, description, every_minutes, mode, models, budget, enabled, next_run, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+			rid,
+			input.title,
+			input.description ?? "",
+			minutes,
+			mode,
+			JSON.stringify(input.models ?? []),
+			input.budget && input.budget > 0 ? input.budget : null,
+			nextAfter(now(), minutes),
+			now(),
+		);
+		return this.listRecurring().find((r) => r.id === rid)!;
+	}
+
+	setRecurring(recurringId: string, patch: { enabled?: boolean; remove?: boolean }) {
+		if (patch.remove) this.db.exec("DELETE FROM recurring WHERE id = ?", recurringId);
+		else if (patch.enabled !== undefined) this.db.exec("UPDATE recurring SET enabled = ? WHERE id = ?", patch.enabled ? 1 : 0, recurringId);
+		return this.listRecurring();
+	}
+
+	// Start one run: a new goal, with its agents. `force` runs it now even if the last one is going.
+	async runRecurring(recurringId: string, force = false) {
+		const row = this.listRecurring().find((r) => r.id === recurringId);
+		if (!row) throw new Error(`no recurring goal ${recurringId}`);
+		if (!force && row.lastGoalStatus && ["open", "in_progress", "planning", "planned", "racing"].includes(row.lastGoalStatus)) {
+			this.db.exec("UPDATE recurring SET next_run = ? WHERE id = ?", nextAfter(now(), row.everyMinutes), recurringId);
+			return { skipped: true as const, reason: `the last run (${row.lastGoal}) is still ${row.lastGoalStatus}` };
+		}
+		const stamp = new Date().toISOString().slice(0, 10);
+		const goal = this.createGoal({ title: `${row.title} (${stamp})`, description: row.description });
+		if (row.budget) this.setGoalBudget(goal.id, row.budget);
+		this.db.exec("UPDATE recurring SET last_goal = ?, runs = runs + 1, next_run = ? WHERE id = ?", goal.id, nextAfter(now(), row.everyMinutes), recurringId);
+		this.log("hive", `recurring “${row.title}” started ${goal.id}`);
+		try {
+			if (row.mode === "plan") await this.plan(goal.id, { agentModels: row.models.length ? row.models : undefined });
+			else if (row.mode === "race") await this.race(goal.id, row.models);
+			else await this.assign(goal.id, row.models[0]);
+		} catch (err) {
+			this.log("hive", `recurring “${row.title}”: ${goal.id} created but no agent started (${(err as Error).message})`);
+		}
+		return { skipped: false as const, goalId: goal.id };
+	}
+
+	private async runDueRecurring() {
+		const rows = this.listRecurring();
+		const { run, skipped } = dueNow(rows.map((r) => ({ id: r.id, enabled: r.enabled, everyMinutes: r.everyMinutes, nextRun: r.nextRun, lastGoalStatus: r.lastGoalStatus })), now());
+		for (const rid of skipped) this.db.exec("UPDATE recurring SET next_run = ? WHERE id = ?", nextAfter(now(), rows.find((r) => r.id === rid)!.everyMinutes), rid);
+		for (const rid of run) await this.runRecurring(rid).catch((e) => console.warn("recurring run failed", e));
 	}
 
 	// ── GitHub: mirror trunk, a pull request per goal, bring upstream in ─────
@@ -1894,6 +1996,7 @@ export class RepoCoordinator extends Agent<Env> {
 			goal: this.goal(change.goalId),
 			issue: this.goalIssue(change.goalId),
 			comments: this.comments(changeId),
+			messages: this.messagesFor(changeId),
 			intent: this.intentFor(changeId),
 			evidence: all("SELECT * FROM evidence WHERE change_id = ? ORDER BY created_at", toEvidence),
 			evaluations: all("SELECT * FROM evaluations WHERE change_id = ? ORDER BY created_at", toEvaluation),

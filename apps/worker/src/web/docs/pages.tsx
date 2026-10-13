@@ -295,6 +295,12 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						<strong className="text-wax">Try again:</strong> start a fresh attempt on the goal with another model or your guidance. The new agent is told what the last attempt ran into (its decision, failing checks, your comments); the last attempt stays for comparison unless you archive it. CLI: <C>hive retry c-… --model deepseek --guidance "…"</C>.
 					</li>
 					<li>
+						<strong className="text-wax">Steer a working agent:</strong> in <strong className="text-wax">Conversation</strong>, tell it something (a hint, a correction) and it reads it before its next step. Messages to and from an agent, including other agents', show there. CLI: <C>hive steer c-… "…"</C>.
+					</li>
+					<li>
+						<strong className="text-wax">Files seen:</strong> tick files as you review them. The progress shows on the change, and a tick clears itself if the agent edits that file again.
+					</li>
+					<li>
 						<strong className="text-wax">Why is this line here?</strong> At the top of the trunk column, or <C>hive why src/cart.ts:42</C>: the change that wrote the line, its goal, the agent's intent, the checks that passed, the review and Clef's decision. Agents can ask too (<C>hive_why</C>) before changing code they don't understand.
 					</li>
 				</List>
@@ -361,6 +367,8 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						[<C>hive_models</C>, "How each model has done on the repository"],
 						[<C>hive_notifications</C>, "Webhooks: list, add, test, remove"],
 						[<C>hive_why</C>, "Why a line of trunk is what it is"],
+						[<C>hive_steer</C>, "Tell a working agent something; it reads it before its next step"],
+						[<C>hive_recurring</C>, "Goals on a schedule: add, run, pause, remove"],
 						[<C>hive_comment</C>, "Review comments on a change, sent to its agent"],
 						[<C>hive_retry</C>, "Try a goal again with another model or guidance"],
 					]}
@@ -543,6 +551,14 @@ hive models --stats             # each model: landed, sent back, time to land, $
 hive budget g-… 2                # raise it (or: none)
 hive restart c-…
 hive settings --budget 1         # default per goal`}</Code>
+				<H2 id="recurring">Recurring goals</H2>
+				<P>
+					A goal that comes back on a schedule, with one agent, a plan or a race: a nightly “fix new lint warnings”, a weekly “update dependencies”. At least hourly. A run is skipped while the previous one is still going, so a slow goal never piles up copies of itself; budgets apply to each run.
+				</P>
+				<Code>{`hive recurring add "Fix new lint warnings" --every daily --models kimi --budget 1
+hive recurring list
+hive recurring run r-…     # now, even if the last run is going
+hive recurring pause r-…`}</Code>
 				<H2 id="cache">Dependency cache</H2>
 				<P>
 					Installing dependencies is often the slowest part of a check. After a box installs them, Hive archives what was installed to R2, keyed by the lockfiles; the next box with
@@ -742,5 +758,8 @@ const API: [string, string, string][] = [
 	["POST", "/api/repos/:repo/changes/:change/comments", "A review comment: path, line, side, body"],
 	["POST", "/api/repos/:repo/changes/:change/comments/send", "Send the pending comments to the agent"],
 	["POST", "/api/repos/:repo/changes/:change/retry", "Try again: model, guidance, replace"],
+	["POST", "/api/repos/:repo/changes/:change/steer", "Message a working agent: text"],
+	["GET", "/api/repos/:repo/recurring", "Recurring goals"],
+	["POST", "/api/repos/:repo/recurring", "Add one: title, every, mode, models, budget"],
 	["POST", "/mcp", "MCP over streamable HTTP; read tools work without the token"],
 ];

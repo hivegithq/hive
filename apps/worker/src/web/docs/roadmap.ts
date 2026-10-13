@@ -11,6 +11,10 @@ export interface RoadmapItem {
 }
 
 export const SHIPPED: { title: string; version: string; from?: "Delta" }[] = [
+	{ title: "Steer a working agent: tell it something and it reads it before its next step", version: "1.6.0", from: "Delta" },
+	{ title: "Conversations visible: messages to and from an agent in its change", version: "1.6.0", from: "Delta" },
+	{ title: "Files seen: mark files reviewed; the mark clears when the agent edits the file again", version: "1.6.0", from: "Delta" },
+	{ title: "Recurring goals: nightly lint, weekly dependency updates, skipped while the last run is going", version: "1.6.0" },
 	{ title: "Review comments on the diff, sent to the agent", version: "1.5.0", from: "Delta" },
 	{ title: "Try again with another model or guidance, told what the last attempt ran into", version: "1.5.0", from: "Delta" },
 	{ title: "Why is this line here? (line → change, goal, intent, proof, decision)", version: "1.5.0", from: "Delta" },
@@ -58,22 +62,9 @@ export const NEXT: RoadmapItem[] = [
 	},
 	{
 		title: "Agents talking across work",
-		what: "Agent-to-agent messages visible in the dashboard, and plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”).",
-		progress: 40,
-		have: "hive_message and agent inboxes; intents say who is touching which symbols.",
-		from: "Delta",
-	},
-	{
-		title: "Steer a working agent live",
-		what: "Join an agent while it works: watch its steps stream, send a correction mid-run, pause or stop it.",
-		progress: 30,
-		have: "Comments reach a working agent's inbox; the activity ticker; restart and abandon.",
-		from: "Delta",
-	},
-	{
-		title: "Review progress: files seen",
-		what: "Mark files seen while reviewing a change, cleared when the agent edits them again (3/17 reviewed).",
-		progress: 0,
+		what: "Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between.",
+		progress: 65,
+		have: "Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols.",
 		from: "Delta",
 	},
 	{
@@ -113,11 +104,6 @@ export const NEXT: RoadmapItem[] = [
 		what: "People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token.",
 		progress: 10,
 		have: "Clerk sign-in for the dashboard; budgets per goal.",
-	},
-	{
-		title: "Recurring goals",
-		what: "Goals that run on a schedule: nightly “fix new lint warnings”, weekly “update dependencies”.",
-		progress: 0,
 	},
 	{
 		title: "Lazy-load sign-in",
