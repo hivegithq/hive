@@ -480,7 +480,8 @@ export class RepoCoordinator extends Agent<Env> {
 			agentModels,
 			maxParallel: Math.max(1, Math.min(32, opts.maxParallel ?? 6)),
 			scouts: opts.scouts ?? false,
-			scoutModel: opts.scoutModel || this.env.CODER_MODEL,
+			// Scouts run on Workers AI; anything else falls back to the default.
+			scoutModel: opts.scoutModel?.startsWith("@cf/") ? opts.scoutModel : this.env.CODER_MODEL,
 		};
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES (?, ?)", `plan:${goalId}`, JSON.stringify(settings));
 		this.setGoalStatus(goalId, "planning");
