@@ -38,7 +38,11 @@ hive_cache_put() { # url base paths... -> archives the paths (relative to base) 
 
 // The commands around one setup step: restore, else run and save. Prints CACHE=hit|saved|off and
 // SECONDS=n on success; on failure, the tail of the install log.
-export function setupScript(opts: { key: string; command: string; prefix: string | null; spec: CacheSpec | null }): string {
+export function setupScript(opts: { key: string; command: string; prefix: string | null; spec: CacheSpec | null; pre?: string }): string {
+	return `${opts.pre ? `${opts.pre} >/dev/null 2>&1 || true\n` : ""}${setupBody(opts)}`;
+}
+
+function setupBody(opts: { key: string; command: string; prefix: string | null; spec: CacheSpec | null }): string {
 	const marker = `/tmp/hive-setup-${opts.key}`;
 	const run = `t0=$(date +%s); (${opts.command}) > /tmp/hive-setup.log 2>&1 || { tail -c 6000 /tmp/hive-setup.log; exit 1; }; touch ${marker}`;
 	if (!opts.prefix || !opts.spec || (opts.spec.local.length === 0 && opts.spec.absolute.length === 0)) {

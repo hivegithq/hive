@@ -179,6 +179,22 @@ enum Cmd {
     Steer { change: String, text: String },
     /// Why a line of trunk is what it is: path:line → the change, goal, intent, proof and decision.
     Why { at: String },
+    /// An agent attempt's steps, for rewinding.
+    Steps { change: String },
+    /// Carry on from step N of an earlier attempt, differently (its edits are redone in a fresh fork).
+    Rewind {
+        change: String,
+        /// The step to keep through (0: start over, told what went wrong).
+        #[arg(long)]
+        step: u32,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        guidance: Option<String>,
+        /// Archive the earlier attempt.
+        #[arg(long)]
+        replace: bool,
+    },
     /// Try a goal again from a fresh fork; the new agent is told what this change ran into.
     Retry {
         change: String,
@@ -865,6 +881,19 @@ fn main() -> Result<()> {
             let repo = repo()?;
             let m = api.post(&format!("/api/repos/{repo}/changes/{change}/steer"), json!({ "text": text }))?;
             println!("{change}: sent; {} message(s) in the conversation", m.as_array().map_or(0, |a| a.len()));
+        }
+        Cmd::Steps { change } => {
+            let repo = repo()?;
+            let list = api.get(&format!("/api/repos/{repo}/changes/{change}/steps"))?;
+            for st in list.as_array().into_iter().flatten() {
+                let calls: Vec<&str> = st["calls"].as_array().into_iter().flatten().map(s).collect();
+                println!("  {:>3}  {:<60} {}", st["step"], calls.join(", ").chars().take(60).collect::<String>(), s(&st["said"]).chars().take(50).collect::<String>());
+            }
+        }
+        Cmd::Rewind { change, step, model, guidance, replace } => {
+            let repo = repo()?;
+            let c = api.post(&format!("/api/repos/{repo}/changes/{change}/rewind"), json!({ "step": step, "model": model.map(|m| model_id(&m)), "guidance": guidance, "replace": replace }))?;
+            println!("carrying on from step {step} as {} ({}); follow it with `hive watch`", s(&c["id"]), s(&c["model"]));
         }
         Cmd::Why { at } => {
             let repo = repo()?;

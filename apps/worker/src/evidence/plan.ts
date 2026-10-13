@@ -23,6 +23,7 @@ export interface Setup {
 	command: string;
 	keyFiles: string[]; // setup reruns only when these change
 	cache?: CacheSpec; // what it installs, so another box can restore it instead of installing
+	pre?: string; // puts the tools on PATH (corepack enable); runs in every box, even when the install is restored
 }
 
 export interface EvidencePlan {
@@ -84,7 +85,7 @@ export function planEvidence(files: Record<string, string>, opts: { security?: b
 	// shared convention) or .delta/prepare, which overrides it. hive.json's setup wins over both.
 	const prepare = [".delta/prepare", ".agents/prepare"].find((f) => files[f] !== undefined);
 	const preparedSetup: Setup[] | null = prepare
-		? [{ command: `sh ${prepare}`, keyFiles: [prepare, ...LOCKFILES], cache: custom ?? mergeSpecs(detected.setup.map((x) => x.cache)) }]
+		? [{ command: `sh ${prepare}`, keyFiles: [prepare, ...LOCKFILES], cache: custom ?? mergeSpecs(detected.setup.map((x) => x.cache)), pre: detected.setup.find((x) => x.pre)?.pre }]
 		: null;
 	const setup = config?.setup ? config.setup.map((command) => ({ command, keyFiles: ["hive.json", ...LOCKFILES], cache: custom })) : (preparedSetup ?? detected.setup);
 	const checks = config?.checks
@@ -156,9 +157,9 @@ function detect(files: Record<string, string>): { languages: string[]; setup: Se
 		}
 		// corepack enable puts pnpm/yarn on PATH, so package scripts that call them (pnpm -r test) work.
 		const install = has("pnpm-lock.yaml")
-			? "corepack enable && pnpm install --frozen-lockfile"
+			? "pnpm install --frozen-lockfile"
 			: has("yarn.lock")
-				? "corepack enable && yarn install --immutable"
+				? "yarn install --immutable"
 				: has("package-lock.json")
 					? "npm ci --no-audit --no-fund"
 					: "npm install --no-audit --no-fund";
@@ -166,6 +167,7 @@ function detect(files: Record<string, string>): { languages: string[]; setup: Se
 			command: install,
 			keyFiles: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
 			cache: { local: ["node_modules"], absolute: has("pnpm-lock.yaml") ? ["$(pnpm store path 2>/dev/null || echo /nonexistent)"] : [] },
+			pre: has("pnpm-lock.yaml") || has("yarn.lock") ? "corepack enable" : undefined,
 		});
 		const runner = has("pnpm-lock.yaml") ? "pnpm run -s" : has("yarn.lock") ? "yarn run -s" : "npm run -s";
 		for (const kind of ["typecheck", "build", "test"] as const) {

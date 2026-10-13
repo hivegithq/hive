@@ -54,7 +54,7 @@ export async function runSetup(sh: Shell, plan: EvidencePlan, cachePrefix: strin
 	for (const s of plan.setup) {
 		const keyed = await sh.exec(`(echo ${q(s.command)}; uname -m; node -v 2>/dev/null; cat ${s.keyFiles.map(q).join(" ")} 2>/dev/null) | sha1sum | cut -c1-16`);
 		const key = keyed.stdout.trim() || "nokey";
-		const r = await sh.exec(setupScript({ key, command: s.command, prefix: cachePrefix, spec: s.cache ?? null }), 20 * MINUTES);
+		const r = await sh.exec(setupScript({ key, command: s.command, prefix: cachePrefix, spec: s.cache ?? null, pre: s.pre }), 20 * MINUTES);
 		if (r.exitCode !== 0) {
 			runs.push({ kind: "setup", command: s.command, ok: false, output: tail(r.stdout + r.stderr) });
 			continue;

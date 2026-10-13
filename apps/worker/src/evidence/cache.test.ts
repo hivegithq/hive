@@ -30,7 +30,7 @@ const run = (cwd: string, script: string) =>
 
 afterAll(() => {
 	rmSync(root, { recursive: true, force: true });
-	for (const k of ["k1", "k2", "k3"]) rmSync(`/tmp/hive-setup-${k}`, { force: true });
+	for (const k of ["k1", "k2", "k3", "k4"]) rmSync(`/tmp/hive-setup-${k}`, { force: true });
 });
 
 describe("dependency cache script", () => {
@@ -61,6 +61,21 @@ describe("dependency cache script", () => {
 		mkdirSync(c);
 		expect(parseSetupResult(run(c, setupScript({ key: "k2", command: install, prefix: "repo/", spec }))).cache).toBe("saved");
 		expect(existsSync(join(store, "repo_k2_local_manifest"))).toBe(true);
+	});
+
+	it("always runs the pre step, even when the install is restored from the cache", () => {
+		const e = join(root, "box-e");
+		mkdirSync(e);
+		const marker = join(root, "pre-ran");
+		const withPre = (command: string) => setupScript({ key: "k4", command, prefix: "repo/", spec, pre: `touch ${marker}` });
+		rmSync("/tmp/hive-setup-k4", { force: true });
+		expect(parseSetupResult(run(e, withPre(install))).cache).toBe("saved");
+		rmSync(marker, { force: true });
+		rmSync("/tmp/hive-setup-k4", { force: true });
+		const f = join(root, "box-f");
+		mkdirSync(f);
+		expect(parseSetupResult(run(f, withPre("exit 1"))).cache).toBe("hit");
+		expect(existsSync(marker)).toBe(true);
 	});
 
 	it("runs plainly without a cache", () => {

@@ -33,6 +33,7 @@ import { open as openSecret, seal as sealSecret } from "../github/secret.ts";
 import { checkUrl, EVENTS, emailFor, maskUrl, type Format, formatFor, type Hook, type Notice, type NotifyEvent, payload, sign } from "../notify/notify.ts";
 import { feedback, type ReviewComment } from "../review/comments.ts";
 import { describeEvery, dueNow, nextAfter, parseEvery } from "./recurring.ts";
+import { type Msg, rewind, steps } from "../agent/rewind.ts";
 
 export interface IntentResult {
 	intent: Intent;
@@ -560,10 +561,48 @@ export class RepoCoordinator extends Agent<Env> {
 	// ── Putting agents to work ───────────────────────────────────────────────
 
 	// One agent, one fork, one change.
-	async assign(goalId: string, model: string = this.env.CODER_MODEL, brief?: string): Promise<Change> {
+	async assign(goalId: string, model: string = this.env.CODER_MODEL, brief?: string, rewind?: string): Promise<Change> {
 		const agentId = id("a");
 		const change = await this.startChange({ goalId, agentId, model });
-		await agentOf(this.ctx.exports, agentId).start({ repo: this.repo, changeId: change.id, brief });
+		await agentOf(this.ctx.exports, agentId).start({ repo: this.repo, changeId: change.id, brief, rewind });
+		return change;
+	}
+
+	// The steps of a built-in agent's attempt, for rewinding.
+	async attemptSteps(changeId: string) {
+		const change = this.change(changeId);
+		if (!change) throw new Error(`unknown change ${changeId}`);
+		if (!this.isBuiltin(change.agentId)) throw new Error(`${change.agentId} is an external agent: it has no steps Hive can rewind`);
+		const messages = JSON.parse(await agentOf(this.ctx.exports, change.agentId).transcript()) as Msg[];
+		return steps(messages);
+	}
+
+	// Carry on from step N of an earlier attempt: a fresh fork with that attempt's edits redone and its
+	// conversation as it was then, then a different instruction or model. Both attempts stay to compare.
+	async rewind(changeId: string, step: number, opts: { model?: string; guidance?: string; replace?: boolean; by?: string } = {}) {
+		const previous = this.changeDetail(changeId);
+		if (!previous) throw new Error(`unknown change ${changeId}`);
+		if (previous.change.status === "landed") throw new Error(`${changeId} already landed`);
+		if (!this.isBuiltin(previous.change.agentId)) throw new Error(`${previous.change.agentId} is an external agent: it has no steps Hive can rewind`);
+		const messages = JSON.parse(await agentOf(this.ctx.exports, previous.change.agentId).transcript()) as Msg[];
+		const cut = rewind(messages, step);
+		const after = steps(messages).slice(step);
+		const last = previous.decisions.at(-1);
+		const note = [
+			step === 0
+				? `You are starting over on a goal an earlier attempt (${changeId}, by ${previous.change.model}) didn't land. Nothing from it is in place.`
+				: `You are carrying on from step ${step} of ${cut.total} of an earlier attempt (${changeId}, by ${previous.change.model}). Its file edits and declared intent up to there are in place in this workspace.`,
+			after.length ? `It went on to: ${after.slice(0, 8).map((s) => `${s.step}. ${s.calls.join(", ") || "thinking"}`).join("; ")}.` : null,
+			last ? `How it ended: ${last.rationale.slice(0, 500)}` : null,
+			previous.comments.length ? `A reviewer's comments on it:\n${previous.comments.map((c) => `- ${c.path ? `${c.path}${c.line ? `:${c.line}` : ""}: ` : ""}${c.body}`).join("\n")}` : null,
+			opts.guidance ? `Guidance now: ${opts.guidance}` : "Take a different approach from where it went wrong.",
+			"Run the checks and submit when it's right.",
+		]
+			.filter(Boolean)
+			.join("\n\n");
+		if (opts.replace && !["landed", "archived"].includes(previous.change.status)) await this.abandon(changeId, opts.by ?? "rewind");
+		const change = await this.assign(previous.change.goalId, opts.model ?? previous.change.model, undefined, JSON.stringify({ messages: cut.kept, replay: cut.replay, note }));
+		this.log(change.agentId, `rewound ${changeId} to step ${step}${opts.model ? ` with ${opts.model}` : ""}`);
 		return change;
 	}
 

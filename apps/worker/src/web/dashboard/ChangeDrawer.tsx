@@ -352,6 +352,11 @@ function TryAgain({ repo, change, act, busy }: { repo: string; change: ChangeDet
 	const [model, setModel] = useState(change.model.startsWith("@cf/") ? change.model : MODELS[0].id);
 	const [guidance, setGuidance] = useState("");
 	const [replace, setReplace] = useState(change.status !== "drafting");
+	const [stepList, setStepList] = useState<{ step: number; calls: string[]; said: string; edits: number }[]>([]);
+	const [from, setFrom] = useState("0"); // "0": from scratch; otherwise carry on from that step
+	useEffect(() => {
+		if (open && !change.agentId.startsWith("tester") && change.model !== "external") api.steps(repo, change.id).then(setStepList, () => setStepList([]));
+	}, [open, repo, change.id, change.agentId, change.model]);
 	if (!open)
 		return (
 			<button type="button" onClick={() => setOpen(true)} className="flex items-center gap-2 text-sm text-kumo-subtle hover:text-honey">
@@ -370,9 +375,31 @@ function TryAgain({ repo, change, act, busy }: { repo: string; change: ChangeDet
 					placeholder="Guidance for this attempt (optional): an approach, a file to start from, something to avoid"
 					className="w-full resize-y rounded bg-black/40 px-3 py-2 text-sm text-wax ring-1 ring-white/10 focus:outline-none focus:ring-honey/50"
 				/>
+				{stepList.length > 0 && (
+					<Select
+						label="Start from"
+						value={from}
+						onValueChange={(v) => v !== null && setFrom(String(v))}
+						items={{
+							"0": "From scratch (told what went wrong)",
+							...Object.fromEntries(stepList.map((s) => [String(s.step), `After step ${s.step}: ${s.calls.join(", ") || s.said.slice(0, 40) || "thinking"}`.slice(0, 80)])),
+						}}
+					/>
+				)}
 				<Switch label="Archive this attempt" checked={replace} onCheckedChange={setReplace} />
-				<Button variant="primary" size="sm" loading={busy} onClick={() => act(() => api.tryAgain(repo, change.id, { model, guidance: guidance.trim() || undefined, replace }))}>
-					Start the new attempt
+				<Button
+					variant="primary"
+					size="sm"
+					loading={busy}
+					onClick={() =>
+						act(() =>
+							from === "0"
+								? api.tryAgain(repo, change.id, { model, guidance: guidance.trim() || undefined, replace })
+								: api.rewind(repo, change.id, Number(from), { model, guidance: guidance.trim() || undefined, replace }),
+						)
+					}
+				>
+					{from === "0" ? "Start the new attempt" : `Carry on from step ${from}`}
 				</Button>
 			</div>
 		</Block>

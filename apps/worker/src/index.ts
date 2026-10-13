@@ -408,6 +408,17 @@ app.get("/api/repos/:repo/changes/:changeId/diff", async (c) => {
 	return d ? c.json(d) : c.json({ error: "no diff recorded yet" }, 404);
 });
 
+// The steps of a built-in agent's attempt, and rewinding to one: a fresh fork with that attempt's
+// edits redone, carrying on differently.
+app.get("/api/repos/:repo/changes/:changeId/steps", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).attemptSteps(c.req.param("changeId"))));
+app.post("/api/repos/:repo/changes/:changeId/rewind", async (c) => {
+	const o = await body(c.req.raw, z.object({ step: z.number().int().min(0), model: z.string().nullish(), guidance: z.string().max(4000).nullish(), replace: z.boolean().optional() }));
+	return c.json(
+		await coordinator(c.executionCtx.exports, c.req.param("repo")).rewind(c.req.param("changeId"), o.step, { model: o.model ?? undefined, guidance: o.guidance ?? undefined, replace: o.replace }),
+		201,
+	);
+});
+
 // Try the goal again: a fresh fork and agent, told what the earlier attempt ran into.
 app.post("/api/repos/:repo/changes/:changeId/retry", async (c) => {
 	const opts = await body(c.req.raw, z.object({ model: z.string().nullish(), guidance: z.string().max(4000).nullish(), replace: z.boolean().optional() }));

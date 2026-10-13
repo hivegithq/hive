@@ -8,7 +8,9 @@ import { Box, sh } from "../sandbox/box.ts";
 import { describePlan, gatherEvidence, readPlan, runSetup } from "../evidence/run.ts";
 import { REGISTRY_HOSTS } from "../sandbox/registries.ts";
 import { bouncePrompt, systemPrompt } from "./prompts.ts";
+import { repoPath } from "./paths.ts";
 import { codingTools, REPO_DIR } from "./tools.ts";
+import type { Replay } from "./rewind.ts";
 
 type Phase = "idle" | "working" | "submitted" | "fixing" | "done" | "failed";
 
@@ -21,7 +23,9 @@ interface AgentState {
 	lastError: string | null;
 }
 
-type WorkPayload = { kind: "start"; brief?: string } | { kind: "bounce"; reason: string };
+// `rewind`: JSON of { messages, replay, note }, the conversation of an earlier attempt up to a step, the
+// edits to redo in this fresh workspace, and what to tell the model about where it is.
+type WorkPayload = { kind: "start"; brief?: string; rewind?: string } | { kind: "bounce"; reason: string };
 type Checkpoint = { payload: WorkPayload; messages: ModelMessage[] };
 
 const MAX_STEPS = 60;
@@ -48,13 +52,13 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	// ── Lifecycle (RPC from the coordinator) ─────────────────────────────────
 
 	// `brief`: extra context for this attempt (a person's guidance, what an earlier attempt ran into).
-	async start(input: { repo: string; changeId: string; brief?: string }) {
+	async start(input: { repo: string; changeId: string; brief?: string; rewind?: string }) {
 		// A restart replaces whatever loop is running (it may be stuck on a dead connection).
 		this.abort.abort(new Error("restarted"));
 		this.running = false;
 		this.steering = [];
 		this.setState({ ...this.initialState, repo: input.repo, changeId: input.changeId, phase: "working" });
-		await this.schedule(0, "work", { kind: "start", brief: input.brief } satisfies WorkPayload);
+		await this.schedule(0, "work", { kind: "start", brief: input.brief, rewind: input.rewind } satisfies WorkPayload);
 	}
 
 	async onBounced(reason: string) {
@@ -135,7 +139,13 @@ export class CodingAgent extends Agent<Env, AgentState> {
 			const notes = await this.box.run(`cat AGENTS.md 2>/dev/null | head -200`, { cwd: REPO_DIR });
 
 			let messages = resumed ?? this.loadConversation();
-			if (!resumed) {
+			if (!resumed && payload.kind === "start" && payload.rewind) {
+				// Carry on from an earlier attempt's step: redo its edits here, then continue its conversation.
+				const r = JSON.parse(payload.rewind) as { messages: ModelMessage[]; replay: Replay[]; note: string };
+				const redone = await this.replayEdits(r.replay);
+				this.coordinator.log(this.name, `continuing from an earlier attempt: ${redone.done} edit${redone.done === 1 ? "" : "s"} redone${redone.skipped ? `, ${redone.skipped} could not be` : ""}`);
+				messages = [...r.messages, { role: "user", content: `${r.note}${redone.skipped ? `\n\nNote: ${redone.skipped} of those edits no longer applied cleanly here; check the files with read_file before relying on them.` : ""}` }];
+			} else if (!resumed) {
 				messages =
 					payload.kind === "start"
 						? [
@@ -273,6 +283,33 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	}
 
 	// ── Workspace ────────────────────────────────────────────────────────────
+
+	// Redo an earlier attempt's file edits (and its declared intent) in this workspace.
+	private async replayEdits(replay: Replay[]): Promise<{ done: number; skipped: number }> {
+		let done = 0;
+		let skipped = 0;
+		const files = this.box.files();
+		for (const r of replay) {
+			try {
+				if (r.tool === "declare_intent") {
+					await this.declareIntent(r.input);
+				} else if (r.tool === "write_file") {
+					const full = `${REPO_DIR}/${repoPath(r.input.path)}`;
+					await this.box.run(`mkdir -p "$(dirname ${sh(full)})"`);
+					await files.writeFile(full, r.input.content);
+				} else {
+					const full = `${REPO_DIR}/${repoPath(r.input.path)}`;
+					const current = await (await files.readFile(full)).text();
+					if (current.split(r.input.oldText).length - 1 !== 1) throw new Error("no longer unique");
+					await files.writeFile(full, current.replace(r.input.oldText, () => r.input.newText));
+				}
+				done++;
+			} catch {
+				skipped++;
+			}
+		}
+		return { done, skipped };
+	}
 
 	private async prepareWorkspace(change: Change) {
 		const host = repoHost(this.env);

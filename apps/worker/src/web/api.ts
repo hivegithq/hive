@@ -221,6 +221,8 @@ export const api = {
 	addComment: (repo: string, id: string, c: { path?: string | null; line?: number | null; side?: "new" | "old"; excerpt?: string | null; body: string }) =>
 		call<ReviewComment[]>("POST", `/api/repos/${repo}/changes/${id}/comments`, c),
 	deleteComment: (repo: string, id: string, commentId: string) => call<ReviewComment[]>("POST", `/api/repos/${repo}/changes/${id}/comments/${commentId}/delete`, {}),
+	steps: (repo: string, id: string) => call<{ step: number; calls: string[]; said: string; edits: number }[]>("GET", `/api/repos/${repo}/changes/${id}/steps`),
+	rewind: (repo: string, id: string, step: number, opts: { model?: string; guidance?: string; replace?: boolean }) => call<Change>("POST", `/api/repos/${repo}/changes/${id}/rewind`, { step, ...opts }),
 	tryAgain: (repo: string, id: string, opts: { model?: string; guidance?: string; replace?: boolean }) =>
 		call<Change>("POST", `/api/repos/${repo}/changes/${id}/retry`, opts),
 	why: (repo: string, path: string, line: number) => call<Why>("GET", `/api/repos/${repo}/why?path=${encodeURIComponent(path)}&line=${line}`),

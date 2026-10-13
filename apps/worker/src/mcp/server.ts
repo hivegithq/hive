@@ -434,6 +434,16 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 	);
 
 	server.registerTool(
+		"hive_rewind",
+		{
+			description:
+				"Carry on from step N of a built-in agent's earlier attempt, differently: a fresh fork with that attempt's edits redone and its conversation as it was then, plus guidance and/or another model. Omit step to list the attempt's steps first.",
+			inputSchema: { repo: z.string(), changeId: z.string(), step: z.number().int().min(0).optional(), model: z.string().optional(), guidance: z.string().optional(), replace: z.boolean().optional() },
+		},
+		async ({ repo, changeId, step, ...opts }) => (step === undefined ? text(await coordinator(repo).attemptSteps(changeId)) : text(await coordinator(repo).rewind(changeId, step, { ...opts, by: "mcp" }))),
+	);
+
+	server.registerTool(
 		"hive_models",
 		{
 			description:
