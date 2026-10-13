@@ -82,11 +82,12 @@ if (!token) {
 	writeFileSync(TOKEN_FILE, `${token}\n`, { mode: 0o600 });
 	ok(`generated and saved to ${TOKEN_FILE.replace(ROOT, "")} (git-ignored)`);
 } else ok(`using the one in ${TOKEN_FILE.replace(ROOT, "")}`);
-// CamelAI (optional): run agents on its catalog. From CAMELAI(_API_KEY) in the environment or the root .env.
+// Bring your own model (optional): the key of an OpenAI-compatible endpoint, from OPENAI_API_KEY in the
+// environment or the root .env. OPENAI_BASE_URL and the price variables are read by the deploy config.
 const dotenv = existsSync(join(ROOT, ".env")) ? readFileSync(join(ROOT, ".env"), "utf8") : "";
-const camelKey = process.env.CAMELAI_API_KEY || process.env.CAMELAI || /^CAMELAI(?:_API_KEY)?=(\S+)/m.exec(dotenv)?.[1];
-writeFileSync(SECRETS_FILE, JSON.stringify({ HIVE_TOKEN: token, ...(camelKey ? { CAMELAI_API_KEY: camelKey } : {}) }), { mode: 0o600 });
-if (camelKey) ok("CamelAI key found: agents can run on its models");
+const modelKey = process.env.OPENAI_API_KEY || /^OPENAI_API_KEY=(\S+)/m.exec(dotenv)?.[1];
+writeFileSync(SECRETS_FILE, JSON.stringify({ HIVE_TOKEN: token, ...(modelKey ? { OPENAI_API_KEY: modelKey } : {}) }), { mode: 0o600 });
+if (modelKey) ok("model endpoint key found: agents can run on its models");
 
 if (DOMAIN) {
 	step(5, `DNS for ${DOMAIN}`);

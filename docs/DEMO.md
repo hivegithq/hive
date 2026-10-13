@@ -68,7 +68,7 @@ Open a landed or waiting change on any repository.
   it before its next step.
 - **Why is this line here?** Pick a line: the change, goal, intent, proof and decision behind it.
 - **Rewind:** carry on from step N of an attempt with its edits redone, or try again on another
-  model (any CamelAI model works: Anthropic, OpenAI, free OpenRouter ones).
+  model (any model on an OpenAI-compatible endpoint works too: bring your own key).
 - **History by goal** shows every attempt, how it ended, the pull request and the cost.
 
 ## 8. The record, and Hive builds Hive (8:45–9:30)

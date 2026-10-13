@@ -59,9 +59,9 @@ enum Cmd {
     Models {
         #[arg(long)]
         stats: bool,
-        /// CamelAI's catalog, when this Hive has a key (free and tool-capable models first). Use as camel/<id>.
+        /// The models of the OpenAI-compatible endpoint this Hive was given (OPENAI_API_KEY). Use as byo/<id>.
         #[arg(long)]
-        camel: bool,
+        byo: bool,
     },
     /// Create an empty repo (trunk and ledger) and make it the default.
     Init { name: String },
@@ -647,15 +647,14 @@ fn main() -> Result<()> {
                 std::thread::sleep(Duration::from_secs(every.max(1)));
             }
         }
-        Cmd::Models { camel: true, .. } => {
-            let list = api.get("/api/camel/models")?;
+        Cmd::Models { byo: true, .. } => {
+            let list = api.get("/api/byo/models")?;
             let models = list.as_array().cloned().unwrap_or_default();
             if models.is_empty() {
-                println!("no CamelAI models: this Hive has no CAMELAI_API_KEY");
+                println!("no endpoint models: this Hive has no OPENAI_API_KEY (or its endpoint lists none)");
             }
-            for m in models.iter().take(40) {
-                let price = if m["free"] == true { "free".to_string() } else { format!("${}/${} per M", m["costIn"], m["costOut"]) };
-                println!("  {:<62} {:<14} {}", s(&m["id"]), price, if m["tools"] == true { "tools" } else { "tools: unverified" });
+            for m in models.iter().take(60) {
+                println!("  {}", s(&m["id"]));
             }
             println!("run an agent on one: hive goal \"…\" --assign <id>");
         }
@@ -680,7 +679,7 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Cmd::Models { stats: false, camel: false } => {
+        Cmd::Models { stats: false, byo: false } => {
             for (short, id) in MODELS {
                 println!("  {short:<10} {id}");
             }

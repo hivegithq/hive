@@ -13,7 +13,7 @@ export const SHIPPED: { title: string; version: string }[] = [
 	{ title: "Scouts in plans: a cheap read-only agent briefs each sub-goal's worker; workers are told who built what they build on", version: "1.11.0" },
 	{ title: "A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found", version: "1.10.0" },
 	{ title: "Provenance graph: goals, every attempt, how each ended and the pull request, drawn", version: "1.10.0" },
-	{ title: "Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools", version: "1.9.0" },
+	{ title: "Bring your own model: any OpenAI-compatible endpoint (OpenAI, OpenRouter, Together, Groq, Ollama) runs agents with its key", version: "1.12.0" },
 	{ title: "History by goal: every attempt, how it ended, the pull request, the cost", version: "1.8.0" },
 	{ title: "Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns", version: "1.8.0" },
 	{ title: "Repositories home: every repository, busiest first, with what needs a person", version: "1.8.0" },

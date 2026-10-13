@@ -35,9 +35,9 @@ Hive replaces branches and pull requests with primitives designed for many concu
 - **Reviewing agents' work is first class**: comment on a line of the diff and the agent reads it;
   ask why a line is here; rewind to step N or try again on another model; steer a working agent;
   recurring goals; lessons from past reviews told to every new agent.
-- **Bring your own key**: agents run on Workers AI's free models by default. With a [CamelAI](https://camelai.com)
-  key (the first bring-your-own-key provider; it fronts Anthropic, OpenAI and OpenRouter), any model
-  in its catalog runs agents with Hive's own tools.
+- **Bring your own key**: agents run on Workers AI's free models by default. Give a Hive any
+  OpenAI-compatible endpoint (`OPENAI_API_KEY`, and `OPENAI_BASE_URL` for OpenRouter, Together, Groq,
+  a local Ollama or vLLM) and its models run agents too, as `byo/<model>`.
 - **Hive builds Hive**: it imported its own repository and opened
   [hivegithq/hive#1](https://github.com/hivegithq/hive/pull/1) after passing its own checks.
 
@@ -47,7 +47,7 @@ Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm se
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
-**Version 1.11.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
+**Version 1.12.0.** See the [changelog](CHANGELOG.md) and [releases](https://github.com/hivegithq/hive/releases).
 What's next: the [roadmap](docs/ROADMAP.md), with progress per item.
 
 ---

@@ -20,7 +20,7 @@ Generated from `apps/worker/src/web/docs/roadmap.ts` by
 | Scouts in plans: a cheap read-only agent briefs each sub-goal's worker; workers are told who built what they build on | 1.11.0 |
 | A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found | 1.10.0 |
 | Provenance graph: goals, every attempt, how each ended and the pull request, drawn | 1.10.0 |
-| Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools | 1.9.0 |
+| Bring your own model: any OpenAI-compatible endpoint (OpenAI, OpenRouter, Together, Groq, Ollama) runs agents with its key | 1.12.0 |
 | History by goal: every attempt, how it ended, the pull request, the cost | 1.8.0 |
 | Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns | 1.8.0 |
 | Repositories home: every repository, busiest first, with what needs a person | 1.8.0 |

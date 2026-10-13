@@ -4,3 +4,7 @@ allowBuilds:
   workerd: true
   esbuild: true
   core-js-pure: false
+minimumReleaseAgeExclude:
+  - '@ai-sdk/openai-compatible@3.0.68'
+  - '@ai-sdk/provider-utils@5.0.59'
+  - '@ai-sdk/provider@4.0.27'

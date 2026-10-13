@@ -197,7 +197,7 @@ pnpm self-host`}</Code>
 						[<C>HIVE_DOMAIN</C>, "none", "Also serve on this domain and its www. It must be a zone on the same account; DNS records are added for you."],
 						[<C>HIVE_WORKER_NAME</C>, <C>hive</C>, "Name of the Worker, and the prefix of its Workflow, queue and containers. Use another to run a second Hive on one account."],
 						[<C>HIVE_NAMESPACE</C>, "the Worker name", "The Artifacts namespace that holds the repositories."],
-						[<C>CAMELAI</C>, "none", "A CamelAI API key (or CAMELAI_API_KEY, or a CAMELAI line in .env): agents can run on any model in its catalog, free ones included."],
+						[<C>OPENAI_API_KEY</C>, "none", "The key of an OpenAI-compatible endpoint (or a line in .env): agents can run on its models. Set <C>OPENAI_BASE_URL</C> for anything but OpenAI (OpenRouter, Together, Groq, a local Ollama or vLLM). <C>BYO_INPUT_USD_PER_M</C> and <C>BYO_OUTPUT_USD_PER_M</C> let Hive count what it costs."],
 						[<C>HIVE_EMAIL_FROM</C>, "none", "Send email notifications from this address (its domain needs Email Routing; recipients must be verified)."],
 						[<C>HIVE_CLERK_PUBLISHABLE_KEY</C>, "none", "Let other people sign in with Clerk and make changes from the dashboard. Put the instance in waitlist mode so you choose who gets in."],
 					]}
@@ -268,7 +268,7 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 					]}
 				/>
 				<P>
-					<strong className="text-wax">CamelAI models:</strong> when a Hive has a <A href="https://camelai.com">CamelAI</A> key, its catalog (Anthropic, OpenAI, and free OpenRouter models) appears in the model pickers, free and tool-capable ones first, and works anywhere a model does: one agent, races, plans, recurring goals. camelRun runs the model loop and Hive serves it the same tools (read, edit, run, checks, submit), each call landing in that attempt's own sandbox; usage is recorded and priced, and budgets cap each run. <C>hive models --camel</C> lists them; use one as <C>camel/&lt;id&gt;</C>. Free models share provider rate limits, so a busy one is retried and a persistent failure is reported with its reason.
+					<strong className="text-wax">Bring your own model:</strong> give a Hive an OpenAI-compatible endpoint (<C>OPENAI_API_KEY</C>, and <C>OPENAI_BASE_URL</C> for anything but OpenAI) and its models appear in the model pickers after Workers AI's, and work anywhere a model does: one agent, races, plans, recurring goals. They run Hive's own agent loop with the same tools (read, edit, run, checks, submit), in that attempt's own sandbox; usage is recorded, and with <C>BYO_INPUT_USD_PER_M</C> and <C>BYO_OUTPUT_USD_PER_M</C> set it is priced, and budgets cap each run. <C>hive models --byo</C> lists them; use one as <C>byo/&lt;id&gt;</C>, for example <C>byo/gpt-5</C>. Workers AI's free models need no key at all.
 				</P>
 				<P>
 					Every other model listed runs on Workers AI. The ones marked free tier also work on a free Cloudflare account, which matters when you <A href="/docs/local">run Hive locally</A>.
@@ -423,7 +423,7 @@ hive land c-…   |   hive send-back c-… -m "why"
 hive settings --security on --decider clef --batch 32
 hive clone [--ledger]                        # plain git, one-hour URL
 hive models                                  # kimi, deepseek, glm, gpt-oss, qwen, nemotron
-hive models --camel                          # CamelAI's catalog, if this Hive has a key
+hive models --byo                            # the models of this Hive's OpenAI-compatible endpoint, if it has one
 hive cost   |   hive budget g-… 2   |   hive models --stats
 hive issues import --exclude-label question --assign kimi --budget 1
 hive github connect < github-token.txt   |   hive notify add <webhook url>`}</Code>

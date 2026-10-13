@@ -17,7 +17,7 @@ const MODES: { id: Mode; title: string; line: string; cells: number }[] = [
 
 const PLANNERS = MODELS.filter((m) => m.paid);
 const DEFAULT_PLANNER = "@cf/zai-org/glm-5.3";
-const label = (m: { label: string; paid: boolean; camel?: boolean }) => (m.paid || m.camel ? m.label : `${m.label} (free tier)`);
+const label = (m: { label: string; paid: boolean; byo?: boolean }) => (m.paid || m.byo ? m.label : `${m.label} (free tier)`);
 
 // A small honeycomb: how many agents a mode puts to work.
 function Cells({ n, on }: { n: number; on: boolean }) {
@@ -37,7 +37,7 @@ function Cells({ n, on }: { n: number; on: boolean }) {
 }
 
 export function GoalComposer({ repo }: { repo: string }) {
-	const choices = useModels(); // a few of CamelAI's free ones, for the lists of checkboxes
+	const choices = useModels(); // a few of the endpoint's, for the lists of checkboxes
 	const allChoices = useModels(true); // everything, for a single choice
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");

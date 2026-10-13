@@ -210,35 +210,35 @@ export const MODELS = [
 	{ id: "@cf/nvidia/nemotron-3-120b-a12b", label: "Nemotron 3 120B", paid: false },
 ];
 
-// CamelAI's catalog, when this deployment has a key: free and tool-capable models first. Loaded once.
+// The models of the OpenAI-compatible endpoint this deployment was given, when it has one. Loaded once.
 export interface PickerModel {
 	id: string;
 	label: string;
 	paid: boolean;
-	camel?: boolean;
+	byo?: boolean;
 }
-let camelLoaded: Promise<PickerModel[]> | null = null;
-const loadCamel = () =>
-	(camelLoaded ??= fetch("/api/camel/models")
-		.then((r) => (r.ok ? (r.json() as Promise<{ id: string; name: string; provider: string; free: boolean; costOut: number }[]>) : []))
-		.then((ms) => ms.map((m) => ({ id: m.id, label: `${m.name}${m.free ? " (free)" : ""} · ${m.provider}`, paid: !m.free, camel: true })))
+let byoLoaded: Promise<PickerModel[]> | null = null;
+const loadByo = () =>
+	(byoLoaded ??= fetch("/api/byo/models")
+		.then((r) => (r.ok ? (r.json() as Promise<{ id: string; label: string }[]>) : []))
+		.then((ms) => ms.map((m) => ({ id: m.id, label: m.label, paid: true, byo: true })))
 		.catch(() => []));
 
-// The models to offer: Workers AI's, then CamelAI's. `all`: every CamelAI model (for a single choice);
-// otherwise the first few, which are the free ones (for lists of checkboxes).
+// The models to offer: Workers AI's, then the endpoint's. `all`: every one of them (for a single
+// choice); otherwise the first few (for lists of checkboxes).
 export function useModels(all = false): PickerModel[] {
-	const [camel, setCamel] = useState<PickerModel[]>([]);
+	const [byo, setByo] = useState<PickerModel[]>([]);
 	useEffect(() => {
 		let live = true;
-		loadCamel().then((m) => live && setCamel(m));
+		loadByo().then((m) => live && setByo(m));
 		return () => {
 			live = false;
 		};
 	}, []);
-	return [...MODELS, ...(all ? camel : camel.slice(0, 8))];
+	return [...MODELS, ...(all ? byo : byo.slice(0, 8))];
 }
 
-export const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? (id.startsWith("camel/") ? `${(id.split("/").at(-1) ?? id).replace(/:free$/, "")} (CamelAI)` : (id.split("/").at(-1) ?? id));
+export const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? (id.startsWith("byo/") ? id.slice(4) : (id.split("/").at(-1) ?? id));
 
 const readToken = () => {
 	try {

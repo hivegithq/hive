@@ -4,6 +4,11 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-13
+
+### Changed
+- **Bring your own model is an OpenAI-compatible endpoint, and CamelAI is gone.** Set `OPENAI_API_KEY` (and `OPENAI_BASE_URL` for OpenRouter, Together, Groq, a local Ollama or vLLM) and its models appear in the pickers and run agents as `byo/<model>`, in Hive's own agent loop with its own tools. `BYO_INPUT_USD_PER_M` and `BYO_OUTPUT_USD_PER_M` let Hive count what it costs. `hive models --byo` lists them. This replaces `CAMELAI_API_KEY`, `camel/<id>` models and `hive models --camel`.
+
 ## [1.11.0] - 2026-10-13
 
 ### Added

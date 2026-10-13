@@ -367,7 +367,7 @@ function Conversation({ repo, change, messages, canWrite }: { repo: string; chan
 function TryAgain({ repo, change, act, busy }: { repo: string; change: ChangeDetail["change"]; act: (fn: () => Promise<unknown>) => void; busy: boolean }) {
 	const models = useModels(true);
 	const [open, setOpen] = useState(false);
-	const [model, setModel] = useState(change.model.startsWith("@cf/") || change.model.startsWith("camel/") ? change.model : MODELS[0].id);
+	const [model, setModel] = useState(change.model.startsWith("@cf/") || change.model.startsWith("byo/") ? change.model : MODELS[0].id);
 	const [guidance, setGuidance] = useState("");
 	const [replace, setReplace] = useState(change.status !== "drafting");
 	const [stepList, setStepList] = useState<{ step: number; calls: string[]; said: string; edits: number }[]>([]);
