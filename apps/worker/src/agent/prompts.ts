@@ -1,6 +1,11 @@
 import type { Change, Goal } from "../domain/types.ts";
 
-export function systemPrompt(goal: Goal, change: Change, repoNotes: string | null, checks: string): string {
+// What reviewers have told agents on this repository before, so the same lesson isn't learned twice.
+export function lessonsSection(lessons: string[]): string {
+	return lessons.length ? `\nWhat reviewers of this repository have asked for before (follow these):\n${lessons.map((l) => `- ${l}`).join("\n")}\n` : "";
+}
+
+export function systemPrompt(goal: Goal, change: Change, repoNotes: string | null, checks: string, lessons: string[] = []): string {
 	return `You are a coding agent in Hive, a version-control system built for many agents working at once.
 
 Your goal (${goal.id}): ${goal.title}
@@ -28,7 +33,7 @@ under .hive/. If trunk moved and your change conflicts, call sync_trunk and reso
 What the convergence queue checks in this repository:
 ${checks}
 ${change.race ? `\nThis is a race: other agents attempt the same goal with different models. The best change wins.\n` : ""}
-${repoNotes ? `\nRepository instructions (AGENTS.md):\n${repoNotes}` : ""}`;
+${repoNotes ? `\nRepository instructions (AGENTS.md):\n${repoNotes}` : ""}${lessonsSection(lessons)}`;
 }
 
 export function bouncePrompt(reason: string): string {

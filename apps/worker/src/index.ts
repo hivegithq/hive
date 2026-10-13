@@ -272,6 +272,17 @@ app.post("/api/repos/:repo/recurring/:rid", async (c) => {
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setRecurring(c.req.param("rid"), patch));
 });
 
+// What reviewers asked for, offered to every new agent on this repository.
+app.get("/api/repos/:repo/lessons", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).listLessons()));
+app.post("/api/repos/:repo/lessons", async (c) => {
+	const { text } = await body(c.req.raw, z.object({ text: z.string().min(8).max(400) }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).addLesson(text), 201);
+});
+app.post("/api/repos/:repo/lessons/:lessonId", async (c) => {
+	const patch = await body(c.req.raw, z.object({ active: z.boolean().optional(), remove: z.boolean().optional() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setLesson(c.req.param("lessonId"), patch));
+});
+
 // Messages to and from a change's agent; steer sends one to a working agent.
 app.post("/api/repos/:repo/changes/:changeId/steer", async (c) => {
 	const { text, by } = await body(c.req.raw, z.object({ text: z.string().min(1).max(4000), by: z.string().max(80).default("reviewer") }));
@@ -366,6 +377,7 @@ app.post("/api/repos/:repo/settings", async (c) => {
 			batchMax: z.number().int().min(1).max(256).optional(),
 			security: z.boolean().optional(),
 			goalBudget: z.number().positive().max(10_000).nullable().optional(),
+			reviewModel: z.string().max(100).nullable().optional(),
 		}),);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setSettings(patch));
 });
@@ -408,6 +420,9 @@ app.get("/api/repos/:repo/changes/:changeId/diff", async (c) => {
 	return d ? c.json(d) : c.json({ error: "no diff recorded yet" }, 404);
 });
 
+// Where a built-in agent's context window went, per step.
+app.get("/api/repos/:repo/changes/:changeId/context", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).attemptContext(c.req.param("changeId"))));
+
 // The steps of a built-in agent's attempt, and rewinding to one: a fresh fork with that attempt's
 // edits redone, carrying on differently.
 app.get("/api/repos/:repo/changes/:changeId/steps", async (c) => c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).attemptSteps(c.req.param("changeId"))));
@@ -417,6 +432,12 @@ app.post("/api/repos/:repo/changes/:changeId/rewind", async (c) => {
 		await coordinator(c.executionCtx.exports, c.req.param("repo")).rewind(c.req.param("changeId"), o.step, { model: o.model ?? undefined, guidance: o.guidance ?? undefined, replace: o.replace }),
 		201,
 	);
+});
+
+// A fixing pass: a fresh agent carries on from the end of the attempt, told to resolve the review's concerns.
+app.post("/api/repos/:repo/changes/:changeId/fix", async (c) => {
+	const o = await body(c.req.raw, z.object({ model: z.string().nullish() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).fixConcerns(c.req.param("changeId"), { model: o.model ?? undefined }), 201);
 });
 
 // Try the goal again: a fresh fork and agent, told what the earlier attempt ran into.

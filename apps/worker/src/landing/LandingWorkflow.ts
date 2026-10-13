@@ -307,7 +307,8 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 			return { outcome: "land", confidence: 1, probabilities: { land: 1 }, rationale: "Evidence passed.", decidedBy: "hive:evidence" };
 		}
 
-		const notes = await this.review(goal.title, goal.description, intent?.summary ?? "", structuralDiff || diff, conflicts, (model, u) =>
+		const reviewModel = (await coordinator.settings()).reviewModel ?? this.env.REVIEW_MODEL;
+		const notes = await this.review(reviewModel, goal.title, goal.description, intent?.summary ?? "", structuralDiff || diff, conflicts, (model, u) =>
 			coordinator.recordUsage({ model, purpose: "review", changeId: change.id, inputTokens: u.inputTokens, outputTokens: u.outputTokens }),
 		);
 		const verdict = await decideLanding(
@@ -326,7 +327,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		);
 		await coordinator.recordEvaluation({
 			changeId: change.id,
-			model: `${this.env.REVIEW_MODEL} + clef-flash`,
+			model: `${reviewModel} + clef-flash`,
 			score: verdict.reviewScore,
 			summary: notes.summary,
 			concerns: [...notes.concerns, ...conflicts],
@@ -349,6 +350,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 	// A written review. Clef supplies the calibrated score; this supplies the words. Reviewers share
 	// per-minute quotas with coding agents, so each call is bounded and falls back to a second model.
 	private async review(
+		reviewModel: string,
 		title: string,
 		description: string,
 		intent: string,
@@ -364,7 +366,7 @@ export class LandingWorkflow extends WorkflowEntrypoint<Env, LandingParams> {
 		const errors: string[] = [];
 		// The primary gets one bounded try; the fallback is fast and gets a retry.
 		const attempts = [
-			{ model: this.env.REVIEW_MODEL, totalMs: 75_000, maxRetries: 0 },
+			{ model: reviewModel, totalMs: 75_000, maxRetries: 0 },
 			{ model: FALLBACK_REVIEW_MODEL, totalMs: 60_000, maxRetries: 1 },
 		];
 		for (const { model, totalMs, maxRetries } of attempts) {

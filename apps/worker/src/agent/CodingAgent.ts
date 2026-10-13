@@ -10,7 +10,8 @@ import { REGISTRY_HOSTS } from "../sandbox/registries.ts";
 import { bouncePrompt, systemPrompt } from "./prompts.ts";
 import { repoPath } from "./paths.ts";
 import { codingTools, REPO_DIR } from "./tools.ts";
-import type { Replay } from "./rewind.ts";
+import { contextBreakdown } from "./context.ts";
+import type { Msg, Replay } from "./rewind.ts";
 
 type Phase = "idle" | "working" | "submitted" | "fixing" | "done" | "failed";
 
@@ -21,6 +22,7 @@ interface AgentState {
 	inbox: string[];
 	steps: number;
 	lastError: string | null;
+	systemChars?: number; // size of the system prompt, for the context breakdown
 }
 
 // `rewind`: JSON of { messages, replay, note }, the conversation of an earlier attempt up to a step, the
@@ -181,7 +183,9 @@ export class CodingAgent extends Agent<Env, AgentState> {
 
 			const gate = gateOf(this.ctx.exports, change.model);
 			const plan = await readPlan(this.shell(), { security: (await this.coordinator.settings()).security });
-			const system = systemPrompt(goal, change, notes.exitCode === 0 && notes.stdout.trim() ? notes.stdout : null, describePlan(plan));
+			const lessons = await this.coordinator.lessonsFor().catch(() => [] as string[]);
+			const system = systemPrompt(goal, change, notes.exitCode === 0 && notes.stdout.trim() ? notes.stdout : null, describePlan(plan), lessons);
+			this.setState({ ...this.state, systemChars: system.length });
 			let steps = 0;
 			// Models sometimes end a turn without a tool call (or leak template tokens). Nudge them
 			// back to work a few times before giving up, within the overall step budget.
@@ -442,6 +446,11 @@ export class CodingAgent extends Agent<Env, AgentState> {
 	private saveConversation(messages: ModelMessage[]) {
 		this.sql`CREATE TABLE IF NOT EXISTS conversation (id INTEGER PRIMARY KEY CHECK (id = 1), messages TEXT NOT NULL)`;
 		this.sql`INSERT OR REPLACE INTO conversation (id, messages) VALUES (1, ${JSON.stringify(messages)})`;
+	}
+
+	// Where this agent's context window went, step by step (JSON text, like transcript()).
+	context(): string {
+		return JSON.stringify(contextBreakdown(this.state.systemChars ?? 0, this.loadConversation() as unknown as Msg[]));
 	}
 
 	// Returned as JSON text: the ModelMessage type is too deep to cross the RPC type boundary.

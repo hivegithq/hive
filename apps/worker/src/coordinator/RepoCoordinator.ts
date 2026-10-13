@@ -33,6 +33,7 @@ import { open as openSecret, seal as sealSecret } from "../github/secret.ts";
 import { checkUrl, EVENTS, emailFor, maskUrl, type Format, formatFor, type Hook, type Notice, type NotifyEvent, payload, sign } from "../notify/notify.ts";
 import { feedback, type ReviewComment } from "../review/comments.ts";
 import { describeEvery, dueNow, nextAfter, parseEvery } from "./recurring.ts";
+import { contextBreakdown } from "../agent/context.ts";
 import { type Msg, rewind, steps } from "../agent/rewind.ts";
 
 export interface IntentResult {
@@ -53,9 +54,10 @@ export interface RepoSettings {
 	batchMax: number; // changes stacked and verified together per landing
 	security: boolean; // also run the security scan; findings a change introduces fail it (hive.json can turn it on too)
 	goalBudget: number | null; // USD a goal (with its sub-goals) may spend unless it sets its own; null = no limit
+	reviewModel: string | null; // who writes the review that Clef's decision rests on; null = the deployment's REVIEW_MODEL
 }
 
-const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false, goalBudget: null };
+const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false, goalBudget: null, reviewModel: null };
 
 const LANDING_TIMEOUT_MS = 20 * 60 * 1000;
 const cleanPath = (p: string) => {
@@ -260,6 +262,7 @@ export class RepoCoordinator extends Agent<Env> {
 	setSettings(patch: Partial<RepoSettings>): RepoSettings {
 		const next = { ...this.settings(), ...patch };
 		next.batchMax = Math.max(1, Math.min(256, Math.floor(next.batchMax)));
+		next.reviewModel = next.reviewModel && /^@?[\w./:-]{3,100}$/.test(next.reviewModel) ? next.reviewModel : null;
 		next.goalBudget = next.goalBudget === null || next.goalBudget === undefined || Number(next.goalBudget) <= 0 ? null : Number(next.goalBudget);
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('settings', ?)", JSON.stringify(next));
 		return next;
@@ -568,6 +571,14 @@ export class RepoCoordinator extends Agent<Env> {
 		return change;
 	}
 
+	// Where a built-in agent's context window went.
+	async attemptContext(changeId: string) {
+		const change = this.change(changeId);
+		if (!change) throw new Error(`unknown change ${changeId}`);
+		if (!this.isBuiltin(change.agentId)) throw new Error(`${change.agentId} is an external agent: its context isn't Hive's to see`);
+		return JSON.parse(await agentOf(this.ctx.exports, change.agentId).context()) as ReturnType<typeof contextBreakdown>;
+	}
+
 	// The steps of a built-in agent's attempt, for rewinding.
 	async attemptSteps(changeId: string) {
 		const change = this.change(changeId);
@@ -575,6 +586,29 @@ export class RepoCoordinator extends Agent<Env> {
 		if (!this.isBuiltin(change.agentId)) throw new Error(`${change.agentId} is an external agent: it has no steps Hive can rewind`);
 		const messages = JSON.parse(await agentOf(this.ctx.exports, change.agentId).transcript()) as Msg[];
 		return steps(messages);
+	}
+
+	// A fixing pass: carry on from the end of the attempt, told to resolve what its review raised and what
+	// reviewers commented. The fixing agent starts with the attempt's edits in place, so it patches
+	// instead of redoing; the original attempt is archived when the fix is started.
+	async fixConcerns(changeId: string, opts: { model?: string; by?: string } = {}) {
+		const detail = this.changeDetail(changeId);
+		if (!detail) throw new Error(`unknown change ${changeId}`);
+		const review = detail.evaluations.filter((e) => e.model !== "hive:evidence").at(-1);
+		const concerns = review?.concerns ?? [];
+		const unsent = detail.comments.filter((c) => c.sentAt === null);
+		if (concerns.length === 0 && unsent.length === 0) throw new Error("nothing to fix: the review raised no concerns and there are no comments");
+		const total = (await this.attemptSteps(changeId)).length;
+		const guidance = [
+			"You are the fixing pass: the work is in place, and a review raised points to resolve. Change only what's needed for them, keep everything else, run the checks, and submit.",
+			concerns.length ? `The review's concerns:\n${concerns.map((c) => `- ${c}`).join("\n")}` : null,
+			unsent.length ? `Reviewer comments:\n${feedback(unsent)}` : null,
+		]
+			.filter(Boolean)
+			.join("\n\n");
+		const change = await this.rewind(changeId, total, { model: opts.model, guidance, replace: true, by: opts.by ?? "fix" });
+		if (unsent.length) this.db.exec(`UPDATE comments SET sent_at = ? WHERE id IN (${unsent.map(() => "?").join(",")})`, now(), ...unsent.map((c) => c.id));
+		return change;
 	}
 
 	// Carry on from step N of an earlier attempt: a fresh fork with that attempt's edits redone and its
@@ -1391,6 +1425,35 @@ export class RepoCoordinator extends Agent<Env> {
 		};
 	}
 
+	// ── Lessons: what reviewers asked for, remembered ────────────────────────
+
+	listLessons() {
+		return this.db
+			.exec("SELECT * FROM lessons ORDER BY created_at DESC LIMIT 200")
+			.toArray()
+			.map((r) => ({ id: String(r.id), text: String(r.text), source: String(r.source), changeId: r.change_id ? String(r.change_id) : null, active: Number(r.active) === 1, createdAt: Number(r.created_at) }));
+	}
+
+	// For an agent's briefing: the most recent active lessons.
+	lessonsFor(): string[] {
+		return this.listLessons().filter((l) => l.active).slice(0, 12).map((l) => l.text);
+	}
+
+	addLesson(text: string, source = "manual", changeId: string | null = null) {
+		const clean = text.replace(/\s+/g, " ").trim().slice(0, 400);
+		if (clean.length < 8) return this.listLessons();
+		// The same lesson twice is one lesson.
+		if (this.listLessons().some((l) => l.text.toLowerCase() === clean.toLowerCase())) return this.listLessons();
+		this.db.exec("INSERT INTO lessons VALUES (?, ?, ?, ?, 1, ?)", id("l"), clean, source, changeId, now());
+		return this.listLessons();
+	}
+
+	setLesson(lessonId: string, patch: { active?: boolean; remove?: boolean }) {
+		if (patch.remove) this.db.exec("DELETE FROM lessons WHERE id = ?", lessonId);
+		else if (patch.active !== undefined) this.db.exec("UPDATE lessons SET active = ? WHERE id = ?", patch.active ? 1 : 0, lessonId);
+		return this.listLessons();
+	}
+
 	// ── Review comments ──────────────────────────────────────────────────────
 
 	comments(changeId: string): ReviewComment[] {
@@ -1448,6 +1511,8 @@ export class RepoCoordinator extends Agent<Env> {
 		else if (["drafting", "bounced"].includes(change.status)) this.log(change.agentId, `review comments waiting (read them with hive_change): ${pending.length}`);
 		else throw new Error(`change ${changeId} is ${change.status}: comments can go to its agent while it's working or waiting for a person`);
 		this.db.exec(`UPDATE comments SET sent_at = ? WHERE id IN (${pending.map(() => "?").join(",")})`, now(), ...pending.map((c) => c.id));
+		// Delivered: what the reviewer asked for is worth remembering for the next agent.
+		for (const c of pending) this.addLesson(`${c.path ? `(${c.path}) ` : ""}${c.body}`, "review", changeId);
 		this.emit({ type: "comment", changeId });
 		return { sent: pending.length, comments: this.comments(changeId) };
 	}
@@ -1972,6 +2037,7 @@ export class RepoCoordinator extends Agent<Env> {
 		if (!change || change.status !== "escalated") throw new Error(`change ${changeId} is not escalated`);
 		this.recordDecision({ changeId, outcome, confidence: 1, probabilities: { [outcome]: 1 }, rationale: note || `Decided by ${by}`, decidedBy: `human:${by}` });
 		if (outcome === "bounce") {
+			if (note && !note.startsWith("A reviewer left")) this.addLesson(note, "send-back", changeId);
 			this.setStatus(changeId, "bounced");
 			if (this.isBuiltin(change.agentId)) await agentOf(this.ctx.exports, change.agentId).onBounced(note || "A reviewer sent this back.");
 		} else {

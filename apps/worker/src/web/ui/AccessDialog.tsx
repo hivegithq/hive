@@ -1,10 +1,9 @@
-import { useAuth, useClerk } from "@clerk/react";
 import { Button } from "@cloudflare/kumo/components/button";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { Input } from "@cloudflare/kumo/components/input";
 import { XIcon } from "@phosphor-icons/react";
 import { type FormEvent, useEffect, useState } from "react";
-import { ACCESS, SITE_URL } from "../clerk.ts";
+import { ACCESS, openSignIn, openWaitlist, SITE_URL, useAuthState } from "../clerk.ts";
 
 // Shown when a change needs access this visitor doesn't have. api.ts awaits askForAccess(); the
 // host below (mounted once in App) answers "retry" once the visitor can make the change (signed
@@ -57,12 +56,11 @@ function Header({ title }: { title: string }) {
 
 // hivegit.dev: sign in if you've been let in, otherwise join the waitlist.
 function SignInBody({ open, finish }: { open: boolean; finish: (a: Answer) => void }) {
-	const clerk = useClerk();
-	const { isSignedIn } = useAuth();
+	const { signedIn } = useAuthState();
 	// Signing in happens in Clerk's own modal; once it succeeds, carry on with the change.
 	useEffect(() => {
-		if (open && isSignedIn) finish("retry");
-	}, [open, isSignedIn, finish]);
+		if (open && signedIn) finish("retry");
+	}, [open, signedIn, finish]);
 	return (
 		<>
 			<Header title="Sign in to make changes" />
@@ -71,10 +69,10 @@ function SignInBody({ open, finish }: { open: boolean; finish: (a: Answer) => vo
 				with access. Join the waitlist and you'll get an email when you're in.
 			</Dialog.Description>
 			<div className="mt-6 flex flex-wrap gap-2">
-				<Button variant="primary" onClick={() => clerk.openWaitlist({})}>
+				<Button variant="primary" onClick={() => openWaitlist().catch(() => {})}>
 					Join the waitlist
 				</Button>
-				<Button variant="secondary" onClick={() => clerk.openSignIn({})}>
+				<Button variant="secondary" onClick={() => openSignIn().catch(() => {})}>
 					I have access: sign in
 				</Button>
 			</div>

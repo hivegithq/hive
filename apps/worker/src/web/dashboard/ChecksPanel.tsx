@@ -7,11 +7,12 @@ import { Switch } from "@cloudflare/kumo/components/switch";
 import { PlayIcon, XIcon } from "@phosphor-icons/react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { api, type EvidencePlan, type EvidenceRun, type RepoSettings, type Snapshot } from "../api.ts";
+import { api, type EvidencePlan, type EvidenceRun, MODELS, type RepoSettings, type Snapshot } from "../api.ts";
 import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
 import { EvidenceList } from "./Evidence.tsx";
 import { GitHubPanel } from "./GitHubPanel.tsx";
 import { NotifyPanel } from "./NotifyPanel.tsx";
+import { LessonsPanel } from "./LessonsPanel.tsx";
 import { RecurringPanel } from "./RecurringPanel.tsx";
 
 // What the merge queue checks in this repository, a way to run it on trunk, and the settings
@@ -202,6 +203,13 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 								onValueChange={(v) => v && save({ decider: v as RepoSettings["decider"] })}
 								items={{ clef: "Clef, on evidence and a review", evidence: "The checks alone (no model calls)" }}
 							/>
+							<Select
+								label="Who reviews changes"
+								value={settings.reviewModel ?? ""}
+								disabled={!canWrite}
+								onValueChange={(v) => save({ reviewModel: v ? String(v) : null })}
+								items={{ "": "The deployment's default", ...Object.fromEntries(MODELS.map((m) => [m.id, m.label])) }}
+							/>
 							<Input
 								label="Default budget per goal, USD"
 								type="number"
@@ -235,6 +243,8 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 				</section>
 
 				<GitHubPanel repo={repo} canWrite={canWrite} />
+
+				<LessonsPanel repo={repo} canWrite={canWrite} />
 
 				<RecurringPanel repo={repo} canWrite={canWrite} />
 

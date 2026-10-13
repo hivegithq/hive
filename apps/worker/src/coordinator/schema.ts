@@ -43,6 +43,9 @@ export const SCHEMA = [
 		id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, every_minutes INTEGER NOT NULL,
 		mode TEXT NOT NULL, models TEXT NOT NULL, budget REAL, enabled INTEGER NOT NULL DEFAULT 1,
 		next_run INTEGER NOT NULL, last_goal TEXT, runs INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)`,
+	// Things reviewers asked for, offered to new agents on this repository.
+	`CREATE TABLE IF NOT EXISTS lessons (
+		id TEXT PRIMARY KEY, text TEXT NOT NULL, source TEXT NOT NULL, change_id TEXT, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS goal_budgets (goal_id TEXT PRIMARY KEY, budget REAL)`,
 	`CREATE TABLE IF NOT EXISTS evaluations (
 		id TEXT PRIMARY KEY, change_id TEXT NOT NULL, model TEXT NOT NULL, score REAL NOT NULL,

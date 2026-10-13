@@ -4,6 +4,32 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-13
+
+Rewinding and fixing agents' work, from [Delta](https://delta.dev)'s playbook, and a lighter site.
+
+### Added
+- **Carry on from step N:** a new attempt that keeps an earlier attempt's conversation up to a step,
+  with its file edits and declared intent redone in a fresh fork, then your guidance or another
+  model. Dashboard (Try again → Start from), `hive steps`, `hive rewind`, `hive_rewind`.
+- **A fixing pass:** a fresh agent resolves a review's concerns (and your comments) on top of the
+  attempt's work, then submits; the original is archived. `hive fix`, `hive_fix`.
+- **Context window breakdown:** where a built-in agent's tokens went, per step, with the largest
+  tool results named. `hive context`, `hive_context`.
+- **Repository memory:** comments you send and send-back notes become lessons that every new agent
+  on the repository is told; pause or remove them. `hive lessons`, `hive_lessons`.
+- **A reviewer model per repository** (`reviewModel`, `hive settings --review-model`).
+- **Pull requests from Hive itself:** Hive imported its own repository, passed its own checks
+  (typecheck, vitest, `cargo test`), and opened hivegithq/hive#1 for a CONTRIBUTING.md.
+
+### Fixed
+- The dependency cache restored `node_modules` but skipped `corepack enable`, so restored boxes had
+  no `pnpm`, trunk looked red, and the queue backed off. Setup now has a pre step that always runs.
+
+### Changed
+- Sign-in loads only when a visitor already has a session or asks to sign in or join the waitlist
+  (Clerk's script, not the React SDK): about 145 KB gzipped less on every page.
+
 ## [1.6.0] - 2026-10-13
 
 More from [Delta](https://delta.dev)'s playbook, and goals on a schedule.
@@ -227,6 +253,7 @@ entirely on Cloudflare.
 - Repositories are created empty or pushed with git; there's no import from GitHub yet.
 - Large goals aren't decomposed automatically: a goal goes to one agent or a race.
 
+[1.7.0]: https://github.com/hivegithq/hive/releases/tag/v1.7.0
 [1.6.0]: https://github.com/hivegithq/hive/releases/tag/v1.6.0
 [1.5.0]: https://github.com/hivegithq/hive/releases/tag/v1.5.0
 [1.4.0]: https://github.com/hivegithq/hive/releases/tag/v1.4.0

@@ -11,7 +11,7 @@ import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.6.0" });
+	const server = new McpServer({ name: "hive", version: "1.7.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -247,6 +247,7 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 				decider: z.enum(["clef", "evidence"]).optional(),
 				batchMax: z.number().int().min(1).max(256).optional(),
 				goalBudget: z.number().positive().nullable().optional().describe("default USD budget per goal; null for no limit"),
+				reviewModel: z.string().nullable().optional().describe("model that writes the review Clef's decision rests on; null for the deployment default"),
 			},
 		},
 		async ({ repo, ...patch }) => {
@@ -441,6 +442,43 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 			inputSchema: { repo: z.string(), changeId: z.string(), step: z.number().int().min(0).optional(), model: z.string().optional(), guidance: z.string().optional(), replace: z.boolean().optional() },
 		},
 		async ({ repo, changeId, step, ...opts }) => (step === undefined ? text(await coordinator(repo).attemptSteps(changeId)) : text(await coordinator(repo).rewind(changeId, step, { ...opts, by: "mcp" }))),
+	);
+
+	server.registerTool(
+		"hive_context",
+		{
+			description: "Where a built-in agent's context window went, per step (system prompt, briefing, reasoning, calls, tool results; estimated tokens) and the largest tool results. Use it to see why an attempt was slow or costly.",
+			inputSchema: { repo: z.string(), changeId: z.string() },
+		},
+		async ({ repo, changeId }) => text(await coordinator(repo).attemptContext(changeId)),
+	);
+
+	server.registerTool(
+		"hive_lessons",
+		{
+			description:
+				"What reviewers of this repo have asked for before, which every new built-in agent is told: list, add one by hand, pause/resume, remove. Review comments and send-back notes are added automatically.",
+			inputSchema: { repo: z.string(), action: z.enum(["list", "add", "pause", "resume", "remove"]).default("list"), text: z.string().optional(), id: z.string().optional() },
+		},
+		async ({ repo, action, text: body, id: lid }) => {
+			const c = coordinator(repo);
+			if (action === "add") return body ? text(await c.addLesson(body)) : text("add needs text");
+			if (action !== "list" && !lid) return text(`${action} needs id`);
+			if (action === "pause") return text(await c.setLesson(lid!, { active: false }));
+			if (action === "resume") return text(await c.setLesson(lid!, { active: true }));
+			if (action === "remove") return text(await c.setLesson(lid!, { remove: true }));
+			return text(await c.listLessons());
+		},
+	);
+
+	server.registerTool(
+		"hive_fix",
+		{
+			description:
+				"A fixing pass on a built-in agent's change: a fresh agent carries on from the end of the attempt (its edits in place), told to resolve the review's concerns and any reviewer comments, then submits. The original attempt is archived.",
+			inputSchema: { repo: z.string(), changeId: z.string(), model: z.string().optional() },
+		},
+		async ({ repo, changeId, model }) => text(await coordinator(repo).fixConcerns(changeId, { model, by: "mcp" })),
 	);
 
 	server.registerTool(

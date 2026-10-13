@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Change, Decision, Evaluation, Evidence, Goal, HiveEvent, Intent, Overlap } from "../domain/types.ts";
 import type { EvidencePlan } from "../evidence/plan.ts";
 import type { EvidenceRun } from "../landing/types.ts";
-import { getToken } from "@clerk/react";
-import { ACCESS } from "./clerk.ts";
+import { ACCESS, sessionToken } from "./clerk.ts";
 import { askForAccess, TOKEN_KEY } from "./ui/AccessDialog.tsx";
 
 export interface Snapshot {
@@ -26,6 +25,7 @@ export interface RepoSettings {
 	batchMax: number;
 	security: boolean;
 	goalBudget: number | null;
+	reviewModel: string | null;
 }
 
 export interface Costs {
@@ -76,6 +76,12 @@ export type Why =
 			} | null;
 	  };
 
+export interface ContextBreakdown {
+	steps: { step: number; tokens: Record<"system" | "briefing" | "reasoning" | "calls" | "results", number>; total: number }[];
+	biggest: { step: number; tool: string; tokens: number }[];
+	windowEstimate: number;
+}
+
 export interface ModelStats {
 	model: string;
 	started: number;
@@ -120,6 +126,15 @@ export interface Recurring {
 	lastGoal: string | null;
 	lastGoalStatus: string | null;
 	runs: number;
+}
+
+export interface Lesson {
+	id: string;
+	text: string;
+	source: string;
+	changeId: string | null;
+	active: boolean;
+	createdAt: number;
 }
 
 export interface Hook {
@@ -195,7 +210,7 @@ const readToken = () => {
 };
 
 // Signed-in visitors send their Clerk session token; on a Hive without sign-in, the owner's token.
-const credential = async () => (ACCESS === "clerk" ? await getToken().catch(() => null) : readToken());
+const credential = async () => (ACCESS === "clerk" ? await sessionToken() : readToken());
 
 async function call<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
 	const headers: Record<string, string> = {};
@@ -221,7 +236,9 @@ export const api = {
 	addComment: (repo: string, id: string, c: { path?: string | null; line?: number | null; side?: "new" | "old"; excerpt?: string | null; body: string }) =>
 		call<ReviewComment[]>("POST", `/api/repos/${repo}/changes/${id}/comments`, c),
 	deleteComment: (repo: string, id: string, commentId: string) => call<ReviewComment[]>("POST", `/api/repos/${repo}/changes/${id}/comments/${commentId}/delete`, {}),
+	context: (repo: string, id: string) => call<ContextBreakdown>("GET", `/api/repos/${repo}/changes/${id}/context`),
 	steps: (repo: string, id: string) => call<{ step: number; calls: string[]; said: string; edits: number }[]>("GET", `/api/repos/${repo}/changes/${id}/steps`),
+	fix: (repo: string, id: string, model?: string) => call<Change>("POST", `/api/repos/${repo}/changes/${id}/fix`, { model }),
 	rewind: (repo: string, id: string, step: number, opts: { model?: string; guidance?: string; replace?: boolean }) => call<Change>("POST", `/api/repos/${repo}/changes/${id}/rewind`, { step, ...opts }),
 	tryAgain: (repo: string, id: string, opts: { model?: string; guidance?: string; replace?: boolean }) =>
 		call<Change>("POST", `/api/repos/${repo}/changes/${id}/retry`, opts),
@@ -236,6 +253,9 @@ export const api = {
 	costs: (repo: string) => call<Costs>("GET", `/api/repos/${repo}/costs`),
 	models: (repo: string) => call<ModelStats[]>("GET", `/api/repos/${repo}/models`),
 	github: (repo: string) => call<GitHubStatus>("GET", `/api/repos/${repo}/github`),
+	lessons: (repo: string) => call<Lesson[]>("GET", `/api/repos/${repo}/lessons`),
+	addLesson: (repo: string, text: string) => call<Lesson[]>("POST", `/api/repos/${repo}/lessons`, { text }),
+	setLesson: (repo: string, id: string, patch: { active?: boolean; remove?: boolean }) => call<Lesson[]>("POST", `/api/repos/${repo}/lessons/${id}`, patch),
 	recurring: (repo: string) => call<Recurring[]>("GET", `/api/repos/${repo}/recurring`),
 	addRecurring: (repo: string, input: { title: string; description?: string; every: string; mode?: string; models?: string[]; budget?: number }) =>
 		call<Recurring>("POST", `/api/repos/${repo}/recurring`, input),

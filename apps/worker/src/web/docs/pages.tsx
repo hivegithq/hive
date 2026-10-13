@@ -295,6 +295,18 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						<strong className="text-wax">Try again:</strong> start a fresh attempt on the goal with another model or your guidance. The new agent is told what the last attempt ran into (its decision, failing checks, your comments); the last attempt stays for comparison unless you archive it. CLI: <C>hive retry c-… --model deepseek --guidance "…"</C>.
 					</li>
 					<li>
+						<strong className="text-wax">Carry on from a step:</strong> in Try again, choose <strong className="text-wax">Start from</strong> a step of a built-in agent's attempt. The new agent gets that attempt's conversation up to there with its file edits and declared intent redone in a fresh fork, then your guidance. <C>hive steps c-…</C>, <C>hive rewind c-… --step 4 --guidance "…"</C>.
+					</li>
+					<li>
+						<strong className="text-wax">A fixing pass:</strong> when a review raised concerns, <strong className="text-wax">Have an agent fix these</strong> starts a fresh agent from the end of the attempt, told to resolve those points (and any comments), then submit; the original is archived. <C>hive fix c-…</C>.
+					</li>
+					<li>
+						<strong className="text-wax">Context:</strong> where a built-in agent's context window went, per step (instructions, briefing, thinking, tool calls, tool results), with the largest tool results named; they are re-read on every step after. <C>hive context c-…</C>.
+					</li>
+					<li>
+						<strong className="text-wax">What agents are told:</strong> comments you send and send-back notes become lessons that every new agent on the repository reads. See and edit them in Checks &amp; settings, or <C>hive lessons add "…"</C>.
+					</li>
+					<li>
 						<strong className="text-wax">Steer a working agent:</strong> in <strong className="text-wax">Conversation</strong>, tell it something (a hint, a correction) and it reads it before its next step. Messages to and from an agent, including other agents', show there. CLI: <C>hive steer c-… "…"</C>.
 					</li>
 					<li>
@@ -368,6 +380,10 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 						[<C>hive_notifications</C>, "Webhooks: list, add, test, remove"],
 						[<C>hive_why</C>, "Why a line of trunk is what it is"],
 						[<C>hive_steer</C>, "Tell a working agent something; it reads it before its next step"],
+						[<C>hive_rewind</C>, "Carry on from step N of an attempt, differently"],
+						[<C>hive_fix</C>, "A fixing pass on a change's review concerns"],
+						[<C>hive_context</C>, "Where an agent's context window went"],
+						[<C>hive_lessons</C>, "What agents on this repo are told"],
 						[<C>hive_recurring</C>, "Goals on a schedule: add, run, pause, remove"],
 						[<C>hive_comment</C>, "Review comments on a change, sent to its agent"],
 						[<C>hive_retry</C>, "Try a goal again with another model or guidance"],
@@ -476,6 +492,7 @@ hive show                         # evidence, review, decision`}</Code>
 						[<C>security</C>, "off", "Run the security scan on every batch (or set it in hive.json)"],
 						[<C>decider</C>, <C>clef</C>, <>Who lands changes: Clef, on evidence plus a model review, or <C>evidence</C>, the checks alone</>],
 						[<C>batchMax</C>, "16", "Changes stacked and checked together; a failing batch is split to find the culprit"],
+						[<C>reviewModel</C>, "the deployment's", "The model that writes the review Clef's decision rests on."],
 						[<C>goalBudget</C>, "none", "USD a goal (with its sub-goals) may spend unless it sets its own budget"],
 					]}
 				/>
@@ -761,5 +778,10 @@ const API: [string, string, string][] = [
 	["POST", "/api/repos/:repo/changes/:change/steer", "Message a working agent: text"],
 	["GET", "/api/repos/:repo/recurring", "Recurring goals"],
 	["POST", "/api/repos/:repo/recurring", "Add one: title, every, mode, models, budget"],
+	["GET", "/api/repos/:repo/changes/:change/steps", "A built-in agent attempt's steps"],
+	["POST", "/api/repos/:repo/changes/:change/rewind", "Carry on from step N: step, model, guidance, replace"],
+	["POST", "/api/repos/:repo/changes/:change/fix", "A fixing pass on the review's concerns"],
+	["GET", "/api/repos/:repo/changes/:change/context", "Where the agent's context window went"],
+	["GET", "/api/repos/:repo/lessons", "What agents on this repo are told (POST adds one)"],
 	["POST", "/mcp", "MCP over streamable HTTP; read tools work without the token"],
 ];

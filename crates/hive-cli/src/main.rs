@@ -84,6 +84,11 @@ enum Cmd {
         #[command(subcommand)]
         action: NotifyCmd,
     },
+    /// What reviewers have asked for before, told to every new agent on this repo.
+    Lessons {
+        #[command(subcommand)]
+        action: LessonsCmd,
+    },
     /// Goals that come back on a schedule (at least hourly).
     Recurring {
         #[command(subcommand)]
@@ -179,6 +184,14 @@ enum Cmd {
     Steer { change: String, text: String },
     /// Why a line of trunk is what it is: path:line → the change, goal, intent, proof and decision.
     Why { at: String },
+    /// Where a built-in agent's context window went, per step.
+    Context { change: String },
+    /// A fixing pass: a fresh agent resolves the review's concerns (and your comments) on top of the attempt's work.
+    Fix {
+        change: String,
+        #[arg(long)]
+        model: Option<String>,
+    },
     /// An agent attempt's steps, for rewinding.
     Steps { change: String },
     /// Carry on from step N of an earlier attempt, differently (its edits are redone in a fresh fork).
@@ -231,6 +244,9 @@ enum Cmd {
         /// Default budget per goal in USD (`none` for no limit).
         #[arg(long)]
         budget: Option<String>,
+        /// Who writes the review Clef's decision rests on (a model, or `default`).
+        #[arg(long)]
+        review_model: Option<String>,
     },
     /// Clone trunk (or --ledger) with ordinary git, using a one-hour URL.
     Clone {
@@ -297,6 +313,16 @@ enum GithubCmd {
     },
     /// Forget the token and stop syncing.
     Disconnect,
+}
+
+#[derive(Subcommand)]
+enum LessonsCmd {
+    List,
+    /// Teach every new agent something: hive lessons add "Name constants instead of repeating numbers"
+    Add { text: String },
+    Pause { id: String },
+    Resume { id: String },
+    Remove { id: String },
 }
 
 #[derive(Subcommand)]
@@ -720,6 +746,19 @@ fn main() -> Result<()> {
                 println!("  {:<14} {:<9} {}", s(&p["goalId"]), s(&p["state"]), p["url"].as_str().or(p["reason"].as_str()).unwrap_or(""));
             }
         }
+        Cmd::Lessons { action } => {
+            let repo = repo()?;
+            let list = match action {
+                LessonsCmd::List => api.get(&format!("/api/repos/{repo}/lessons"))?,
+                LessonsCmd::Add { text } => api.post(&format!("/api/repos/{repo}/lessons"), json!({ "text": text }))?,
+                LessonsCmd::Pause { id } => api.post(&format!("/api/repos/{repo}/lessons/{id}"), json!({ "active": false }))?,
+                LessonsCmd::Resume { id } => api.post(&format!("/api/repos/{repo}/lessons/{id}"), json!({ "active": true }))?,
+                LessonsCmd::Remove { id } => api.post(&format!("/api/repos/{repo}/lessons/{id}"), json!({ "remove": true }))?,
+            };
+            for l in list.as_array().into_iter().flatten() {
+                println!("  {:<12} {:<9} {:<8} {}", s(&l["id"]), s(&l["source"]), if l["active"] == true { "told" } else { "paused" }, s(&l["text"]));
+            }
+        }
         Cmd::Recurring { action } => {
             let repo = repo()?;
             let list = match action {
@@ -882,6 +921,24 @@ fn main() -> Result<()> {
             let m = api.post(&format!("/api/repos/{repo}/changes/{change}/steer"), json!({ "text": text }))?;
             println!("{change}: sent; {} message(s) in the conversation", m.as_array().map_or(0, |a| a.len()));
         }
+        Cmd::Context { change } => {
+            let repo = repo()?;
+            let c = api.get(&format!("/api/repos/{repo}/changes/{change}/context"))?;
+            let k = |n: f64| if n >= 1000.0 { format!("{:.1}k", n / 1000.0) } else { format!("{n:.0}") };
+            let last = c["steps"].as_array().and_then(|a| a.last()).cloned().unwrap_or(Value::Null);
+            println!("about {} tokens by step {}, re-read on every step (estimated)", k(c["windowEstimate"].as_f64().unwrap_or(0.0)), last["step"]);
+            for (name, key) in [("instructions", "system"), ("briefing", "briefing"), ("thinking", "reasoning"), ("tool calls", "calls"), ("tool results", "results")] {
+                println!("  {name:<13} {}", k(last["tokens"][key].as_f64().unwrap_or(0.0)));
+            }
+            for b in c["biggest"].as_array().into_iter().flatten().take(3) {
+                println!("  big result: {} at step {}, {} tokens", s(&b["tool"]), b["step"], k(b["tokens"].as_f64().unwrap_or(0.0)));
+            }
+        }
+        Cmd::Fix { change, model } => {
+            let repo = repo()?;
+            let c = api.post(&format!("/api/repos/{repo}/changes/{change}/fix"), json!({ "model": model.map(|m| model_id(&m)) }))?;
+            println!("fixing as {} ({}); the earlier attempt is archived. Follow it with `hive watch`", s(&c["id"]), s(&c["model"]));
+        }
         Cmd::Steps { change } => {
             let repo = repo()?;
             let list = api.get(&format!("/api/repos/{repo}/changes/{change}/steps"))?;
@@ -991,7 +1048,7 @@ fn main() -> Result<()> {
                 println!("  problem: {}", s(problem));
             }
         }
-        Cmd::Settings { security, decider, batch, budget } => {
+        Cmd::Settings { security, decider, batch, budget, review_model } => {
             let repo = repo()?;
             let mut patch = json!({});
             if let Some(v) = security {
@@ -1002,6 +1059,9 @@ fn main() -> Result<()> {
             }
             if let Some(v) = batch {
                 patch["batchMax"] = json!(v);
+            }
+            if let Some(v) = review_model {
+                patch["reviewModel"] = if v == "default" { Value::Null } else { json!(model_id(&v)) };
             }
             if let Some(v) = budget {
                 patch["goalBudget"] = if v == "none" { Value::Null } else { json!(v.trim_start_matches('$').parse::<f64>().context("budget must be a number of USD, or `none`")?) };
@@ -1015,6 +1075,7 @@ fn main() -> Result<()> {
             println!("  security  {}", if st["security"] == true { "on" } else { "off" });
             println!("  decider   {}", s(&st["decider"]));
             println!("  batch     {}", st["batchMax"]);
+            println!("  reviewer  {}", st["reviewModel"].as_str().unwrap_or("the deployment's default"));
             println!("  budget    {}", st["goalBudget"].as_f64().map(|b| format!("{} per goal", money(b))).unwrap_or_else(|| "no limit".into()));
         }
         Cmd::Clone { ledger, write } => {

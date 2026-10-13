@@ -11,6 +11,12 @@ export interface RoadmapItem {
 }
 
 export const SHIPPED: { title: string; version: string; from?: "Delta" }[] = [
+	{ title: "Retry from step N: carry on from an earlier step of an attempt, with its edits redone", version: "1.7.0", from: "Delta" },
+	{ title: "Context window breakdown: where an agent's tokens went, per step", version: "1.7.0", from: "Delta" },
+	{ title: "A fixing pass: an agent resolves a review's concerns on top of the attempt's work", version: "1.7.0", from: "Delta" },
+	{ title: "Repository memory: what reviewers asked for is told to every new agent", version: "1.7.0", from: "Delta" },
+	{ title: "A reviewer model per repository", version: "1.7.0", from: "Delta" },
+	{ title: "Sign-in loads only when needed: about 145 KB less on every page", version: "1.7.0" },
 	{ title: "Steer a working agent: tell it something and it reads it before its next step", version: "1.6.0", from: "Delta" },
 	{ title: "Conversations visible: messages to and from an agent in its change", version: "1.6.0", from: "Delta" },
 	{ title: "Files seen: mark files reviewed; the mark clears when the agent edits the file again", version: "1.6.0", from: "Delta" },
@@ -33,24 +39,17 @@ export const SHIPPED: { title: string; version: string; from?: "Delta" }[] = [
 
 export const NEXT: RoadmapItem[] = [
 	{
-		title: "Conversation branching: retry from step N",
-		what: "Rewind an agent to an earlier step, with its workspace as it was then, and continue differently; keep both branches to compare.",
-		progress: 40,
-		have: "Try again starts a fresh attempt that knows what the last one ran into. Transcripts are kept per step.",
-		from: "Delta",
-	},
-	{
 		title: "A reviewer that fixes",
 		what: "A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review.",
-		progress: 15,
-		have: "A model review and Clef's decision on every change; review comments from people.",
+		progress: 70,
+		have: "A fixing pass on request (resolves the review's concerns and comments on top of the attempt). Missing: running it automatically when a review raises concerns.",
 		from: "Delta",
 	},
 	{
 		title: "Agent roles in plans: scouts, workers, reviewers",
 		what: "Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model.",
-		progress: 20,
-		have: "The planner and parallel workers, with models per plan.",
+		progress: 45,
+		have: "The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal.",
 		from: "Delta",
 	},
 	{
@@ -74,13 +73,6 @@ export const NEXT: RoadmapItem[] = [
 		from: "Delta",
 	},
 	{
-		title: "Context window breakdown",
-		what: "Per agent step: how much went to the system prompt, history, tool output; where the tokens (and money) go.",
-		progress: 20,
-		have: "Tokens and cost per call and per change.",
-		from: "Delta",
-	},
-	{
 		title: "Watchers, mentions and read-only sharing",
 		what: "Follow a repository or change, @mention a teammate on a change that needs them, share read-only links.",
 		progress: 10,
@@ -90,8 +82,8 @@ export const NEXT: RoadmapItem[] = [
 	{
 		title: "Repository-level memory",
 		what: "Comments, decisions and lessons from earlier changes offered to new agents working on the same code.",
-		progress: 15,
-		have: "The ledger records every intent, review and decision; try again carries one attempt's lessons forward.",
+		progress: 60,
+		have: "Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs.",
 		from: "Delta",
 	},
 	{
@@ -104,10 +96,5 @@ export const NEXT: RoadmapItem[] = [
 		what: "People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token.",
 		progress: 10,
 		have: "Clerk sign-in for the dashboard; budgets per goal.",
-	},
-	{
-		title: "Lazy-load sign-in",
-		what: "Load Clerk only when someone signs in, instead of 145 KB on every page.",
-		progress: 0,
 	},
 ];

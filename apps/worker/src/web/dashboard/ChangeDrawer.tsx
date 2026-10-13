@@ -10,6 +10,7 @@ import type { Decision } from "../../domain/types.ts";
 import { usd } from "../../domain/pricing.ts";
 import { api, type ChangeDetail, MODELS, modelLabel, type ReviewComment } from "../api.ts";
 import { StatusHex } from "./ChangeCard.tsx";
+import { ContextView } from "./ContextView.tsx";
 import { CommentEditor, DiffView, RaceDiff, type Review } from "./DiffView.tsx";
 import { EvidenceList } from "./Evidence.tsx";
 import { SignInToAct, useCanWrite } from "../ui/Account.tsx";
@@ -207,6 +208,12 @@ function Body({
 				<Conversation repo={repo} change={change} messages={detail.messages ?? []} canWrite={canWrite} />
 			)}
 
+			{change.model.startsWith("@cf/") && change.status !== "drafting" && (
+				<Block title="Context">
+					<ContextView repo={repo} changeId={change.id} tick={tick} />
+				</Block>
+			)}
+
 			<Block title="Evidence">
 				{evidence.length === 0 ? (
 					<p className="text-kumo-subtle">Nothing has run yet. Evidence appears once the change is in a batch.</p>
@@ -227,6 +234,11 @@ function Body({
 						</ul>
 					)}
 					<p className="mt-2 text-xs text-kumo-subtle">An opinion from {review.model}, not a test result.</p>
+					{review.concerns.length > 0 && canWrite && change.model.startsWith("@cf/") && !["landed", "archived", "drafting"].includes(change.status) && (
+						<Button className="mt-3" size="sm" variant="secondary" loading={busy} onClick={() => act(() => api.fix(repo, change.id))}>
+							Have an agent fix these
+						</Button>
+					)}
 				</Block>
 			)}
 
@@ -355,8 +367,8 @@ function TryAgain({ repo, change, act, busy }: { repo: string; change: ChangeDet
 	const [stepList, setStepList] = useState<{ step: number; calls: string[]; said: string; edits: number }[]>([]);
 	const [from, setFrom] = useState("0"); // "0": from scratch; otherwise carry on from that step
 	useEffect(() => {
-		if (open && !change.agentId.startsWith("tester") && change.model !== "external") api.steps(repo, change.id).then(setStepList, () => setStepList([]));
-	}, [open, repo, change.id, change.agentId, change.model]);
+		if (open && change.model.startsWith("@cf/")) api.steps(repo, change.id).then(setStepList, () => setStepList([]));
+	}, [open, repo, change.id, change.model]);
 	if (!open)
 		return (
 			<button type="button" onClick={() => setOpen(true)} className="flex items-center gap-2 text-sm text-kumo-subtle hover:text-honey">

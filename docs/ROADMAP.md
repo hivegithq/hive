@@ -9,23 +9,26 @@ environment for coding with agents. Generated from `apps/worker/src/web/docs/roa
 
 | Item | Progress | |
 |---|---|---|
-| **Conversation branching: retry from step N** (from Delta) | `████░░░░░░` 40% | Rewind an agent to an earlier step, with its workspace as it was then, and continue differently; keep both branches to compare. *Today:* Try again starts a fresh attempt that knows what the last one ran into. Transcripts are kept per step. |
-| **A reviewer that fixes** (from Delta) | `██░░░░░░░░` 15% | A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review. *Today:* A model review and Clef's decision on every change; review comments from people. |
-| **Agent roles in plans: scouts, workers, reviewers** (from Delta) | `██░░░░░░░░` 20% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner and parallel workers, with models per plan. |
+| **A reviewer that fixes** (from Delta) | `███████░░░` 70% | A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review. *Today:* A fixing pass on request (resolves the review's concerns and comments on top of the attempt). Missing: running it automatically when a review raises concerns. |
+| **Agent roles in plans: scouts, workers, reviewers** (from Delta) | `█████░░░░░` 45% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal. |
 | **Provenance graph** (from Delta) | `███░░░░░░░` 30% | One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them. *Today:* Why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. |
 | **Agents talking across work** (from Delta) | `███████░░░` 65% | Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between. *Today:* Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols. |
 | **Bring your own model provider** (from Delta) | `░░░░░░░░░░` 0% | Agents on Anthropic, OpenAI or any compatible API (through AI Gateway), next to Workers AI, with spend tracked the same way. |
-| **Context window breakdown** (from Delta) | `██░░░░░░░░` 20% | Per agent step: how much went to the system prompt, history, tool output; where the tokens (and money) go. *Today:* Tokens and cost per call and per change. |
 | **Watchers, mentions and read-only sharing** (from Delta) | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
-| **Repository-level memory** (from Delta) | `██░░░░░░░░` 15% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* The ledger records every intent, review and decision; try again carries one attempt's lessons forward. |
+| **Repository-level memory** (from Delta) | `██████░░░░` 60% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs. |
 | **“Your repos” home page** | `░░░░░░░░░░` 0% | A signed-in home listing your repositories, what needs you, and spend. |
 | **Personal API keys and MCP sign-in** | `█░░░░░░░░░` 10% | People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token. *Today:* Clerk sign-in for the dashboard; budgets per goal. |
-| **Lazy-load sign-in** | `░░░░░░░░░░` 0% | Load Clerk only when someone signs in, instead of 145 KB on every page. |
 
 ## Shipped
 
 | | Version |
 |---|---|
+| Retry from step N: carry on from an earlier step of an attempt, with its edits redone (from Delta) | 1.7.0 |
+| Context window breakdown: where an agent's tokens went, per step (from Delta) | 1.7.0 |
+| A fixing pass: an agent resolves a review's concerns on top of the attempt's work (from Delta) | 1.7.0 |
+| Repository memory: what reviewers asked for is told to every new agent (from Delta) | 1.7.0 |
+| A reviewer model per repository (from Delta) | 1.7.0 |
+| Sign-in loads only when needed: about 145 KB less on every page | 1.7.0 |
 | Steer a working agent: tell it something and it reads it before its next step (from Delta) | 1.6.0 |
 | Conversations visible: messages to and from an agent in its change (from Delta) | 1.6.0 |
 | Files seen: mark files reviewed; the mark clears when the agent edits the file again (from Delta) | 1.6.0 |
