@@ -94,7 +94,7 @@ export function loadClerk(): Promise<ClerkJS> {
 		await script(`https://${api}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, CLERK_KEY);
 		const clerk = window.Clerk;
 		if (!clerk) throw new Error("Clerk didn't start");
-		await clerk.load({ appearance: APPEARANCE });
+		await clerk.load({ ui: { ClerkUI: (window as unknown as { __internal_ClerkUICtor?: unknown }).__internal_ClerkUICtor }, appearance: APPEARANCE });
 		const sync = () => setState({ status: "ready", signedIn: !!clerk.session });
 		clerk.addListener(sync);
 		sync();
