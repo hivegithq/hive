@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usd } from "../../domain/pricing.ts";
 import { api, type GoalHistory, modelLabel } from "../api.ts";
+import { ProvenanceGraph } from "./ProvenanceGraph.tsx";
 
 const DOT: Record<string, string> = {
 	started: "bg-steel",
@@ -22,6 +23,7 @@ const ago = (t: number) => {
 // became, and what it cost. Click an attempt for its evidence and decision.
 export function HistoryView({ repo, tick, onSelect }: { repo: string; tick: number; onSelect: (changeId: string) => void }) {
 	const [history, setHistory] = useState<GoalHistory[] | null>(null);
+	const [view, setView] = useState<"list" | "graph">("list");
 	const last = useRef(0);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: tick is the trigger
 	useEffect(() => {
@@ -34,8 +36,27 @@ export function HistoryView({ repo, tick, onSelect }: { repo: string; tick: numb
 	if (shown.length === 0) return null;
 	return (
 		<section className="border-t border-white/5 px-5 py-6" aria-label="History">
-			<h2 className="font-display text-lg font-semibold text-wax">History of {repo}</h2>
+			<div className="flex items-center justify-between gap-3">
+				<h2 className="font-display text-lg font-semibold text-wax">History of {repo}</h2>
+				<div className="flex gap-1 text-xs" role="tablist" aria-label="History view">
+					{(["list", "graph"] as const).map((v) => (
+						<button
+							key={v}
+							type="button"
+							role="tab"
+							aria-selected={view === v}
+							onClick={() => setView(v)}
+							className={`px-2.5 py-1 ring-1 ${view === v ? "bg-honey/10 text-wax ring-honey/50" : "text-kumo-subtle ring-white/10 hover:ring-white/25"}`}
+						>
+							{v === "list" ? "List" : "Graph"}
+						</button>
+					))}
+				</div>
+			</div>
 			<p className="mt-1 text-sm text-kumo-subtle">What happened to each goal: who tried it, how each attempt ended, and what it became.</p>
+			{view === "graph" ? (
+				<ProvenanceGraph history={shown} onSelect={onSelect} />
+			) : (
 			<ol className="mt-5 space-y-6">
 				{shown.map((h) => (
 					<li key={h.goal.id}>
@@ -75,6 +96,7 @@ export function HistoryView({ repo, tick, onSelect }: { repo: string; tick: numb
 					</li>
 				))}
 			</ol>
+			)}
 		</section>
 	);
 }

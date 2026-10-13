@@ -11,7 +11,7 @@ import { authenticatedRemote, ledgerRepo, repoHost } from "../repo/index.ts";
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] });
 
 function createServer(env: Env, exports: Cloudflare.Exports) {
-	const server = new McpServer({ name: "hive", version: "1.9.1" });
+	const server = new McpServer({ name: "hive", version: "1.10.0" });
 	const coordinator = (repo: string) => coordinatorOf(exports, repo);
 
 	server.registerTool(
@@ -248,6 +248,7 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 				batchMax: z.number().int().min(1).max(256).optional(),
 				goalBudget: z.number().positive().nullable().optional().describe("default USD budget per goal; null for no limit"),
 				autoFix: z.boolean().optional().describe("start one fixing pass on its own when Clef isn't sure and the review raised concerns"),
+				fixBy: z.enum(["author", "reviewer"]).optional().describe("who does fixing passes: the attempt's own model or the reviewer model"),
 				reviewModel: z.string().nullable().optional().describe("model that writes the review Clef's decision rests on; null for the deployment default"),
 			},
 		},
@@ -477,9 +478,9 @@ function createServer(env: Env, exports: Cloudflare.Exports) {
 		{
 			description:
 				"A fixing pass on a built-in agent's change: a fresh agent carries on from the end of the attempt (its edits in place), told to resolve the review's concerns and any reviewer comments, then submits. The original attempt is archived.",
-			inputSchema: { repo: z.string(), changeId: z.string(), model: z.string().optional() },
+			inputSchema: { repo: z.string(), changeId: z.string(), model: z.string().optional(), reviewer: z.boolean().optional().describe("have the repository's reviewer model do the fixing instead of the author's") },
 		},
-		async ({ repo, changeId, model }) => text(await coordinator(repo).fixConcerns(changeId, { model, by: "mcp" })),
+		async ({ repo, changeId, model, reviewer }) => text(await coordinator(repo).fixConcerns(changeId, { model, reviewer, by: "mcp" })),
 	);
 
 	server.registerTool(

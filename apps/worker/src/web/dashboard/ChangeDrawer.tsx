@@ -235,9 +235,14 @@ function Body({
 					)}
 					<p className="mt-2 text-xs text-kumo-subtle">An opinion from {review.model}, not a test result.</p>
 					{review.concerns.length > 0 && canWrite && change.model.startsWith("@cf/") && !["landed", "archived", "drafting"].includes(change.status) && (
-						<Button className="mt-3" size="sm" variant="secondary" loading={busy} onClick={() => act(() => api.fix(repo, change.id))}>
-							Have an agent fix these
-						</Button>
+						<div className="mt-3 flex flex-wrap gap-2">
+							<Button size="sm" variant="secondary" loading={busy} onClick={() => act(() => api.fix(repo, change.id))}>
+								Have the author fix these
+							</Button>
+							<Button size="sm" variant="secondary" loading={busy} onClick={() => act(() => api.fix(repo, change.id, { reviewer: true }))}>
+								Have the reviewer fix these
+							</Button>
+						</div>
 					)}
 				</Block>
 			)}

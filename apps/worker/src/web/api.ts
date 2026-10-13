@@ -27,6 +27,7 @@ export interface RepoSettings {
 	goalBudget: number | null;
 	reviewModel: string | null;
 	autoFix: boolean;
+	fixBy: "author" | "reviewer";
 }
 
 export interface Costs {
@@ -276,7 +277,7 @@ export const api = {
 	deleteComment: (repo: string, id: string, commentId: string) => call<ReviewComment[]>("POST", `/api/repos/${repo}/changes/${id}/comments/${commentId}/delete`, {}),
 	context: (repo: string, id: string) => call<ContextBreakdown>("GET", `/api/repos/${repo}/changes/${id}/context`),
 	steps: (repo: string, id: string) => call<{ step: number; calls: string[]; said: string; edits: number }[]>("GET", `/api/repos/${repo}/changes/${id}/steps`),
-	fix: (repo: string, id: string, model?: string) => call<Change>("POST", `/api/repos/${repo}/changes/${id}/fix`, { model }),
+	fix: (repo: string, id: string, opts: { model?: string; reviewer?: boolean } = {}) => call<Change>("POST", `/api/repos/${repo}/changes/${id}/fix`, opts),
 	rewind: (repo: string, id: string, step: number, opts: { model?: string; guidance?: string; replace?: boolean }) => call<Change>("POST", `/api/repos/${repo}/changes/${id}/rewind`, { step, ...opts }),
 	tryAgain: (repo: string, id: string, opts: { model?: string; guidance?: string; replace?: boolean }) =>
 		call<Change>("POST", `/api/repos/${repo}/changes/${id}/retry`, opts),

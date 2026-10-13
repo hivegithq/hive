@@ -502,6 +502,7 @@ hive show                         # evidence, review, decision`}</Code>
 						[<C>decider</C>, <C>clef</C>, <>Who lands changes: Clef, on evidence plus a model review, or <C>evidence</C>, the checks alone</>],
 						[<C>batchMax</C>, "16", "Changes stacked and checked together; a failing batch is split to find the culprit"],
 						[<C>reviewModel</C>, "the deployment's", "The model that writes the review Clef's decision rests on."],
+						[<C>fixBy</C>, "author", "Who does a fixing pass: the model that wrote the change, or the reviewer, which carries on from a copy of the change."],
 						[<C>autoFix</C>, "off", "Start one fixing pass on its own when Clef isn't sure and the review raised concerns."],
 						[<C>goalBudget</C>, "none", "USD a goal (with its sub-goals) may spend unless it sets its own budget"],
 					]}
@@ -789,7 +790,7 @@ const API: [string, string, string][] = [
 	["POST", "/api/repos/:repo/recurring", "Add one: title, every, mode, models, budget"],
 	["GET", "/api/repos/:repo/changes/:change/steps", "A built-in agent attempt's steps"],
 	["POST", "/api/repos/:repo/changes/:change/rewind", "Carry on from step N: step, model, guidance, replace"],
-	["POST", "/api/repos/:repo/changes/:change/fix", "A fixing pass on the review's concerns"],
+	["POST", "/api/repos/:repo/changes/:change/fix", "A fixing pass on the review's concerns (body: model, reviewer)"],
 	["GET", "/api/repos/:repo/changes/:change/context", "Where the agent's context window went"],
 	["GET", "/api/repos/:repo/lessons", "What agents on this repo are told (POST adds one)"],
 	["GET", "/api/repos", "Every repository: landed, in flight, needs you, spend"],

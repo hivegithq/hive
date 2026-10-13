@@ -8,9 +8,7 @@ Generated from `apps/worker/src/web/docs/roadmap.ts` by
 
 | Item | Progress | |
 |---|---|---|
-| **A reviewer that fixes** | `█████████░` 90% | A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review. *Today:* A fixing pass on request, or automatically once per goal when Clef isn't sure and the review raised concerns. Missing: a reviewer that edits a copy before the change is queued. |
 | **Agent roles in plans: scouts, workers, reviewers** | `█████░░░░░` 45% | Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model. *Today:* The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal. |
-| **Provenance graph** | `████████░░` 80% | One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them. *Today:* History by goal (attempts, outcomes, pull request, cost), why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. Missing: one drawn graph linking goals, attempts and commits. |
 | **Agents talking across work** | `███████░░░` 65% | Plans that route questions to the agent that owns the code (“ask whoever holds Cart.total”), and agents that reach for each other without a person in between. *Today:* Messages to and from an agent are shown in its change, and people can message a working agent. Intents say who is touching which symbols. |
 | **Watchers, mentions and read-only sharing** | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
 | **Repository-level memory** | `██████░░░░` 60% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs. |
@@ -20,6 +18,8 @@ Generated from `apps/worker/src/web/docs/roadmap.ts` by
 
 | | Version |
 |---|---|
+| A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found | 1.10.0 |
+| Provenance graph: goals, every attempt, how each ended and the pull request, drawn | 1.10.0 |
 | Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools | 1.9.0 |
 | History by goal: every attempt, how it ended, the pull request, the cost | 1.8.0 |
 | Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns | 1.8.0 |

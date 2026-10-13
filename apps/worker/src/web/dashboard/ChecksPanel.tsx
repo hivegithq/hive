@@ -210,6 +210,13 @@ export function ChecksPanel({ repo, last, onClose }: { repo: string; last: Snaps
 								onCheckedChange={(v) => save({ autoFix: v })}
 							/>
 							<Select
+								label="Who does the fixing"
+								value={settings.fixBy}
+								disabled={!canWrite}
+								onValueChange={(v) => v && save({ fixBy: v as RepoSettings["fixBy"] })}
+								items={{ author: "The model that wrote the change", reviewer: "The reviewer, on a copy of the change" }}
+							/>
+							<Select
 								label="Who reviews changes"
 								value={settings.reviewModel ?? ""}
 								disabled={!canWrite}

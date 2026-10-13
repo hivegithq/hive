@@ -4,6 +4,12 @@ All notable changes to Hive. Versions follow [semantic versioning](https://semve
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-13
+
+### Added
+- **A reviewer that fixes.** Set `fixBy` to `reviewer` (Checks panel: "Who does the fixing"), or press "Have the reviewer fix these" on a review: the repository's reviewer model carries on from a copy of the attempt, resolves its own concerns and any comments, and submits. The author's attempt is archived. MCP `hive_fix` takes `reviewer`.
+- **Provenance graph.** History has a Graph view: each goal, every attempt at it, how each ended and the pull request it became, drawn. Click an attempt for its evidence and decision.
+
 ## [1.9.1] - 2026-10-13
 
 ### Changed

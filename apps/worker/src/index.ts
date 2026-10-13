@@ -412,6 +412,7 @@ app.post("/api/repos/:repo/settings", async (c) => {
 			goalBudget: z.number().positive().max(10_000).nullable().optional(),
 			reviewModel: z.string().max(100).nullable().optional(),
 			autoFix: z.boolean().optional(),
+			fixBy: z.enum(["author", "reviewer"]).optional(),
 		}),);
 	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).setSettings(patch));
 });
@@ -470,8 +471,8 @@ app.post("/api/repos/:repo/changes/:changeId/rewind", async (c) => {
 
 // A fixing pass: a fresh agent carries on from the end of the attempt, told to resolve the review's concerns.
 app.post("/api/repos/:repo/changes/:changeId/fix", async (c) => {
-	const o = await body(c.req.raw, z.object({ model: z.string().nullish() }));
-	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).fixConcerns(c.req.param("changeId"), { model: o.model ?? undefined }), 201);
+	const o = await body(c.req.raw, z.object({ model: z.string().nullish(), reviewer: z.boolean().optional() }));
+	return c.json(await coordinator(c.executionCtx.exports, c.req.param("repo")).fixConcerns(c.req.param("changeId"), { model: o.model ?? undefined, reviewer: o.reviewer }), 201);
 });
 
 // Try the goal again: a fresh fork and agent, told what the earlier attempt ran into.

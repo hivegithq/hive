@@ -9,6 +9,8 @@ export interface RoadmapItem {
 }
 
 export const SHIPPED: { title: string; version: string }[] = [
+	{ title: "A reviewer that fixes: the reviewer model carries on from a copy of the change and resolves what it found", version: "1.10.0" },
+	{ title: "Provenance graph: goals, every attempt, how each ended and the pull request, drawn", version: "1.10.0" },
 	{ title: "Bring your own model provider: any CamelAI model (Anthropic, OpenAI, free OpenRouter ones) runs agents with Hive's tools", version: "1.9.0" },
 	{ title: "History by goal: every attempt, how it ended, the pull request, the cost", version: "1.8.0" },
 	{ title: "Automatic fixing pass (opt in): when Clef isn't sure and the review raised concerns", version: "1.8.0" },
@@ -41,22 +43,10 @@ export const SHIPPED: { title: string; version: string }[] = [
 
 export const NEXT: RoadmapItem[] = [
 	{
-		title: "A reviewer that fixes",
-		what: "A review agent works on a copy of the change and pushes fixes (with Approve / Request changes), instead of only writing a review.",
-		progress: 90,
-		have: "A fixing pass on request, or automatically once per goal when Clef isn't sure and the review raised concerns. Missing: a reviewer that edits a copy before the change is queued.",
-	},
-	{
 		title: "Agent roles in plans: scouts, workers, reviewers",
 		what: "Planned goals use cheap read-only scouts to explore, workers to write, and reviewers to check, each with its own model.",
 		progress: 45,
 		have: "The planner explores like a scout; workers take models in turn; a reviewer model per repository and a fixing pass. Missing: read-only scouts per sub-goal.",
-	},
-	{
-		title: "Provenance graph",
-		what: "One view of how the repository evolved: goals, plans, agents' attempts, landings, pull requests, with the conversations behind them.",
-		progress: 80,
-		have: "History by goal (attempts, outcomes, pull request, cost), why-is-this-line-here, the plan graph, trunk history with trailers, the ledger. Missing: one drawn graph linking goals, attempts and commits.",
 	},
 	{
 		title: "Agents talking across work",

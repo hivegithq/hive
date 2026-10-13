@@ -56,10 +56,11 @@ export interface RepoSettings {
 	security: boolean; // also run the security scan; findings a change introduces fail it (hive.json can turn it on too)
 	goalBudget: number | null; // USD a goal (with its sub-goals) may spend unless it sets its own; null = no limit
 	reviewModel: string | null; // who writes the review that Clef's decision rests on; null = the deployment's REVIEW_MODEL
+	fixBy: "author" | "reviewer"; // who does a fixing pass: the attempt's own model, or the repository's reviewer model
 	autoFix: boolean; // when Clef isn't sure and the review raised concerns, start one fixing pass on its own
 }
 
-const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false, goalBudget: null, reviewModel: null, autoFix: false };
+const DEFAULT_SETTINGS: RepoSettings = { decider: "clef", batchMax: 16, security: false, goalBudget: null, reviewModel: null, fixBy: "author", autoFix: false };
 
 const LANDING_TIMEOUT_MS = 20 * 60 * 1000;
 const cleanPath = (p: string) => {
@@ -265,6 +266,7 @@ export class RepoCoordinator extends Agent<Env> {
 		const next = { ...this.settings(), ...patch };
 		next.batchMax = Math.max(1, Math.min(256, Math.floor(next.batchMax)));
 		next.autoFix = next.autoFix === true;
+		next.fixBy = next.fixBy === "reviewer" ? "reviewer" : "author";
 		next.reviewModel = next.reviewModel && /^@?[\w./:-]{3,100}$/.test(next.reviewModel) ? next.reviewModel : null;
 		next.goalBudget = next.goalBudget === null || next.goalBudget === undefined || Number(next.goalBudget) <= 0 ? null : Number(next.goalBudget);
 		this.db.exec("INSERT OR REPLACE INTO meta VALUES ('settings', ?)", JSON.stringify(next));
@@ -598,7 +600,7 @@ export class RepoCoordinator extends Agent<Env> {
 	// A fixing pass: carry on from the end of the attempt, told to resolve what its review raised and what
 	// reviewers commented. The fixing agent starts with the attempt's edits in place, so it patches
 	// instead of redoing; the original attempt is archived when the fix is started.
-	async fixConcerns(changeId: string, opts: { model?: string; by?: string } = {}) {
+	async fixConcerns(changeId: string, opts: { model?: string; by?: string; reviewer?: boolean } = {}) {
 		const detail = this.changeDetail(changeId);
 		if (!detail) throw new Error(`unknown change ${changeId}`);
 		const review = detail.evaluations.filter((e) => e.model !== "hive:evidence").at(-1);
@@ -606,14 +608,19 @@ export class RepoCoordinator extends Agent<Env> {
 		const unsent = detail.comments.filter((c) => c.sentAt === null);
 		if (concerns.length === 0 && unsent.length === 0) throw new Error("nothing to fix: the review raised no concerns and there are no comments");
 		const total = (await this.attemptSteps(changeId)).length;
+		// The reviewer fixes: its model carries on from a copy of the attempt, and the copy it started from is archived.
+		const reviewer = opts.reviewer ?? this.settings().fixBy === "reviewer";
+		const model = opts.model ?? (reviewer ? (this.settings().reviewModel ?? this.env.REVIEW_MODEL) : undefined);
 		const guidance = [
-			"You are the fixing pass: the work is in place, and a review raised points to resolve. Change only what's needed for them, keep everything else, run the checks, and submit.",
+			reviewer
+				? "You are the reviewer, and you fix what you found: the author's work is in place in this copy, and your review raised points to resolve. Change only what's needed for them, keep everything else, run the checks, and submit."
+				: "You are the fixing pass: the work is in place, and a review raised points to resolve. Change only what's needed for them, keep everything else, run the checks, and submit.",
 			concerns.length ? `The review's concerns:\n${concerns.map((c) => `- ${c}`).join("\n")}` : null,
 			unsent.length ? `Reviewer comments:\n${feedback(unsent)}` : null,
 		]
 			.filter(Boolean)
 			.join("\n\n");
-		const change = await this.rewind(changeId, total, { model: opts.model, guidance, replace: true, by: opts.by ?? "fix" });
+		const change = await this.rewind(changeId, total, { model, guidance, replace: true, by: opts.by ?? (reviewer ? "reviewer" : "fix") });
 		if (unsent.length) this.db.exec(`UPDATE comments SET sent_at = ? WHERE id IN (${unsent.map(() => "?").join(",")})`, now(), ...unsent.map((c) => c.id));
 		return change;
 	}
