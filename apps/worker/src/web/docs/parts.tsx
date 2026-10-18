@@ -69,7 +69,7 @@ export function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
 // The three ways to use Hive, side by side.
 export function Paths() {
 	const paths = [
-		{ href: "/docs/demo", title: "Try the live demo", body: "Watch real agents on hivegit.dev. Nothing to install; read-only.", cost: "Free" },
+		{ href: "/docs/demo", title: "About the public site", body: "The public site is static. Run or deploy your own Hive instance.", cost: "Open source" },
 		{ href: "/docs/local", title: "Run it locally", body: "Hive on your machine, with a local stand-in for Artifacts. Agents use Workers AI.", cost: "Free Cloudflare account" },
 		{ href: "/docs/deploy", title: "Deploy your own", body: "One command puts Hive on your Cloudflare account, on workers.dev or your domain.", cost: "Workers Paid" },
 	];

@@ -1,0 +1,1 @@
+Branches and pull requests were built for a few people who talk to each other. Agents don't. Put fifty of them on one codebase and four questions go unanswered. Who is touching what, right now? Will two changes break each other, even on different lines? Should this one land? And why is the code like this?

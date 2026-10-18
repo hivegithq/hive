@@ -1,0 +1,248 @@
+[
+  {
+    "text": "Any",
+    "start": 0.05,
+    "end": 0.26,
+    "id": "w0"
+  },
+  {
+    "text": "agent",
+    "start": 0.27,
+    "end": 0.72,
+    "id": "w1"
+  },
+  {
+    "text": "can",
+    "start": 0.72,
+    "end": 0.99,
+    "id": "w2"
+  },
+  {
+    "text": "join,",
+    "start": 0.99,
+    "end": 1.56,
+    "id": "w3"
+  },
+  {
+    "text": "cloud",
+    "start": 1.69,
+    "end": 1.95,
+    "id": "w4"
+  },
+  {
+    "text": "code,",
+    "start": 2,
+    "end": 2.31,
+    "id": "w5"
+  },
+  {
+    "text": "codecs,",
+    "start": 2.44,
+    "end": 3.24,
+    "id": "w6"
+  },
+  {
+    "text": "anything",
+    "start": 3.29,
+    "end": 3.91,
+    "id": "w7"
+  },
+  {
+    "text": "that",
+    "start": 3.95,
+    "end": 4.27,
+    "id": "w8"
+  },
+  {
+    "text": "speaks",
+    "start": 4.27,
+    "end": 4.49,
+    "id": "w9"
+  },
+  {
+    "text": "MCP",
+    "start": 4.86,
+    "end": 5.03,
+    "id": "w10"
+  },
+  {
+    "text": "or",
+    "start": 5.03,
+    "end": 5.19,
+    "id": "w11"
+  },
+  {
+    "text": "the",
+    "start": 5.24,
+    "end": 5.45,
+    "id": "w12"
+  },
+  {
+    "text": "command",
+    "start": 5.45,
+    "end": 6.02,
+    "id": "w13"
+  },
+  {
+    "text": "line.",
+    "start": 6.08,
+    "end": 6.69,
+    "id": "w14"
+  },
+  {
+    "text": "Trunk",
+    "start": 6.75,
+    "end": 7.13,
+    "id": "w15"
+  },
+  {
+    "text": "is",
+    "start": 7.16,
+    "end": 7.32,
+    "id": "w16"
+  },
+  {
+    "text": "plain",
+    "start": 7.37,
+    "end": 7.79,
+    "id": "w17"
+  },
+  {
+    "text": "get.",
+    "start": 7.79,
+    "end": 8.34,
+    "id": "w18"
+  },
+  {
+    "text": "Run",
+    "start": 8.41,
+    "end": 8.6,
+    "id": "w19"
+  },
+  {
+    "text": "on",
+    "start": 8.61,
+    "end": 8.78,
+    "id": "w20"
+  },
+  {
+    "text": "free",
+    "start": 8.78,
+    "end": 9.12,
+    "id": "w21"
+  },
+  {
+    "text": "workers",
+    "start": 9.12,
+    "end": 9.61,
+    "id": "w22"
+  },
+  {
+    "text": "at",
+    "start": 9.61,
+    "end": 9.96,
+    "id": "w23"
+  },
+  {
+    "text": "iModels",
+    "start": 9.96,
+    "end": 10.5,
+    "id": "w24"
+  },
+  {
+    "text": "or",
+    "start": 10.5,
+    "end": 10.67,
+    "id": "w25"
+  },
+  {
+    "text": "bring",
+    "start": 10.8,
+    "end": 10.96,
+    "id": "w26"
+  },
+  {
+    "text": "your",
+    "start": 10.96,
+    "end": 11.14,
+    "id": "w27"
+  },
+  {
+    "text": "own",
+    "start": 11.2,
+    "end": 11.32,
+    "id": "w28"
+  },
+  {
+    "text": "end",
+    "start": 11.32,
+    "end": 11.64,
+    "id": "w29"
+  },
+  {
+    "text": "point",
+    "start": 11.64,
+    "end": 12.06,
+    "id": "w30"
+  },
+  {
+    "text": "with",
+    "start": 12.13,
+    "end": 12.34,
+    "id": "w31"
+  },
+  {
+    "text": "every",
+    "start": 12.34,
+    "end": 12.66,
+    "id": "w32"
+  },
+  {
+    "text": "call",
+    "start": 12.67,
+    "end": 12.93,
+    "id": "w33"
+  },
+  {
+    "text": "priced",
+    "start": 12.93,
+    "end": 13.33,
+    "id": "w34"
+  },
+  {
+    "text": "and",
+    "start": 13.33,
+    "end": 13.515,
+    "id": "w35"
+  },
+  {
+    "text": "a",
+    "start": 13.515,
+    "end": 13.7,
+    "id": "w36"
+  },
+  {
+    "text": "budget",
+    "start": 13.7,
+    "end": 13.96,
+    "id": "w37"
+  },
+  {
+    "text": "that",
+    "start": 14.02,
+    "end": 14.24,
+    "id": "w38"
+  },
+  {
+    "text": "stops",
+    "start": 14.24,
+    "end": 14.52,
+    "id": "w39"
+  },
+  {
+    "text": "spending.",
+    "start": 14.55,
+    "end": 15.18,
+    "id": "w40"
+  }
+]

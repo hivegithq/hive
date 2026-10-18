@@ -1,0 +1,236 @@
+[
+  {
+    "text": "Big",
+    "start": 0.03,
+    "end": 0.27,
+    "id": "w0"
+  },
+  {
+    "text": "goals",
+    "start": 0.27,
+    "end": 0.73,
+    "id": "w1"
+  },
+  {
+    "text": "get",
+    "start": 0.73,
+    "end": 1,
+    "id": "w2"
+  },
+  {
+    "text": "a",
+    "start": 1,
+    "end": 1.08,
+    "id": "w3"
+  },
+  {
+    "text": "plan.",
+    "start": 1.08,
+    "end": 1.76,
+    "id": "w4"
+  },
+  {
+    "text": "A",
+    "start": 1.79,
+    "end": 1.82,
+    "id": "w5"
+  },
+  {
+    "text": "planner",
+    "start": 1.82,
+    "end": 2.25,
+    "id": "w6"
+  },
+  {
+    "text": "splits",
+    "start": 2.25,
+    "end": 2.57,
+    "id": "w7"
+  },
+  {
+    "text": "the",
+    "start": 2.64,
+    "end": 2.8,
+    "id": "w8"
+  },
+  {
+    "text": "goal",
+    "start": 2.8,
+    "end": 2.97,
+    "id": "w9"
+  },
+  {
+    "text": "into",
+    "start": 2.97,
+    "end": 3.52,
+    "id": "w10"
+  },
+  {
+    "text": "sub-goals",
+    "start": 3.52,
+    "end": 3.92,
+    "id": "w11"
+  },
+  {
+    "text": "with",
+    "start": 3.92,
+    "end": 4.06,
+    "id": "w12"
+  },
+  {
+    "text": "dependencies,",
+    "start": 4.06,
+    "end": 5.18,
+    "id": "w13"
+  },
+  {
+    "text": "an",
+    "start": 5.21,
+    "end": 5.35,
+    "id": "w14"
+  },
+  {
+    "text": "agent",
+    "start": 5.35,
+    "end": 5.68,
+    "id": "w15"
+  },
+  {
+    "text": "start",
+    "start": 5.79,
+    "end": 6.19,
+    "id": "w16"
+  },
+  {
+    "text": "as",
+    "start": 6.19,
+    "end": 6.36,
+    "id": "w17"
+  },
+  {
+    "text": "each",
+    "start": 6.36,
+    "end": 6.41,
+    "id": "w18"
+  },
+  {
+    "text": "dependency",
+    "start": 6.96,
+    "end": 7.54,
+    "id": "w19"
+  },
+  {
+    "text": "lands.",
+    "start": 7.54,
+    "end": 8.24,
+    "id": "w20"
+  },
+  {
+    "text": "Before",
+    "start": 8.27,
+    "end": 8.63,
+    "id": "w21"
+  },
+  {
+    "text": "a",
+    "start": 8.63,
+    "end": 8.69,
+    "id": "w22"
+  },
+  {
+    "text": "worker",
+    "start": 8.69,
+    "end": 9.05,
+    "id": "w23"
+  },
+  {
+    "text": "starts,",
+    "start": 9.12,
+    "end": 9.47,
+    "id": "w24"
+  },
+  {
+    "text": "a",
+    "start": 9.63,
+    "end": 9.72,
+    "id": "w25"
+  },
+  {
+    "text": "cheap",
+    "start": 10.01,
+    "end": 10.07,
+    "id": "w26"
+  },
+  {
+    "text": "read-only",
+    "start": 10.21,
+    "end": 10.78,
+    "id": "w27"
+  },
+  {
+    "text": "scout",
+    "start": 10.96,
+    "end": 11.28,
+    "id": "w28"
+  },
+  {
+    "text": "briefs",
+    "start": 11.31,
+    "end": 11.78,
+    "id": "w29"
+  },
+  {
+    "text": "it,",
+    "start": 11.78,
+    "end": 12.09,
+    "id": "w30"
+  },
+  {
+    "text": "where",
+    "start": 12.16,
+    "end": 12.49,
+    "id": "w31"
+  },
+  {
+    "text": "the",
+    "start": 12.49,
+    "end": 13.06,
+    "id": "w32"
+  },
+  {
+    "text": "change",
+    "start": 13.06,
+    "end": 13.33,
+    "id": "w33"
+  },
+  {
+    "text": "belongs",
+    "start": 13.33,
+    "end": 13.82,
+    "id": "w34"
+  },
+  {
+    "text": "and",
+    "start": 14,
+    "end": 14.19,
+    "id": "w35"
+  },
+  {
+    "text": "what",
+    "start": 14.19,
+    "end": 14.53,
+    "id": "w36"
+  },
+  {
+    "text": "calls",
+    "start": 14.53,
+    "end": 14.96,
+    "id": "w37"
+  },
+  {
+    "text": "it.",
+    "start": 14.96,
+    "end": 15.44,
+    "id": "w38"
+  }
+]

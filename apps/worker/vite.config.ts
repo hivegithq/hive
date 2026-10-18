@@ -1,16 +1,22 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 
-// Clerk's publishable key, as in cloudflare.config.ts. Left out in devhost mode.
-const clerkFile = new URL("../../.hive-clerk", import.meta.url);
-const clerkKey = process.env.HIVE_CLERK_PUBLISHABLE_KEY || (existsSync(clerkFile) ? readFileSync(clerkFile, "utf8").trim() : "");
-
-export default defineConfig(({ mode }) => ({
-	plugins: [react(), tailwindcss(), cloudflare()],
-	define: { __HIVE_VERSION__: JSON.stringify(version), __HIVE_CLERK_KEY__: JSON.stringify(mode === "devhost" ? "" : clerkKey) },
-}));
+export default defineConfig(({ mode }) => {
+	const selfHosted = mode === "devhost" || process.env.HIVE_SELF_HOST === "1";
+	const appEntrypoint: Plugin = {
+		name: "hive-app-entrypoint",
+		enforce: "pre",
+		transformIndexHtml(html) {
+			return selfHosted ? html.replace("/src/web/main.tsx", "/src/web/self-host-main.tsx") : html;
+		},
+	};
+	return {
+		plugins: [appEntrypoint, react(), tailwindcss(), cloudflare()],
+		define: { __HIVE_VERSION__: JSON.stringify(version) },
+	};
+});

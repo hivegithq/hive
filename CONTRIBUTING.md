@@ -16,7 +16,7 @@ pnpm start                                      # devhost on :8788, the Worker a
 node demo/seed.ts                               # a demo repository to look at: /r/shop
 ```
 
-[Run it locally](https://hivegit.dev/docs/local) in the docs covers the details.
+The [self-hosting guide](docs/SELF-HOST.md) covers local setup and deployment.
 
 ## Before you open a pull request
 
@@ -44,8 +44,8 @@ and why, and how you checked it. CI runs the type checks, the Worker tests and `
 
 Hive runs on itself: changes to this repository can go through Hive's own merge queue, which runs
 the same checks, then a model review and a calibrated decision (Clef). A change that fails its
-checks never lands; one Clef isn't sure about waits for a person. The [docs](https://hivegit.dev/docs/dashboard)
-explain goals, races and plans.
+checks never lands; one Clef isn't sure about waits for a person. The [README](README.md) explains
+goals, races, plans, and the project architecture.
 
 ## Security
 

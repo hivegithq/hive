@@ -1,0 +1,258 @@
+    <svg width="0" height="0" style="position:absolute">
+      <defs>
+        <symbol id="bee" viewBox="-32 -32 64 64">
+          <ellipse class="w1" cx="-6" cy="-12" rx="13" ry="7" fill="rgba(255,244,224,.55)" transform="rotate(-25)" />
+          <ellipse class="w2" cx="6" cy="-12" rx="13" ry="7" fill="rgba(255,244,224,.45)" transform="rotate(25)" />
+          <path d="M0 -14 12 -7 12 7 0 14 -12 7 -12 -7Z" fill="#fbad41" />
+          <path d="M0 -6 5 -3 5 3 0 6 -5 3 -5 -3Z" fill="#f6821f" />
+        </symbol>
+        <symbol id="logo" viewBox="0 0 32 32">
+          <path d="M16 2 28 9v14l-12 7-12-7V9z" fill="#fbad41" />
+          <path d="M16 9.5 22 13v7l-6 3.5-6-3.5v-7z" fill="#0d0d0f" />
+          <path d="M16 13.2 18.8 14.8v3.4L16 19.8l-2.8-1.6v-3.4z" fill="#f6821f" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- 1. Cold open -->
+    <section id="s1" class="clip scene" data-start="@@S1@@" data-duration="@@D1@@" data-track-index="1">
+      <div class="reveal" id="s1r">
+        <img class="plate" id="s1plate" src="img/hive-plate.jpg" />
+        <div class="dim"></div>
+        <canvas id="swarm1" width="1920" height="1080"></canvas>
+        <div class="abs" style="left:120px; top:290px; width:820px">
+          <div class="h1" id="s1a">2,000 agents.</div>
+          <div class="h1" id="s1b">1 repository.</div>
+          <div class="h1 honey" id="s1c">17 minutes.</div>
+          <div class="h2 alarm" id="s1d" style="margin-top:34px">Nobody touched anything.</div>
+        </div>
+        <div class="screen" id="s1screen"><img class="shot" id="s1shot" src="img/scale2k.jpg" /></div>
+        <div class="dimall" id="s1dim2"></div>
+        <div class="abs" id="s1title" style="left:120px; top:330px; width:1100px">
+          <div style="display:flex; align-items:center; gap:34px">
+            <svg width="150" height="150"><use href="#logo" /></svg>
+            <div class="h1" style="font-size:150px">Hive</div>
+          </div>
+          <p class="h2" style="margin-top:34px">Version control built for agents.</p>
+          <p class="h2 honey" style="margin-top:6px">On Cloudflare.</p>
+        </div>
+        <div class="abs" id="s1prevlabel" style="left:120px; top:300px; width:600px">
+          <div class="kicker">What you'll see</div>
+          <div class="mono steel" style="font-size:24px; margin-top:12px; position:relative; height:32px" id="s1count"></div>
+          <div style="position:relative; height:260px; margin-top:26px">
+            <div class="h2 abs pvt" id="pvt1">Agents announce what they'll change, before code.</div>
+            <div class="h2 abs pvt" id="pvt2">A queue that tests, then decides.</div>
+            <div class="h2 abs pvt" id="pvt3">Models race on the same goal.</div>
+            <div class="h2 abs pvt" id="pvt4">Every decision kept in git.</div>
+          </div>
+        </div>
+        <div class="card" id="pv1" style="left:800px; top:190px; width:1000px; height:640px"><img id="pv1i" src="img/panel-race-top.jpg" /></div>
+        <div class="card" id="pv2" style="left:800px; top:190px; width:1000px; height:640px"><img id="pv2i" src="img/panel-race-evidence.jpg" /></div>
+        <div class="card" id="pv3" style="left:800px; top:190px; width:1000px; height:640px"><img id="pv3i" src="img/history-graph.jpg" style="width:1920px; height:1080px" /></div>
+        <div class="card" id="pv4" style="left:800px; top:190px; width:1000px; height:640px"><img id="pv4i" src="img/why.jpg" style="width:1920px; height:1080px" /></div>
+        <div class="h1 abs" id="s1end" style="left:120px; top:440px">Here's how it works.</div>
+      </div>
+    </section>
+
+    <!-- 2. The problem -->
+    <section id="s2" class="clip scene" data-start="@@S2@@" data-duration="@@D2@@" data-track-index="1">
+      <div class="reveal" id="s2r">
+        <div class="fill" style="transform:scaleX(-1)"><img class="plate" id="s2plate" src="img/problem-plate.jpg" /></div>
+        <div class="dim"></div>
+        <div id="s2glows"></div>
+        <div class="abs" style="left:120px; top:150px; width:900px">
+          <div class="kicker">The problem</div>
+          <p class="h2" id="s2h" style="margin-top:22px">Branches and pull requests assume people who talk to each other.</p>
+          <p class="h2 alarm" id="s2h2" style="margin-top:18px">Agents don't.</p>
+        </div>
+        <div class="abs" id="s2q" style="left:120px; top:560px; width:900px"></div>
+      </div>
+    </section>
+
+    <!-- 3. What Hive is -->
+    <section id="s3" class="clip scene" data-start="@@S3@@" data-duration="@@D3@@" data-track-index="1">
+      <div class="reveal" id="s3r">
+        <div class="abs" style="left:120px; top:90px; width:1680px">
+          <div class="kicker">How Hive works</div>
+          <p class="h2" style="margin-top:18px">The life of a change</p>
+        </div>
+        <svg class="abs" style="left:0; top:0" width="1920" height="1080"><line id="s3line" x1="200" y1="420" x2="1720" y2="420" stroke="#fbad41" stroke-width="4" stroke-dasharray="1520" stroke-dashoffset="1520" /></svg>
+        <div id="s3nodes"></div>
+        <div class="abs hex" id="s3token" style="left:0; top:0; width:34px; height:39px; background:#fff4e0"></div>
+        <div class="abs" id="s3ledger" style="left:120px; top:840px; width:1680px; padding:24px 30px; border-radius:16px; border:1px solid rgba(251,173,65,.35); background:rgba(251,173,65,.06)">
+          <div style="display:flex; align-items:center; gap:22px; flex-wrap:wrap">
+            <span class="kicker">Committed to git, next to the code</span>
+            <span class="chip">intents</span><span class="chip">evidence</span><span class="chip">reviews</span><span class="chip">decisions + probabilities</span><span class="chip">agent transcripts</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. A swarm -->
+    <section id="s4" class="clip scene" data-start="@@S4@@" data-duration="@@D4@@" data-track-index="1">
+      <div class="reveal" id="s4r">
+        <div class="abs" id="s4head" style="left:120px; top:70px; width:1680px; display:flex; align-items:baseline; gap:30px">
+          <div class="kicker">A real run · demo-shop</div>
+          <div class="mono steel" style="font-size:22px">7 goals · 3 models · each change in its own Artifacts fork</div>
+        </div>
+        <svg class="abs" id="s4svg" style="left:0; top:0" width="1920" height="1080"></svg>
+        <div id="s4lanes"></div>
+        <div class="tag" id="s4ov1" style="left:1290px; top:150px; white-space:normal; width:520px">Structural overlap: same function, caught before code</div>
+        <div class="tag ghost" id="s4ov2" style="left:1290px; top:150px; white-space:normal; width:520px">Referential overlap: parsePrice changes what it returns while another change uses it</div>
+        <div class="abs" id="s4merge" style="left:1290px; top:220px; width:520px; padding:22px 26px; border-radius:14px; background:#141418; border:1px solid var(--line)">
+          <div class="mono steel" style="font-size:21px">line-based merge</div>
+          <div class="h3" style="margin-top:8px">No conflict. <span class="alarm">Ships a bug.</span></div>
+        </div>
+        <div class="abs" id="s4clef" style="left:1290px; top:220px; width:520px; padding:22px 26px; border-radius:14px; background:#1a150c; border:1px solid rgba(251,173,65,.5)">
+          <div class="mono honey" style="font-size:21px">code graph → Clef, the decision model</div>
+          <div class="h3" style="margin-top:8px">"Narrow your scope."</div>
+        </div>
+        <div class="screen" id="s4screen"><img class="shot" id="s4shot" src="img/demoshop.jpg" /></div>
+        <div class="hl" id="s4hl1"></div>
+        <div class="tag" id="s4t1">6 landed · 1 needs a person</div>
+        <div class="tag ghost" id="s4t2">Real cost and landing rate per model</div>
+        <div class="card" id="s4card" style="left:410px; top:120px; width:1100px; height:820px"><img id="s4ci" src="img/panel-needs-review.jpg" /></div>
+        <div class="hl red" id="s4hl2"></div>
+      </div>
+    </section>
+
+    <!-- 5. Convergence -->
+    <section id="s5" class="clip scene" data-start="@@S5@@" data-duration="@@D5@@" data-track-index="1">
+      <div class="reveal" id="s5r">
+        <div class="abs" style="left:120px; top:80px; width:700px">
+          <div class="kicker">The merge queue</div>
+          <p class="h2" style="margin-top:16px">Evidence, opinion, decision.</p>
+        </div>
+        <div class="abs" id="s5steps" style="left:120px; top:270px; width:720px"></div>
+        <div class="card" id="s5card" style="left:860px; top:80px; width:1000px; height:860px">
+          <img id="s5a" src="img/panel-race-evidence.jpg" />
+          <img id="s5b" src="img/panel-camel-evidence.jpg" />
+        </div>
+        <div class="hl" id="s5hl"></div>
+        <div class="abs" id="s5sec" style="left:860px; top:200px; width:900px">
+          <div class="kicker">vulnshop · security scan on every batch</div>
+          <div style="display:flex; gap:26px; margin-top:26px">
+            <div style="flex:1; padding:30px; border-radius:16px; background:#141418; border:1px solid var(--line)"><div class="mono alarm" style="font-size:22px">Introduced</div><div class="h1 alarm" style="font-size:120px; margin-top:8px">0</div></div>
+            <div style="flex:1; padding:30px; border-radius:16px; background:#141418; border:1px solid var(--line)"><div class="mono honey" style="font-size:22px">Resolved</div><div class="h1 honey" style="font-size:120px; margin-top:8px">9</div></div>
+          </div>
+          <p class="body" style="margin-top:26px">gitleaks for secrets, osv-scanner for dependencies, Semgrep for risky code. A finding the change adds fails it, exactly like a failing test.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. A race -->
+    <section id="s6" class="clip scene" data-start="@@S6@@" data-duration="@@D6@@" data-track-index="1">
+      <div class="reveal" id="s6r">
+        <div class="abs" style="left:120px; top:80px; width:1680px">
+          <div class="kicker">A race · "Buy-two-get-one-free promotion"</div>
+          <p class="h2" style="margin-top:16px">Three models. Three forks. One lands.</p>
+        </div>
+        <div id="s6lanes"></div>
+        <div class="screen" id="s6screen"><img class="shot" id="s6shot" src="img/history-graph.jpg" /></div>
+        <div class="tag" id="s6t">History · how a goal became code</div>
+      </div>
+    </section>
+
+    <!-- 7. You stay in charge -->
+    <section id="s7" class="clip scene" data-start="@@S7@@" data-duration="@@D7@@" data-track-index="1">
+      <div class="reveal" id="s7r">
+        <div class="abs" style="left:120px; top:80px; width:700px">
+          <div class="kicker">You stay in charge</div>
+        </div>
+        <div class="abs" id="s7list" style="left:120px; top:170px; width:640px"></div>
+        <div class="card" id="s7c1" style="left:820px; top:150px; width:980px; height:760px"><img id="s7c1i" src="img/panel-race-top.jpg" /></div>
+        <div class="abs" id="s7bubble" style="left:1000px; top:640px; width:620px; padding:20px 24px; border-radius:16px 16px 16px 4px; background:var(--honey); color:var(--night)">
+          <div class="mono" style="font-size:19px; font-weight:600">YOUR COMMENT ON THIS LINE</div>
+          <div style="font-size:27px; font-weight:500; margin-top:6px">Agent reads it before its next step.</div>
+        </div>
+        <div class="screen" id="s7screen"><img class="shot" id="s7shot" src="img/why.jpg" /></div>
+        <div class="abs" id="s7chain" style="left:120px; top:880px; width:1680px; display:flex; gap:16px; align-items:center"></div>
+        <svg class="abs" id="s7rw" style="left:820px; top:240px" width="980" height="560"></svg>
+        <div class="abs" id="s7lesson" style="left:820px; top:330px; width:980px; padding:40px 44px; border-radius:18px; background:#141418; border:1px solid rgba(251,173,65,.4)">
+          <div class="kicker">Lessons</div>
+          <div class="h3" style="margin-top:14px">What reviewers keep asking for is told to every new agent.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. Plans and scouts -->
+    <section id="s8" class="clip scene" data-start="@@S8@@" data-duration="@@D8@@" data-track-index="1">
+      <div class="reveal" id="s8r">
+        <div class="screen" id="s8screen"><img class="shot" id="s8shot" src="img/plan.jpg" /></div>
+        <div class="hl" id="s8hl"></div>
+        <div class="tag" id="s8t1">A planner split one goal into 7 sub-goals with dependencies · 7 of 7 landed</div>
+        <div class="abs" id="s8scout" style="left:0; top:0; width:1920px; height:1080px; background:var(--night)">
+          <div class="abs" style="left:120px; top:90px">
+            <div class="kicker">Before a worker starts</div>
+            <p class="h2" style="margin-top:16px">A cheap, read-only scout briefs it.</p>
+          </div>
+          <div class="term" id="s8tree" style="left:120px; top:330px; width:620px; height:520px"><div class="bar"><i></i><i></i><i></i></div><div class="lines" id="s8treel"></div></div>
+          <svg class="bee abs" id="s8bee" style="left:0; top:0"><use href="#bee" /></svg>
+          <div class="abs" id="s8brief" style="left:860px; top:330px; width:940px; padding:34px 40px; border-radius:18px; background:#141418; border:1px solid rgba(125,141,161,.5)">
+            <div class="mono steel" style="font-size:22px">SCOUT BRIEFING</div>
+            <div id="s8bl" style="margin-top:14px"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. Any agent, any model -->
+    <section id="s9" class="clip scene" data-start="@@S9@@" data-duration="@@D9@@" data-track-index="1">
+      <div class="reveal" id="s9r">
+        <div class="abs" style="left:120px; top:80px">
+          <div class="kicker">Any agent · any model</div>
+        </div>
+        <div class="term" id="s9term" style="left:120px; top:160px; width:1040px; height:420px"><div class="bar"><i></i><i></i><i></i></div><div class="lines" id="s9lines"></div></div>
+        <div class="abs" id="s9models" style="left:1220px; top:160px; width:580px"></div>
+        <div class="abs" id="s9cost" style="left:120px; top:630px; width:1040px; padding:28px 32px; border-radius:16px; background:#141418; border:1px solid var(--line)"></div>
+      </div>
+    </section>
+
+    <!-- 10. Two thousand agents -->
+    <section id="s10" class="clip scene" data-start="@@S10@@" data-duration="@@D10@@" data-track-index="1">
+      <div class="reveal" id="s10r">
+        <img class="plate" src="img/hive-plate.jpg" style="opacity:.35" />
+        <canvas id="swarm2" width="1920" height="1080"></canvas>
+        <div class="screen" id="s10screen"><img class="shot" id="s10shot" src="img/scale2k.jpg" /></div>
+        <div class="dimall" id="s10dim"></div>
+        <div class="abs" id="s10stats" style="left:120px; top:150px; width:1680px"></div>
+        <div class="hl red" id="s10hl"></div>
+        <div class="term" id="s10term" style="left:120px; top:640px; width:1000px; height:250px"><div class="bar"><i></i><i></i><i></i></div><div class="lines" id="s10lines"></div></div>
+        <div class="abs" id="s10dep" style="left:1180px; top:640px; width:620px; padding:26px 30px; border-radius:16px; background:#141418; border:1px solid rgba(251,173,65,.35)"></div>
+      </div>
+    </section>
+
+    <!-- 11. The record, and close -->
+    <section id="s11" class="clip scene" data-start="@@S11@@" data-duration="@@D11@@" data-track-index="1">
+      <div class="reveal" id="s11r">
+        <div class="term" id="s11log" style="left:120px; top:140px; width:820px; height:470px"><div class="bar"><i></i><i></i><i></i></div><div class="lines" id="s11logl" style="font-size:21px"></div></div>
+        <div class="term" id="s11led" style="left:980px; top:140px; width:820px; height:470px"><div class="bar"><i></i><i></i><i></i></div><div class="lines" id="s11ledl" style="font-size:21px"></div></div>
+        <div class="abs" id="s11k1" style="left:120px; top:640px"><div class="h3">git log: <span class="steel">what changed</span></div></div>
+        <div class="abs" id="s11k2" style="left:980px; top:640px"><div class="h3">Hive's ledger: <span class="honey">why, who decided, how sure</span></div></div>
+        <div class="abs" id="s11pr" style="left:120px; top:740px; width:1680px; padding:22px 28px; border-radius:14px; background:#141418; border:1px solid var(--line); display:flex; gap:20px; align-items:center">
+          <svg width="40" height="40"><use href="#logo" /></svg>
+          <div style="font-size:28px">Hive imported its own repository and opened <span class="honey">its own pull request</span> on GitHub: hivegithq/hive #1, merged.</div>
+        </div>
+        <div class="abs" id="s11cf" style="left:120px; top:870px; width:1680px; display:flex; gap:14px; flex-wrap:wrap"></div>
+        <div class="fill" id="s11end" style="background:var(--night)">
+          <img class="plate" src="img/hive-plate.jpg" style="opacity:.55" />
+          <div class="dim"></div>
+          <div class="abs" style="left:120px; top:270px; width:1200px">
+            <div style="display:flex; align-items:center; gap:30px">
+              <svg width="120" height="120" id="s11logo"><use href="#logo" /></svg>
+              <div class="h1" style="font-size:130px">Hive</div>
+            </div>
+            <p class="h1" style="margin-top:44px; font-size:84px" id="s11a">Thousands of agents.</p>
+            <p class="h1 honey" style="font-size:84px" id="s11b">One trunk.</p>
+            <p class="mono" style="font-size:28px; margin-top:40px; color:var(--mute)" id="s11c">hivegit.dev · github.com/hivegithq/hive · MIT licence</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- overlay: transition bee + captions -->
+    <section id="ov" class="clip scene" data-start="0" data-duration="@@END@@" data-track-index="2" style="pointer-events:none">
+      <div class="trail" id="xtrail"></div>
+      <svg class="bee" id="xbee"><use href="#bee" /></svg>
+      <div id="caps"></div>
+    </section>

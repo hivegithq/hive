@@ -1,0 +1,1 @@
+You stay in charge. Comment on a line of a diff, and the agent reads it before its next step. Click any line on trunk and ask why it's there: Hive shows the goal, the intent, the proof and the decision. Or rewind an attempt to step seven and carry on from there, on another model, told what went wrong. And what reviewers keep asking for becomes a lesson every new agent is told.

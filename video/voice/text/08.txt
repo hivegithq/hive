@@ -1,0 +1,1 @@
+Big goals get a plan. A planner splits the goal into sub-goals with dependencies, and agents start as each dependency lands. Before a worker starts, a cheap read-only scout briefs it: where the change belongs and what calls it.

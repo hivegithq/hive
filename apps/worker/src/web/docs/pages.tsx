@@ -61,43 +61,16 @@ export const PAGES: DocPage[] = [
 	},
 	{
 		slug: "demo",
-		title: "Try the live demo",
+		title: "About the public site",
 		group: "Start",
-		summary: "hivegit.dev runs a real Hive. Anyone can watch it; people on the waitlist get to run agents on it.",
+		summary: "The public site is a static project page. There is no hosted Hive service or public account system.",
 		body: () => (
 			<>
-				<P>Each repository on hivegit.dev has a live dashboard. Good places to start:</P>
-				<List>
-					<li>
-						<A href="/r/scale2k">scale2k</A>: 2,000 simulated agents on one repository, all landed through the real merge queue. Every hexagon on the map is one change.
-					</li>
-					<li>
-						<A href="/r/sampleproject">sampleproject</A> (Python) and <A href="/r/uuid">uuid</A> (Go): open-source projects imported from GitHub, with model-driven agents working
-						on goals and a planner splitting a big goal into sub-goals.
-					</li>
-					<li>
-						<A href="/r/vulnshop">vulnshop</A>: a store with planted vulnerabilities, where the security scan sends back changes that introduce new ones.
-					</li>
-				</List>
-				<H2 id="what-to-click">What to click</H2>
-				<List>
-					<li>Any change card or hexagon opens its intent, evidence, review, Clef's probabilities and the decision.</li>
-					<li>
-						<strong className="text-wax">Checks & settings</strong> shows what Hive runs for that repository and the last run on trunk.
-					</li>
-					<li>A plan under the map is a live dependency graph; click a sub-goal to open its change.</li>
-					<li>The trunk column on the right is ordinary git history, with each commit's Hive trailers.</li>
-				</List>
-				<H2 id="access">Running agents here</H2>
 				<P>
-					Starting agents, importing repositories and changing settings run containers and models, so on hivegit.dev they're open to people with access.{" "}
-					<strong className="text-wax">Join the waitlist</strong> (top of any page, or whenever you try to make a change) and you'll get an email when you're in; then sign in and
-					everything works from the dashboard. To do anything you like right now, <A href="/docs/local">run it locally</A> or <A href="/docs/deploy">deploy your own</A>.
+					The public site at <C>hivegit.dev</C> is static. It does not host repositories, accounts, agent runtimes, or API and MCP endpoints. Nothing on that site can start work for a visitor.
 				</P>
-				<P>Reads are open over every interface. You can point an MCP client at the demo and ask it what's happening:</P>
-				<Code>{"claude mcp add --transport http hive-demo https://hivegit.dev/mcp"}</Code>
 				<P>
-					<C>hive_status</C>, <C>hive_symbols</C> and <C>hive_change</C> work for everyone; tools that make changes need the deployment's token, so for those, run your own Hive.
+					The source repository includes the full application. <A href="/docs/local">Run it locally</A> or <A href="/docs/deploy">deploy your own instance</A> to infrastructure and credentials you control.
 				</P>
 			</>
 		),
@@ -149,11 +122,11 @@ node tools/watch.ts shop          # stream coordinator events in the terminal`}<
 		slug: "deploy",
 		title: "Deploy your own",
 		group: "Start",
-		summary: "One command puts Hive on your Cloudflare account.",
+		summary: "Deploy the full application to your own Cloudflare account.",
 		body: () => (
 			<>
 				<P>
-					Your own Hive runs on your account, with your models and your token, on <C>hive.&lt;you&gt;.workers.dev</C> or a domain you own. It's the same code as hivegit.dev.
+					Your Hive runs on your account, with your models and your owner token, on <C>hive.&lt;you&gt;.workers.dev</C> or a domain you own.
 				</P>
 				<H2 id="requirements">You need</H2>
 				<List>
@@ -183,13 +156,8 @@ pnpm self-host`}</Code>
 				<P>
 					Open your URL; the first time you make a change in the dashboard, it asks for the token in <C>.hive-token</C>.
 				</P>
-				<H2 id="people">Letting other people in</H2>
-				<P>
-					The token is for you. To let others run agents without sharing it, create a Clerk application for your domain, set its access mode to <strong className="text-wax">Waitlist</strong>,
-					and deploy with its publishable key. Visitors then join the waitlist from your site; anyone you approve can sign in and make changes. The Worker checks their session
-					tokens against Clerk's public keys, so no Clerk secret is needed.
-				</P>
-				<Code>{"HIVE_DOMAIN=git.example.com HIVE_CLERK_PUBLISHABLE_KEY=pk_live_… pnpm self-host"}</Code>
+				<H2 id="access">Owner access</H2>
+				<P>Hive has no public sign-up or sign-in flow. Keep the generated <C>HIVE_TOKEN</C> private; it can authorize repository changes and agent work on your instance.</P>
 				<H2 id="options">Options</H2>
 				<Table
 					head={["Variable", "Default", "What it does"]}
@@ -199,7 +167,6 @@ pnpm self-host`}</Code>
 						[<C>HIVE_NAMESPACE</C>, "the Worker name", "The Artifacts namespace that holds the repositories."],
 						[<C>OPENAI_API_KEY</C>, "none", "The key of an OpenAI-compatible endpoint (or a line in .env): agents can run on its models. Set <C>OPENAI_BASE_URL</C> for anything but OpenAI (OpenRouter, Together, Groq, a local Ollama or vLLM). <C>BYO_INPUT_USD_PER_M</C> and <C>BYO_OUTPUT_USD_PER_M</C> let Hive count what it costs."],
 						[<C>HIVE_EMAIL_FROM</C>, "none", "Send email notifications from this address (its domain needs Email Routing; recipients must be verified)."],
-						[<C>HIVE_CLERK_PUBLISHABLE_KEY</C>, "none", "Let other people sign in with Clerk and make changes from the dashboard. Put the instance in waitlist mode so you choose who gets in."],
 					]}
 				/>
 				<Code>{"HIVE_DOMAIN=git.example.com pnpm self-host"}</Code>
@@ -238,7 +205,7 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 		body: () => (
 			<>
 				<P>
-					Every repository has a live dashboard at <C>/r/&lt;name&gt;</C>. Anyone can watch it. People with access (signed in on hivegit.dev, or the owner of a self-hosted Hive) can
+					Every repository has a live dashboard at <C>/r/&lt;name&gt;</C>. On a self-hosted Hive, the owner can use the private access token to
 					put agents to work from the <strong className="text-wax">New goal</strong> panel on the left.
 				</P>
 				<H2 id="goal">A goal</H2>
@@ -350,11 +317,11 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 		body: () => (
 			<>
 				<P>
-					Hive starts its own agents from the dashboard, but any agent can join. Each of these talks to one Hive; replace <C>https://hivegit.dev</C> with your own URL, and{" "}
+					Hive starts its own agents from the dashboard, but any agent can join your self-hosted instance. Use your Hive's URL and replace{" "}
 					<C>$HIVE_TOKEN</C> with the token from <C>.hive-token</C>.
 				</P>
 				<H2 id="mcp">MCP (Claude Code, Codex, Cursor, …)</H2>
-				<Code>{`claude mcp add --transport http hive https://hivegit.dev/mcp \\
+				<Code>{`claude mcp add --transport http hive https://YOUR_HIVE_URL/mcp \\
   --header "Authorization: Bearer $HIVE_TOKEN"`}</Code>
 				<P>Other clients take the same URL and header. Without the header, only the read tools work.</P>
 				<Table
@@ -410,7 +377,7 @@ pnpm --filter @hive/worker exec cf queues subscriptions create --body '{"name":"
 				</P>
 				<Code>{`cargo install --git ${GITHUB} hive-cli`}</Code>
 				<P>Tell it where your Hive is, once. The token is checked and saved in <C>~/.config/hive/config.json</C>:</P>
-				<Code>{`hive login --url https://hivegit.dev --repo shop < .hive-token`}</Code>
+				<Code>{`hive login --url https://YOUR_HIVE_URL --repo shop < .hive-token`}</Code>
 				<P>Run the hive: everything the dashboard does.</P>
 				<Code>{`hive import https://github.com/google/uuid   # becomes the default repo
 hive checks                                  # can Hive build and test it?
@@ -441,7 +408,7 @@ hive show                         # evidence, review, decision`}</Code>
 				<P>
 					Trunk is ordinary git. <strong className="text-wax">Clone with git</strong> on a dashboard, or the API, gives a clone URL that works for an hour (this needs access, or the token from a script):
 				</P>
-				<Code>{`curl -X POST https://hivegit.dev/api/repos/shop/clone -H "authorization: Bearer $HIVE_TOKEN"`}</Code>
+				<Code>{`curl -X POST https://YOUR_HIVE_URL/api/repos/shop/clone -H "authorization: Bearer $HIVE_TOKEN"`}</Code>
 				<P>
 					Pass <C>{'{"target":"ledger"}'}</C> for the ledger: every intent, evidence run, review and decision, as files in git.
 				</P>
@@ -460,7 +427,7 @@ hive show                         # evidence, review, decision`}</Code>
 					The <A href="/repos">repositories page</A> lists every repository on a Hive, busiest first, with what needs a person (<C>hive repos</C>). <strong className="text-wax">Add a repository</strong> on any dashboard imports from GitHub or any https git server, with full history. Its default branch becomes
 					trunk's <C>main</C>. For a private repository, give a read token: it's used for that one clone and never stored. From the API:
 				</P>
-				<Code>{`curl -X POST https://hivegit.dev/api/repos/import -H "authorization: Bearer $HIVE_TOKEN" \\
+				<Code>{`curl -X POST https://YOUR_HIVE_URL/api/repos/import -H "authorization: Bearer $HIVE_TOKEN" \\
   -H 'content-type: application/json' -d '{"url":"https://github.com/dtolnay/itoa"}'`}</Code>
 				<P>
 					Then open <strong className="text-wax">Checks & settings</strong> and run the checks on trunk, so you know Hive can build and test it before agents start.
@@ -688,7 +655,7 @@ hive notify test h-…`}</Code>
 					<li>With <C>scouts</C> on, a cheap read-only agent looks at the code first and briefs each worker. Workers are told who built what they build on, and can ask the owner of any file or symbol with <C>ask_owner</C>: the agent working on it is messaged, and the change that landed there last answers with why.</li>
 				</List>
 				<P>The dashboard draws the plan as a live dependency graph. The parent goal is achieved when every sub-goal has landed.</P>
-				<Code>{`curl -X POST https://hivegit.dev/api/repos/shop/goals/g-…/plan -H "authorization: Bearer $HIVE_TOKEN" \\
+				<Code>{`curl -X POST https://YOUR_HIVE_URL/api/repos/shop/goals/g-…/plan -H "authorization: Bearer $HIVE_TOKEN" \\
   -H 'content-type: application/json' \\
   -d '{"model":"@cf/zai-org/glm-5.3","agentModels":["@cf/moonshotai/kimi-k2.7-code","@cf/deepseek-ai/deepseek-v4-pro-0813"],"maxParallel":4}'`}</Code>
 				<P>

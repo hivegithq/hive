@@ -1,0 +1,377 @@
+c-74109676f8
+
+Buy-two-get-one-free promotion
+
+GLM 5.3
+
+Intent
+
+Add a buy-two-get-one-free promotion: a new pure helper in src/promotion.ts computes, per SKU, the cents saved by making every third unit free (quantity 3+). checkout() applies the saving after the subtotal and before the discount, and reports it as a new `promotion` field on Receipt. Tests cover 2, 3 and 7 units (plus per-SKU isolation and stacking with a discount code); the existing receipt deepEqual test is updated for the new field. README/AGENTS.md documentation updated accordingly.
+
+promotionSavings
+src/promotion.ts
+Receipt
+src/checkout.ts
+checkout
+src/checkout.ts
+test/promotion.test.ts
+test/checkout.test.ts
+README.md
+AGENTS.md
+Changes
+Widen
+
+Compare with
+lane 1: Kimi K2.7 Code
+lane 3: DeepSeek V4 Pro
+
+6 files, +150 −6, as checked by the merge queue.0 of 6 reviewed
+
+AGENTS.md
++1 −0
+Seen
+A tiny storefront library. Money is always integer **cents** internally.
+5	5	 - `src/price.ts` — parsing and formatting money
+6	6	 - `src/cart.ts` — the `Cart` (line items, subtotal)
+7	7	 - `src/discount.ts` — discount rules
+	8	+- `src/promotion.ts` — buy-two-get-one-free promotion
+8	9	 - `src/checkout.ts` — totals with tax and shipping
+9	10
+10	11	 Conventions: pure functions where possible, no dependencies, tests in `test/` using `node:test`.
+README.md
++32 −3
+Seen
+A tiny storefront library. Money is always integer **cents** internally.
+7	7	 - [`src/price.ts`](#srcpricets) — parsing and formatting money
+8	8	 - [`src/cart.ts`](#srccartts) — the `Cart` (line items, subtotal)
+9	9	 - [`src/discount.ts`](#srcdiscountts) — discount rules
+	10	+- [`src/promotion.ts`](#srcpromotionts) — buy-two-get-one-free promotion
+10	11	 - [`src/checkout.ts`](#srccheckoutts) — totals with tax and shipping
+11	12
+12	13	 All examples use imports from the module file they describe.
+applyDiscount(1000, null); // 1000
+120	121
+121	122	 ---
+122	123
+	124	+## `src/promotion.ts`
+	125	+
+	126	+### `PROMOTION_GROUP_SIZE: number`
+	127	+
+	128	+Units of a single SKU needed before one of them is free. Currently `3`.
+	129	+
+	130	+### `promotionSavings(lines: LineItem[]): number`
+	131	+
+	132	+Returns the cents given away by the buy-two-get-one-free promotion: for each
+	133	+line, one unit out of every `PROMOTION_GROUP_SIZE` units is free. Lines are
+	134	+evaluated on their own, so a SKU needs 3 or more units before any of its units
+	135	+becomes free.
+	136	+
+	137	+```ts
+	138	+import { promotionSavings } from "./src/promotion.ts";
+	139	+
+	140	+promotionSavings([{ sku: "tee", name: "T-shirt", unitPrice: 2000, quantity: 2 }]); // 0
+	141	+promotionSavings([{ sku: "tee", name: "T-shirt", unitPrice: 2000, quantity: 3 }]); // 2000
+	142	+promotionSavings([{ sku: "tee", name: "T-shirt", unitPrice: 2000, quantity: 7 }]); // 4000
+	143	+```
+	144	+
+	145	+---
+	146	+
+123	147	 ## `src/checkout.ts`
+124	148
+125	149	 ### `TAX_RATE: number`
+The result of `checkout`.declared
+137	161	 ```ts
+138	162	 interface Receipt {
+139	163	   subtotal: number;
+	164	+  promotion: number;
+140	165	   discounted: number;
+141	166	   tax: number;
+142	167	   shipping: number;
+interface Receipt {declared
+146	171
+147	172	 ### `checkout(cart: Cart, discount: Discount | null = null): Receipt`
+148	173
+149		−Calculates checkout totals. The discount is applied before tax, tax is rounded
+150		−to the nearest cent, and shipping is free (zero) for an empty cart.
+	174	+Calculates checkout totals. The buy-two-get-one-free promotion is applied to the
+	175	+subtotal first, then the discount, then tax (rounded to the nearest cent). The
+	176	+promotion saving is reported on the receipt as `promotion`, in cents. Shipping is
+	177	+free (zero) for an empty cart.
+151	178
+152	179	 ```ts
+153	180	 import { Cart } from "./src/cart.ts";
+cart.add("mug", "Mug", 1000);
+159	186	 checkout(cart);
+160	187	 // {
+161	188	 //   subtotal: 1000,
+	189	+//   promotion: 0,
+162	190	 //   discounted: 1000,
+163	191	 //   tax: 80,
+164	192	 //   shipping: 599,
+checkout(cart);declared
+168	196	 checkout(cart, { code: "TEN", amountOff: 100 });
+169	197	 // {
+170	198	 //   subtotal: 1000,
+	199	+//   promotion: 0,
+171	200	 //   discounted: 900,
+172	201	 //   tax: 72,
+173	202	 //   shipping: 599,
+174	203	 //   total: 1571
+175	204	 // }
+176		−```
+	205	+```
+src/checkout.ts
++6 −2
+Seen
+@@ -1,11 +1,14 @@
+1	1	 import type { Cart } from "./cart.ts";
+2	2	 import { applyDiscount, type Discount } from "./discount.ts";
+	3	+import { promotionSavings } from "./promotion.ts";
+3	4
+4	5	 export const TAX_RATE = 0.08;
+5	6	 export const SHIPPING = 599; // cents
+6	7
+7	8	 export interface Receipt {
+8	9	 	subtotal: number;
+	10	+	/** Cents given away by the buy-two-get-one-free promotion. */
+	11	+	promotion: number;
+9	12	 	discounted: number;
+10	13	 	tax: number;
+11	14	 	shipping: number;
+export interface Receipt {declared
+14	17
+15	18	 export function checkout(cart: Cart, discount: Discount | null = null): Receipt {
+16	19	 	const subtotal = cart.subtotal();
+17		−	const discounted = applyDiscount(subtotal, discount);
+	20	+	const promotion = promotionSavings(cart.lines());
+	21	+	const discounted = applyDiscount(subtotal - promotion, discount);
+18	22	 	const tax = Math.round(discounted * TAX_RATE);
+19	23	 	const shipping = cart.lines().length === 0 || discounted >= 5000 ? 0 : SHIPPING;
+20		−	return { subtotal, discounted, tax, shipping, total: discounted + tax + shipping };
+	24	+	return { subtotal, promotion, discounted, tax, shipping, total: discounted + tax + shipping };
+21	25	 }
+src/promotion.ts
+added
++16 −0
+Seen
+@@ -0,0 +1,16 @@
+	1	+import type { LineItem } from "./cart.ts";
+	2	+
+	3	+/** Buy two, get one free: every `PROMOTION_GROUP_SIZE` units of a SKU, one is free. */
+	4	+export const PROMOTION_GROUP_SIZE = 3;
+	5	+
+	6	+/**
+	7	+ * Cents given away by the buy-two-get-one-free promotion.
+	8	+ * Lines are evaluated on their own, so a SKU needs 3 or more units before
+	9	+ * any unit of that SKU becomes free.
+	10	+ */
+	11	+export function promotionSavings(lines: LineItem[]): number {
+	12	+	return lines.reduce(
+	13	+		(sum, line) => sum + Math.floor(line.quantity / PROMOTION_GROUP_SIZE) * line.unitPrice,
+	14	+		0,
+	15	+	);
+	16	+}
+test/checkout.test.ts
++62 −1
+Seen
+import { test } from "node:test";
+3	3	 import { Cart } from "../src/cart.ts";
+4	4	 import { checkout } from "../src/checkout.ts";
+5	5
+	6	+/** A cart holding `units` units of a single SKU. */
+	7	+function cartWithUnits(units: number, sku = "mug", name = "Mug", unitPrice = 1000): Cart {
+	8	+	const cart = new Cart();
+	9	+	for (let i = 0; i < units; i++) cart.add(sku, name, unitPrice);
+	10	+	return cart;
+	11	+}
+	12	+
+6	13	 test("checkout adds tax and shipping", () => {
+7	14	 	const cart = new Cart();
+8	15	 	cart.add("mug", "Mug", 1000);
+9		−	assert.deepEqual(checkout(cart), { subtotal: 1000, discounted: 1000, tax: 80, shipping: 599, total: 1679 });
+	16	+	assert.deepEqual(checkout(cart), {
+	17	+		subtotal: 1000,
+	18	+		promotion: 0,
+	19	+		discounted: 1000,
+	20	+		tax: 80,
+	21	+		shipping: 599,
+	22	+		total: 1679,
+	23	+	});
+10	24	 });
+11	25
+12	26	 test("empty cart ships free", () => {
+test("orders over $50 ship free", () => {
+30	44	 	assert.equal(receipt.shipping, 0);
+31	45	 	assert.equal(receipt.total, 5940);
+32	46	 });
+	47	+
+	48	+test("two units earn no promotion", () => {
+	49	+	const receipt = checkout(cartWithUnits(2));
+	50	+	assert.equal(receipt.subtotal, 2000);
+	51	+	assert.equal(receipt.promotion, 0);
+	52	+	assert.equal(receipt.discounted, 2000);
+	53	+	assert.equal(receipt.total, 2000 + 160 + 599);
+	54	+});
+	55	+
+	56	+test("three units make every third unit free", () => {
+	57	+	const receipt = checkout(cartWithUnits(3));
+	58	+	assert.equal(receipt.subtotal, 3000);
+	59	+	assert.equal(receipt.promotion, 1000);
+	60	+	assert.equal(receipt.discounted, 2000);
+	61	+	assert.equal(receipt.tax, 160);
+	62	+	assert.equal(receipt.total, 2000 + 160 + 599);
+	63	+});
+	64	+
+	65	+test("seven units make every third unit free, twice", () => {
+	66	+	const receipt = checkout(cartWithUnits(7));
+	67	+	assert.equal(receipt.subtotal, 7000);
+	68	+	assert.equal(receipt.promotion, 2000);
+	69	+	assert.equal(receipt.discounted, 5000);
+	70	+	assert.equal(receipt.tax, 400);
+	71	+	assert.equal(receipt.shipping, 0); // 5000 crosses the free-shipping threshold
+	72	+	assert.equal(receipt.total, 5400);
+	73	+});
+	74	+
+	75	+test("promotion is counted per SKU", () => {
+	76	+	const cart = cartWithUnits(3, "mug", "Mug", 1000);
+	77	+	for (let i = 0; i < 2; i++) cart.add("shirt", "Shirt", 2000);
+	78	+	const receipt = checkout(cart);
+	79	+	assert.equal(receipt.subtotal, 7000);
+	80	+	assert.equal(receipt.promotion, 1000); // only the mugs reached 3 units
+	81	+	assert.equal(receipt.discounted, 6000);
+	82	+});
+	83	+
+	84	+test("promotion applies before a discount code and tax", () => {
+	85	+	const cart = cartWithUnits(3, "mug", "Mug", 2000);
+	86	+	const receipt = checkout(cart, { code: "TEN", amountOff: 100 });
+	87	+	assert.equal(receipt.subtotal, 6000);
+	88	+	assert.equal(receipt.promotion, 2000);
+	89	+	assert.equal(receipt.discounted, 3900);
+	90	+	assert.equal(receipt.tax, 312);
+	91	+	assert.equal(receipt.shipping, 599);
+	92	+	assert.equal(receipt.total, 3900 + 312 + 599);
+	93	+});
+test/promotion.test.ts
+added
++33 −0
+Seen
+@@ -0,0 +1,33 @@
+	1	+import assert from "node:assert/strict";
+	2	+import { test } from "node:test";
+	3	+import { promotionSavings } from "../src/promotion.ts";
+	4	+import type { LineItem } from "../src/cart.ts";
+	5	+
+	6	+function line(sku: string, unitPrice: number, quantity: number): LineItem {
+	7	+	return { sku, name: sku, unitPrice, quantity };
+	8	+}
+	9	+
+	10	+test("two units of a SKU earn nothing", () => {
+	11	+	assert.equal(promotionSavings([line("mug", 1000, 2)]), 0);
+	12	+});
+	13	+
+	14	+test("three units make every third unit free", () => {
+	15	+	assert.equal(promotionSavings([line("mug", 1000, 3)]), 1000);
+	16	+});
+	17	+
+	18	+test("seven units make two units free", () => {
+	19	+	assert.equal(promotionSavings([line("mug", 1000, 7)]), 2000);
+	20	+});
+	21	+
+	22	+test("six units make two units free", () => {
+	23	+	assert.equal(promotionSavings([line("mug", 1000, 6)]), 2000);
+	24	+});
+	25	+
+	26	+test("quantities are not pooled across SKUs", () => {
+	27	+	assert.equal(promotionSavings([line("mug", 1000, 2), line("tee", 500, 2)]), 0);
+	28	+	assert.equal(promotionSavings([line("mug", 1000, 3), line("tee", 500, 2)]), 1000);
+	29	+});
+	30	+
+	31	+test("no lines means no savings", () => {
+	32	+	assert.equal(promotionSavings([]), 0);
+	33	+});
+Context
+
+About 31.0k tokens by step 46, re-read on every step. Estimated from the transcript.
+
+Instructions
+642
+Briefing
+23
+Thinking
+11.9k
+Tool calls
+9.5k
+Tool results
+9.0k
+
+Largest tool result: read_file at step 4, about 1.3k tokens, read again on every step after.
+
+Evidence
+passed
+merge
+git cherry-pick (mergiraf)
+passed
+setup
+npm ci --no-audit --no-fund
+passed
+typecheck
+npm run -s typecheck
+passed
+test
+npm run -s test
+passed
+merge
+git cherry-pick (mergiraf)
+passed
+setup
+npm ci --no-audit --no-fund
+passed
+typecheck
+npm run -s typecheck
+passed
+test
+npm run -s test
+Review
+Review score
+85 / 100
+x
+
+An opinion from @cf/deepseek-ai/deepseek-v4-pro-0813 + clef-flash, not a test result.
+
+Landed on trunk
+
+Clef land=0.94 (trust-adjusted 0.91) ≥ 0.85.
+
+land
+94%
+bounce
+4%
+escalate
+3%
+
+Decided by clef-flash.
+
+Cost: $1.35
+Agent
+GLM 5.3880k in, 22k out
+$1.33
+Merge box
+standard-42 min
+$0.01
+Agent box
+standard-15 min
+<$0.01
+Review
+gpt-oss 120B6k in, 512 out
+<$0.01
+Clef
+clef-flash9k in, 0 out
+<$0.01
+Overlap check
+clef-flash557 in, 0 out
+<$0.01
+
+At Workers AI and Containers list prices.
+
+Read the agent's transcript
+dc9381e024

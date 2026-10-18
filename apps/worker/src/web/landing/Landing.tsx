@@ -1,275 +1,244 @@
 import { LinkButton } from "@cloudflare/kumo/components/button";
-import { CloudflareLogo } from "@cloudflare/kumo/components/cloudflare-logo";
-import { ArrowRightIcon, GithubLogoIcon } from "@phosphor-icons/react";
-import { motion } from "motion/react";
-import { useEffect, useState } from "react";
-import { HiveCanvas } from "../hex/HiveCanvas.tsx";
-import { HiveMark, Wordmark } from "../ui/Logo.tsx";
-import { Section } from "../ui/Section.tsx";
-import { useHiveStats } from "../stats.ts";
-import { GITHUB, LIVE_REPO } from "../links.ts";
-import { VERSION } from "../version.ts";
-import { BatchDemo } from "./BatchDemo.tsx";
-import { AnyCodebase, SecurityAndPlans } from "./codebase.tsx";
-import { GetStarted, Lifecycle, Overlaps, Problem, Race, Record, Stack, WorkWithAgents } from "./sections.tsx";
-import { Account } from "../ui/Account.tsx";
+import { ArrowUpRightIcon, GithubLogoIcon } from "@phosphor-icons/react";
+import { Wordmark } from "../ui/Logo.tsx";
+import { GITHUB } from "../links.ts";
 
+const GUIDE = `${GITHUB}/blob/main/docs/SELF-HOST.md`;
+const ROADMAP = `${GITHUB}/blob/main/docs/ROADMAP.md`;
+const CONTRIBUTING = `${GITHUB}/blob/main/CONTRIBUTING.md`;
 
-// The 2,000-agent run, as verified with a stock git clone (README, "What's been verified").
-const VERIFIED = { landed: 1987, perMinute: 125.3, escalated: 13, waitP50: 144_100, batches: 32, avgBatch: 63.3, intentP50: 137 };
+const features = [
+	{
+		number: "01",
+		title: "Coordinate before code",
+		copy: "Each change gets an isolated fork. Agents declare the files and symbols they plan to touch, so Hive can flag overlapping work early.",
+	},
+	{
+		number: "02",
+		title: "Converge with evidence",
+		copy: "A shared queue rebases changes, runs repository checks, gathers review, and records a calibrated decision to land, send back, or ask a person.",
+	},
+	{
+		number: "03",
+		title: "Keep the reasoning with the code",
+		copy: "Intents, test results, reviews, decisions, and agent transcripts are recorded in Git, so a change can be traced back to its goal and evidence.",
+	},
+];
 
-interface Stats {
-	changes: Record<string, number>;
-	landed: number;
-	landedPerMinute: number | null;
-	queueWaitMs: { p50: number | null };
-	batches: { count: number; avgSize: number | null };
-	intentCheckMs: { p50: number | null };
-}
+const useCases = [
+	{
+		title: "Parallelize repository work",
+		copy: "Give independent coding agents separate goals on the same codebase, with overlap checks and one convergence queue to protect trunk.",
+	},
+	{
+		title: "Break down a larger goal",
+		copy: "Use plans to split an outcome into dependent sub-goals. Agents can start as prerequisites land, while you follow progress and intervene when needed.",
+	},
+	{
+		title: "Compare models on a task",
+		copy: "Run a goal with different models in isolated changes, compare their results and costs, and keep the winning change with its history.",
+	},
+];
 
-function useProof() {
-	const [proof, setProof] = useState(VERIFIED);
-	const [live, setLive] = useState(false);
-	useEffect(() => {
-		fetch(`/api/repos/${LIVE_REPO}/stats`)
-			.then((r) => (r.ok ? (r.json() as Promise<Stats>) : null))
-			.then((s) => {
-				if (!s || s.landed < 100) return;
-				setProof({
-					landed: s.landed,
-					perMinute: s.landedPerMinute ?? VERIFIED.perMinute,
-					escalated: s.changes.escalated ?? 0,
-					waitP50: s.queueWaitMs.p50 ?? VERIFIED.waitP50,
-					batches: s.batches.count,
-					avgBatch: s.batches.avgSize ?? VERIFIED.avgBatch,
-					intentP50: s.intentCheckMs.p50 ?? VERIFIED.intentP50,
-				});
-				setLive(true);
-			})
-			.catch(() => {});
-	}, []);
-	return { proof, live };
-}
+const roadmap = [
+	{
+		title: "Repository-level memory",
+		progress: 60,
+		copy: "Build on review lessons already shared with new agents, adding lessons from decisions and changes that were fixed after being sent back.",
+	},
+	{
+		title: "Watchers, mentions, and read-only sharing",
+		progress: 10,
+		copy: "Make it easier for a team to follow a repository or change and bring a person into a decision.",
+	},
+];
 
-export function Landing() {
+function SectionHeading({ eyebrow, title, copy }: { eyebrow: string; title: string; copy?: string }) {
 	return (
-		<div className="min-h-screen overflow-x-clip bg-night text-kumo-default">
-			<Nav />
-			<Hero />
-			<Proof />
-			<Problem />
-			<Lifecycle />
-			<AnyCodebase />
-			<Section id="batches" title="Find the broken change without testing them one by one">
-				<p className="mb-10 max-w-2xl text-lg text-kumo-subtle">
-					Hive stacks queued changes on trunk and tests the stack once. When a batch fails, it checks trunk on its own, then splits the batch and keeps every half that passes. This
-					demo runs the same search code the merge queue runs in production.
-				</p>
-				<BatchDemo />
-			</Section>
-			<SecurityAndPlans />
-			<Overlaps />
-			<Race />
-			<WorkWithAgents />
-			<Record />
-			<Stack />
-			<GetStarted />
-			<Footer />
+		<div className="max-w-3xl">
+			<p className="font-mono text-xs uppercase tracking-[0.18em] text-honey">{eyebrow}</p>
+			<h2 className="mt-3 font-display text-3xl font-semibold leading-tight text-wax sm:text-4xl">{title}</h2>
+			{copy && <p className="mt-4 text-base leading-relaxed text-kumo-subtle sm:text-lg">{copy}</p>}
 		</div>
 	);
 }
 
-function Nav() {
-	const links = [
-		["How it works", "#lifecycle"],
-		["Any codebase", "#codebase"],
-		["Security", "#security"],
-		["Plans", "#plans"],
-		["Get started", "#start"],
-		["Repositories", "/repos"],
-		["Docs", "/docs"],
-	];
+export function Landing({ selfHosted = false }: { selfHosted?: boolean }) {
 	return (
-		<header className="fixed inset-x-0 top-0 z-30 border-b border-white/5 bg-night/70 backdrop-blur-md">
-			<nav className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 sm:px-8" aria-label="Main">
-				<Wordmark />
-				<ul className="ml-auto hidden items-center gap-6 text-sm text-kumo-subtle md:flex">
-					{links.map(([label, href]) => (
-						<li key={href}>
-							<a href={href} className="transition-colors hover:text-wax">
-								{label}
+		<div className="min-h-screen bg-night text-kumo-default">
+			<header className="border-b border-white/5">
+				<nav className="mx-auto flex h-16 max-w-6xl items-center px-4 sm:px-8" aria-label="Main">
+					<Wordmark />
+					<div className="ml-auto hidden items-center gap-6 text-sm text-kumo-subtle lg:flex">
+						<a href="#features" className="hover:text-wax">Features</a>
+						<a href="#use-cases" className="hover:text-wax">Use cases</a>
+						<a href="#roadmap" className="hover:text-wax">Roadmap</a>
+						<a href="#contribute" className="hover:text-wax">Contribute</a>
+					</div>
+					<a href={GITHUB} className="ml-auto inline-flex items-center gap-2 text-sm text-kumo-subtle transition-colors hover:text-wax lg:ml-8">
+						<GithubLogoIcon size={19} />
+						Source on GitHub
+					</a>
+					{selfHosted && <a href="/repos" className="ml-5 text-sm text-honey hover:underline">Open dashboard</a>}
+				</nav>
+			</header>
+
+			<main>
+				<section className="comb-bg border-b border-white/5">
+					<div className="mx-auto max-w-6xl px-4 pb-20 pt-20 sm:px-8 sm:pb-24 sm:pt-28">
+						<div className="max-w-3xl">
+							<p className="font-mono text-sm uppercase tracking-[0.18em] text-honey">Open source · MIT licensed</p>
+							<h1 className="mt-5 font-display text-5xl font-bold leading-[1.02] text-wax sm:text-7xl">
+								Coordination for AI coding agents.
+							</h1>
+							<p className="mt-7 max-w-2xl text-lg leading-relaxed text-kumo-subtle sm:text-xl">
+								Hive helps multiple coding agents work on one codebase at the same time. It gives each change its own workspace, checks for collisions, and brings changes together through a shared queue with tests, review, and a recorded decision.
+							</p>
+							<div className="mt-9 flex flex-wrap gap-3">
+								<LinkButton href={GITHUB} variant="primary" size="lg" icon={ArrowUpRightIcon}>
+									Explore the project
+								</LinkButton>
+								<LinkButton href={GUIDE} variant="secondary" size="lg">
+									Run your own Hive
+								</LinkButton>
+							</div>
+						</div>
+						<div className="mt-12 max-w-3xl border-l-2 border-honey/60 pl-4 text-sm leading-relaxed text-kumo-subtle">
+							{selfHosted
+								? "This Hive runs on infrastructure you control. Writes require the owner access token; keep it private."
+								: "This website is a static project page. We do not host Hive instances, provide accounts, or run agents for visitors. You run Hive locally or deploy your own instance and control its infrastructure and usage."}
+						</div>
+					</div>
+				</section>
+
+				<section className="mx-auto max-w-6xl px-4 py-20 sm:px-8 sm:py-24" aria-label="What Hive is">
+					<SectionHeading
+						eyebrow="What Hive is"
+						title="A coordination layer for changes made in parallel."
+						copy="Git is good at storing code. Hive adds a workflow for many agents changing that code at once: goals describe the work, isolated changes keep attempts apart, and a convergence queue checks what is ready to land. Trunk remains ordinary Git."
+					/>
+					<div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+						{features.map((feature) => (
+							<article key={feature.number} className="cut-sm border border-comb-line bg-comb/40 p-6 sm:p-7">
+								<p className="font-mono text-xs text-honey">{feature.number} / FEATURE</p>
+								<h3 className="mt-4 font-display text-xl font-semibold text-wax">{feature.title}</h3>
+								<p className="mt-3 text-sm leading-relaxed text-kumo-subtle">{feature.copy}</p>
+							</article>
+						))}
+					</div>
+					<div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-comb-line pt-6 text-sm text-kumo-subtle">
+						<span>Use it with MCP-compatible agents, the Hive CLI, or its dashboard.</span>
+						<a href={`${GITHUB}#ways-in-dashboard-mcp-cli-git`} className="inline-flex items-center gap-1 text-honey hover:underline">
+							See how it works <ArrowUpRightIcon size={15} />
+						</a>
+					</div>
+				</section>
+
+				<section id="use-cases" className="border-y border-white/5 bg-comb/20">
+					<div className="mx-auto max-w-6xl px-4 py-20 sm:px-8 sm:py-24">
+						<SectionHeading
+							eyebrow="What it is used for"
+							title="Give a swarm useful work, with a way to stay in control."
+							copy="Hive is for developers and teams experimenting with agent-driven software work, from a few concurrent tasks to larger batches that need review and traceability."
+						/>
+						<div className="mt-10 grid gap-8 md:grid-cols-3">
+							{useCases.map((item, index) => (
+								<article key={item.title} className="border-t border-honey/40 pt-5">
+									<p className="font-mono text-xs text-steel">USE CASE 0{index + 1}</p>
+									<h3 className="mt-3 font-display text-xl font-semibold text-wax">{item.title}</h3>
+									<p className="mt-3 text-sm leading-relaxed text-kumo-subtle">{item.copy}</p>
+								</article>
+							))}
+						</div>
+					</div>
+				</section>
+
+				<section id="features" className="mx-auto max-w-6xl px-4 py-20 sm:px-8 sm:py-24">
+					<SectionHeading
+						eyebrow="Built into the workflow"
+						title="People can inspect, guide, and learn from every attempt."
+						copy="Hive keeps people involved where judgment matters and makes the path from goal to code visible."
+					/>
+					<div className="mt-10 grid gap-4 md:grid-cols-2">
+						<div className="cut-sm border border-comb-line bg-comb/40 p-6 sm:p-8">
+							<h3 className="font-display text-xl font-semibold text-wax">Review and steer</h3>
+							<p className="mt-3 text-sm leading-relaxed text-kumo-subtle">Comment on a diff, steer an active agent, retry with another model, or rewind an attempt to an earlier step. Changes that need judgment can wait for a person.</p>
+						</div>
+						<div className="cut-sm border border-comb-line bg-comb/40 p-6 sm:p-8">
+							<h3 className="font-display text-xl font-semibold text-wax">Trace decisions and costs</h3>
+							<p className="mt-3 text-sm leading-relaxed text-kumo-subtle">Follow a line back to its change and goal, inspect the checks and decision, and review model usage and budgets for your own instance.</p>
+						</div>
+					</div>
+					<p className="mt-6 text-xs leading-relaxed text-steel">Hive is an open-source project. Features that use models or cloud infrastructure run only in an instance you operate and may incur charges from your chosen providers.</p>
+				</section>
+
+				<section id="roadmap" className="border-y border-white/5 bg-comb/20">
+					<div className="mx-auto max-w-6xl px-4 py-20 sm:px-8 sm:py-24">
+						<div className="flex flex-wrap items-end justify-between gap-5">
+							<SectionHeading
+								eyebrow="Roadmap"
+								title="What the project is working toward."
+								copy="The roadmap tracks the next areas of development. Progress can change as the project evolves."
+							/>
+							<a href={ROADMAP} className="inline-flex items-center gap-1 pb-1 text-sm text-honey hover:underline">
+								Full roadmap <ArrowUpRightIcon size={15} />
 							</a>
-						</li>
-					))}
-				</ul>
-				<a href="/docs" className="ml-auto text-sm text-kumo-subtle transition-colors hover:text-wax md:hidden">
-					Docs
-				</a>
-				<span className="hidden lg:block">
-					<Account />
-				</span>
-				<a href={GITHUB} className="text-kumo-subtle transition-colors hover:text-wax" aria-label="Source on GitHub">
-					<GithubLogoIcon size={22} />
-				</a>
-				<LinkButton href={`/r/${LIVE_REPO}`} className="hidden sm:block" variant="primary" size="sm" icon={<HiveMark size={16} className="block shrink-0" />}>
-							Open the live hive
-						</LinkButton>
-			</nav>
-		</header>
-	);
-}
-
-function Hero() {
-	const stats = useHiveStats();
-	return (
-		<section className="relative flex min-h-[100svh] items-end overflow-hidden pb-16 pt-28 sm:items-center sm:pb-0">
-			<HiveCanvas className="absolute inset-0 h-full w-full" />
-			{/* Keep the copy readable over the hive. */}
-			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_20%_55%,rgba(13,13,15,0.92)_0%,rgba(13,13,15,0.7)_38%,rgba(13,13,15,0)_72%)]" />
-			<div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-night to-transparent" />
-			<div className="relative mx-auto w-full max-w-6xl px-4 sm:px-8">
-				<motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: [0.2, 0.7, 0.2, 1] }} className="max-w-2xl">
-					<h1 className="font-display text-5xl font-bold leading-[0.95] text-wax sm:text-7xl lg:text-8xl">
-						Thousands of agents.
-						<br />
-						<span className="text-honey text-glow">One trunk.</span>
-					</h1>
-					<p className="mt-7 max-w-xl text-lg leading-relaxed text-kumo-default sm:text-xl">
-						Hive is version control for AI agents working at the same time. Bring any repository: every change gets its own fork, says what it will touch before it writes
-						code, and lands only when its tests, security scan and a calibrated decision say so. All of it runs on Cloudflare.
-					</p>
-					<div className="mt-9 flex flex-wrap gap-3">
-						<LinkButton href={`/r/${LIVE_REPO}`} variant="primary" size="lg" icon={ArrowRightIcon}>
-							Watch 2,000 agents land
-						</LinkButton>
-						<LinkButton href="#start" variant="secondary" size="lg">
-							Get started
-						</LinkButton>
+						</div>
+						<div className="mt-10 grid gap-4 md:grid-cols-2">
+							{roadmap.map((item) => (
+								<article key={item.title} className="cut-sm border border-comb-line bg-night/70 p-6 sm:p-7">
+									<div className="flex items-start justify-between gap-4">
+										<h3 className="font-display text-lg font-semibold text-wax">{item.title}</h3>
+										<span className="shrink-0 font-mono text-xs text-honey">{item.progress}%</span>
+									</div>
+									<div className="mt-4 h-1 overflow-hidden bg-comb-line" role="img" aria-label={`${item.progress}% roadmap progress`}>
+										<div className="h-full bg-honey" style={{ width: `${item.progress}%` }} />
+									</div>
+									<p className="mt-4 text-sm leading-relaxed text-kumo-subtle">{item.copy}</p>
+								</article>
+							))}
+						</div>
 					</div>
-				</motion.div>
-			</div>
-			<div className="absolute bottom-5 right-4 hidden max-w-md text-right text-xs leading-relaxed text-kumo-subtle sm:right-8 sm:block">
-				<p>
-					An illustration: each cell is an agent, <span className="text-steel">working</span>, <span className="text-flare">in a batch</span>,{" "}
-					<span className="text-honey">landed</span> or <span className="text-alarm">sent back</span>.
-				</p>
-				{stats && (
-					<p className="mt-1">
-						For real, on this deployment: <span className="tabular text-wax">{stats.totals.landed.toLocaleString()}</span> changes landed across{" "}
-						<span className="tabular text-wax">{stats.totals.repos}</span> repositories, <span className="tabular text-wax">{stats.totals.aiLanded}</span> of them written by AI
-						agents.
-					</p>
-				)}
-			</div>
-		</section>
-	);
-}
+				</section>
 
-function Proof() {
-	const { proof, live } = useProof();
-	const min = (ms: number) => `${(ms / 60000).toFixed(1)} min`;
-	const cells: { value: string; label: string; note: string }[] = [
-		{ value: proof.landed.toLocaleString(), label: "changes landed", note: "from 2,000 agents on one repository" },
-		{ value: `${Math.round(proof.perMinute)}/min`, label: "sustained landings", note: `${proof.batches} batches, ${Math.round(proof.avgBatch)} changes on average` },
-		{ value: proof.escalated.toLocaleString(), label: "sent to a person", note: "exactly the agents that were broken on purpose" },
-		{ value: min(proof.waitP50), label: "submit to trunk", note: "median, while 2,000 agents were submitting" },
-	];
-	return (
-		<Section id="proof" title="2,000 agents on one repository, verified with plain git">
-			<p className="mb-12 max-w-2xl text-lg text-kumo-subtle">
-				Simulated agents did exactly what coding agents do to version control: fork, declare an intent, commit, push, submit, fix and resubmit when sent back. Everything else was
-				production: Artifacts forks, the coordinator, batch workflows, merge containers running real git and real tests.
-			</p>
-			<div className="grid gap-px overflow-hidden bg-comb-line sm:grid-cols-2 lg:grid-cols-4">
-				{cells.map((c, i) => (
-					<motion.div
-						key={c.label}
-						initial={{ opacity: 0 }}
-						whileInView={{ opacity: 1 }}
-						viewport={{ once: true }}
-						transition={{ delay: i * 0.08 }}
-						className="relative bg-night p-6 sm:p-8"
-					>
-						<p className="font-display text-5xl font-semibold text-honey tabular">{c.value}</p>
-						<p className="mt-3 font-medium text-wax">{c.label}</p>
-						<p className="mt-1 text-sm text-kumo-subtle">{c.note}</p>
-					</motion.div>
-				))}
-			</div>
-			<p className="mt-6 text-sm text-kumo-subtle">
-				{live ? "Read live from the run's coordinator on this deployment." : "From the verified scale2k run."} Afterwards, a stock <code className="font-mono text-kumo-default">git clone</code> of
-				trunk had exactly one commit per landed change, every one with its <code className="font-mono text-kumo-default">Hive-Change-Id</code>, no broken code, and passing tests.{" "}
-				<a href={`/r/${LIVE_REPO}`} className="text-honey underline-offset-4 hover:underline">
-					Open the run
-				</a>
-				.
-			</p>
-			<HiveTotals />
-		</Section>
-	);
-}
-
-const MODEL_NAMES: Record<string, string> = {
-	"@cf/moonshotai/kimi-k2.7-code": "Kimi K2.7",
-	"@cf/zai-org/glm-5.3": "GLM 5.3",
-	"@cf/deepseek-ai/deepseek-v4-pro-0813": "DeepSeek V4 Pro",
-};
-
-// Everything on this deployment, summed live: simulated load tests and real AI-agent work.
-function HiveTotals() {
-	const stats = useHiveStats();
-	if (!stats) return null;
-	const t = stats.totals;
-	const cells = [
-		{ value: t.repos.toLocaleString(), label: "repositories" },
-		{ value: t.landed.toLocaleString(), label: "changes landed" },
-		{ value: t.aiLanded.toLocaleString(), label: "written by AI agents" },
-		{ value: t.batches.toLocaleString(), label: "batches verified" },
-		{ value: t.plans.toLocaleString(), label: "goals planned" },
-	];
-	return (
-		<div className="mt-14">
-			<h3 className="font-display text-xl font-semibold text-wax">Everything on this deployment, live</h3>
-			<dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden bg-comb-line sm:grid-cols-5">
-				{cells.map((c) => (
-					<div key={c.label} className="bg-night p-5">
-						<dt className="text-sm text-kumo-subtle">{c.label}</dt>
-						<dd className="mt-1 font-display text-3xl font-semibold text-wax tabular">{c.value}</dd>
+				<section id="contribute" className="mx-auto max-w-6xl px-4 py-20 sm:px-8 sm:py-24">
+					<div className="cut border border-honey/30 bg-comb/40 p-7 sm:p-10">
+						<div className="grid gap-10 lg:grid-cols-[1fr_auto] lg:items-end">
+							<div className="max-w-2xl">
+								<SectionHeading
+									eyebrow="Contributions welcome"
+									title="Help make agent coordination better."
+									copy="Explore the code, try Hive with a repository you control, report an issue, improve the docs, or propose a focused change. Contributions are released under the MIT license."
+								/>
+							</div>
+							<div className="flex flex-wrap gap-3">
+								<LinkButton href={CONTRIBUTING} variant="primary" size="lg" icon={ArrowUpRightIcon}>
+									Contribution guide
+								</LinkButton>
+								<LinkButton href={`${GITHUB}/issues`} variant="secondary" size="lg">
+									Browse issues
+								</LinkButton>
+							</div>
+						</div>
+						<div className="mt-8 border-t border-comb-line pt-5 text-sm text-kumo-subtle">
+							New to the project? Start with the <a href={GUIDE} className="text-honey hover:underline">self-hosting guide</a> and the <a href={GITHUB} className="text-honey hover:underline">README</a>.
+						</div>
 					</div>
-				))}
-			</dl>
-			<p className="mt-3 text-sm text-kumo-subtle">
-				Models that wrote landed code: {t.models.map((m) => MODEL_NAMES[m] ?? m.split("/").at(-1)).join(", ") || "none yet"}. Languages checked:{" "}
-				{["node", ...t.languages].filter((l, i, a) => a.indexOf(l) === i).join(", ")}. Load tests use simulated agents; everything else is real models on real code.
-			</p>
-		</div>
-	);
-}
+				</section>
+			</main>
 
-function Footer() {
-	return (
-		<footer className="border-t border-white/5 px-4 py-12 sm:px-8">
-			<div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-center">
-				<Wordmark />
-				<p className="text-sm text-kumo-subtle">
-					<a href={`${GITHUB}/releases`} className="font-mono text-kumo-default hover:text-honey">
-						v{VERSION}
-					</a>
-					, open source under the MIT license. Built and maintained by{" "}
-					<a href="https://github.com/karanbalaji" className="text-kumo-default hover:text-honey">
-						Karan Balaji
-					</a>
-					, for Cloudflare's next Git platform challenge.
-				</p>
-				<div className="flex items-center gap-4 sm:ml-auto">
-					<a href={GITHUB} className="text-sm text-kumo-subtle hover:text-wax">
-						GitHub
-					</a>
-					<span className="flex items-center gap-2 text-sm text-kumo-subtle">
-						Runs on <CloudflareLogo className="h-5 w-auto" />
-					</span>
+			<footer className="border-t border-white/5 px-4 py-8 sm:px-8">
+				<div className="mx-auto flex max-w-6xl flex-col gap-4 text-sm text-kumo-subtle sm:flex-row sm:items-center">
+					<Wordmark />
+					<p>Open source under the MIT license.</p>
+					<div className="flex flex-wrap gap-4 sm:ml-auto">
+						<a href={GITHUB} className="hover:text-wax">GitHub</a>
+						<a href={`${GITHUB}/blob/main/LICENSE`} className="hover:text-wax">License</a>
+						<a href={GUIDE} className="hover:text-wax">Self-hosting</a>
+						<a href={ROADMAP} className="hover:text-wax">Roadmap</a>
+					</div>
 				</div>
-			</div>
-		</footer>
+			</footer>
+		</div>
 	);
 }

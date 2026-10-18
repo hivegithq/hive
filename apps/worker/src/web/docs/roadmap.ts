@@ -49,18 +49,12 @@ export const NEXT: RoadmapItem[] = [
 		title: "Watchers, mentions and read-only sharing",
 		what: "Follow a repository or change, @mention a teammate on a change that needs them, share read-only links.",
 		progress: 10,
-		have: "Public read-only dashboards; sign-in with a waitlist; webhooks.",
+			have: "Webhooks on self-hosted instances; the public project site is static.",
 	},
 	{
 		title: "Repository-level memory",
 		what: "Comments, decisions and lessons from earlier changes offered to new agents working on the same code.",
 		progress: 60,
 		have: "Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs.",
-	},
-	{
-		title: "Personal API keys and MCP sign-in",
-		what: "People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token.",
-		progress: 10,
-		have: "Clerk sign-in for the dashboard; budgets per goal.",
 	},
 ];

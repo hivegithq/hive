@@ -1,0 +1,242 @@
+[
+  {
+    "text": "A",
+    "start": 0.03,
+    "end": 0.09,
+    "id": "w0"
+  },
+  {
+    "text": "goal",
+    "start": 0.09,
+    "end": 0.46,
+    "id": "w1"
+  },
+  {
+    "text": "can",
+    "start": 0.46,
+    "end": 0.73,
+    "id": "w2"
+  },
+  {
+    "text": "also",
+    "start": 0.73,
+    "end": 1.1,
+    "id": "w3"
+  },
+  {
+    "text": "be",
+    "start": 1.1,
+    "end": 1.28,
+    "id": "w4"
+  },
+  {
+    "text": "a",
+    "start": 1.28,
+    "end": 1.37,
+    "id": "w5"
+  },
+  {
+    "text": "race.",
+    "start": 1.37,
+    "end": 1.76,
+    "id": "w6"
+  },
+  {
+    "text": "Three",
+    "start": 1.79,
+    "end": 2.12,
+    "id": "w7"
+  },
+  {
+    "text": "models,",
+    "start": 2.18,
+    "end": 2.75,
+    "id": "w8"
+  },
+  {
+    "text": "three",
+    "start": 2.75,
+    "end": 3.13,
+    "id": "w9"
+  },
+  {
+    "text": "forks,",
+    "start": 3.13,
+    "end": 3.66,
+    "id": "w10"
+  },
+  {
+    "text": "and",
+    "start": 3.66,
+    "end": 3.89,
+    "id": "w11"
+  },
+  {
+    "text": "all",
+    "start": 3.89,
+    "end": 4.12,
+    "id": "w12"
+  },
+  {
+    "text": "three",
+    "start": 4.12,
+    "end": 4.27,
+    "id": "w13"
+  },
+  {
+    "text": "pass.",
+    "start": 4.52,
+    "end": 5.02,
+    "id": "w14"
+  },
+  {
+    "text": "Clef",
+    "start": 5.11,
+    "end": 5.44,
+    "id": "w15"
+  },
+  {
+    "text": "compares",
+    "start": 5.49,
+    "end": 6.3,
+    "id": "w16"
+  },
+  {
+    "text": "them",
+    "start": 6.3,
+    "end": 6.52,
+    "id": "w17"
+  },
+  {
+    "text": "and",
+    "start": 6.94,
+    "end": 7.09,
+    "id": "w18"
+  },
+  {
+    "text": "picks",
+    "start": 7.09,
+    "end": 7.5,
+    "id": "w19"
+  },
+  {
+    "text": "GLM",
+    "start": 7.81,
+    "end": 7.93,
+    "id": "w20"
+  },
+  {
+    "text": "at",
+    "start": 7.93,
+    "end": 8.02,
+    "id": "w21"
+  },
+  {
+    "text": "94%.",
+    "start": 8.15,
+    "end": 9.23,
+    "id": "w22"
+  },
+  {
+    "text": "The",
+    "start": 9.27,
+    "end": 9.42,
+    "id": "w23"
+  },
+  {
+    "text": "others",
+    "start": 9.42,
+    "end": 9.78,
+    "id": "w24"
+  },
+  {
+    "text": "are",
+    "start": 9.79,
+    "end": 9.96,
+    "id": "w25"
+  },
+  {
+    "text": "archived",
+    "start": 9.96,
+    "end": 10.46,
+    "id": "w26"
+  },
+  {
+    "text": "with",
+    "start": 10.46,
+    "end": 10.67,
+    "id": "w27"
+  },
+  {
+    "text": "their",
+    "start": 10.67,
+    "end": 11.1,
+    "id": "w28"
+  },
+  {
+    "text": "reasoning",
+    "start": 11.1,
+    "end": 11.56,
+    "id": "w29"
+  },
+  {
+    "text": "kept.",
+    "start": 11.56,
+    "end": 12.04,
+    "id": "w30"
+  },
+  {
+    "text": "And",
+    "start": 12.07,
+    "end": 12.24,
+    "id": "w31"
+  },
+  {
+    "text": "the",
+    "start": 12.24,
+    "end": 12.4,
+    "id": "w32"
+  },
+  {
+    "text": "graph",
+    "start": 12.46,
+    "end": 12.76,
+    "id": "w33"
+  },
+  {
+    "text": "shows",
+    "start": 12.76,
+    "end": 13.1,
+    "id": "w34"
+  },
+  {
+    "text": "how",
+    "start": 13.1,
+    "end": 13.26,
+    "id": "w35"
+  },
+  {
+    "text": "every",
+    "start": 13.26,
+    "end": 13.47,
+    "id": "w36"
+  },
+  {
+    "text": "goal",
+    "start": 13.88,
+    "end": 13.89,
+    "id": "w37"
+  },
+  {
+    "text": "became",
+    "start": 13.9,
+    "end": 14.27,
+    "id": "w38"
+  },
+  {
+    "text": "code.",
+    "start": 14.27,
+    "end": 14.79,
+    "id": "w39"
+  }
+]

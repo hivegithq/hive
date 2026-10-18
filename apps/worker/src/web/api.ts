@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Change, Decision, Evaluation, Evidence, Goal, HiveEvent, Intent, Overlap } from "../domain/types.ts";
 import type { EvidencePlan } from "../evidence/plan.ts";
 import type { EvidenceRun } from "../landing/types.ts";
-import { ACCESS, sessionToken } from "./clerk.ts";
 import { askForAccess, TOKEN_KEY } from "./ui/AccessDialog.tsx";
 
 export interface Snapshot {
@@ -249,8 +248,7 @@ const readToken = () => {
 	}
 };
 
-// Signed-in visitors send their Clerk session token; on a Hive without sign-in, the owner's token.
-const credential = async () => (ACCESS === "clerk" ? await sessionToken() : readToken());
+const credential = () => readToken();
 
 async function call<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
 	const headers: Record<string, string> = {};

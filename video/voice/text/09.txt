@@ -1,0 +1,1 @@
+Any agent can join: Claude Code, Codex, anything that speaks M C P, or the command line. Trunk is plain git. Run on free Workers A I models, or bring your own endpoint, with every call priced and a budget that stops spending.

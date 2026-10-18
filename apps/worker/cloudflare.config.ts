@@ -12,8 +12,6 @@ import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 //                     BYO_INPUT_USD_PER_M / BYO_OUTPUT_USD_PER_M let Hive count what it costs
 //   HIVE_EMAIL_FROM   send email notifications from this address (or a .hive-email file); its domain
 //                     needs Email Routing, and recipients must be verified destination addresses
-//   HIVE_CLERK_PUBLISHABLE_KEY  sign people in with Clerk (or a .hive-clerk file): signed-in users can
-//                     make changes from the dashboard. Without it, the dashboard asks for HIVE_TOKEN.
 // The config runs in Node; declared here rather than pulling Node's types into the Worker's.
 declare const process: {
 	env: Record<string, string | undefined>;
@@ -28,7 +26,6 @@ const fromFile = (name: string) => {
 const NAME = process.env.HIVE_WORKER_NAME || "hive";
 const NAMESPACE = process.env.HIVE_NAMESPACE || NAME;
 const DOMAIN = process.env.HIVE_DOMAIN || fromFile(".hive-domain");
-const CLERK_KEY = process.env.HIVE_CLERK_PUBLISHABLE_KEY || fromFile(".hive-clerk");
 const EMAIL_FROM = process.env.HIVE_EMAIL_FROM || fromFile(".hive-email");
 // Bring your own model: an OpenAI-compatible endpoint. The key is a secret (set by the deploy); this only
 // decides which bindings exist, from the environment or lines in the root .env.
@@ -46,8 +43,27 @@ const mergeBox = defineContainer({ name: `${NAME}-merge-box`, schedulingPolicy: 
 
 export default defineConfig(({ mode }) => {
 	// `cf dev --mode devhost` talks to tools/devhost instead of Artifacts (no paid plan needed).
-	// Every other mode, including `cf deploy`, uses real Artifacts.
+	// Every other mode is the public static site unless a self-hoster opts in explicitly.
 	const local = mode === "devhost";
+	const selfHosted = local || process.env.HIVE_SELF_HOST === "1";
+	const domainTriggers = (local || !DOMAIN
+		? []
+		: [triggers.fetch({ pattern: `${DOMAIN}/*`, zone: DOMAIN }), triggers.fetch({ pattern: `www.${DOMAIN}/*`, zone: DOMAIN })]);
+
+	// The public deployment contains no application API, authentication, agents, or service bindings.
+	// Requests to the API/MCP paths are handled by static.ts and return 404/405.
+	if (!selfHosted) {
+		return {
+			worker: {
+				name: NAME,
+				compatibilityDate: "2026-09-25",
+				assets: { notFoundHandling: "none" },
+				workersDev: false,
+				triggers: domainTriggers,
+			},
+		};
+	}
+
 	return {
 		containers: [agentBox, mergeBox],
 		worker: {
@@ -81,9 +97,6 @@ export default defineConfig(({ mode }) => {
 				DEVHOST_CONTAINER_URL: bindings.text("http://devhost.hive.internal"),
 				// Required for writes outside devhost mode: `cf workers secrets put HIVE_TOKEN` (or the dashboard).
 				...(local ? {} : { HIVE_TOKEN: bindings.secret() }),
-				// Clerk's publishable key (public): the Worker accepts session tokens signed by that instance.
-				// Not in devhost mode, where a production key wouldn't work on localhost anyway.
-				CLERK_PUBLISHABLE_KEY: bindings.text(local ? "" : (CLERK_KEY ?? "")),
 				CODER_MODEL: bindings.text("@cf/moonshotai/kimi-k2.7-code"),
 				REVIEW_MODEL: bindings.text("@cf/deepseek-ai/deepseek-v4-pro-0813"),
 			},
@@ -99,11 +112,8 @@ export default defineConfig(({ mode }) => {
 			},
 			triggers: [
 				triggers.queue({ name: `${NAME}-repo-events`, maxBatchSize: 10, maxRetries: 5 }),
-				// A custom domain (its zone needs proxied DNS records pointing at the Worker; `pnpm self-host` adds
-				// them). workers.dev stays up too.
-				...(local || !DOMAIN
-					? []
-					: [triggers.fetch({ pattern: `${DOMAIN}/*`, zone: DOMAIN }), triggers.fetch({ pattern: `www.${DOMAIN}/*`, zone: DOMAIN })]),
+				// A custom domain (its zone needs proxied DNS records pointing at the Worker; `pnpm self-host` adds them).
+				...domainTriggers,
 			],
 		},
 	};

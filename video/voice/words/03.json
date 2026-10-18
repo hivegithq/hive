@@ -1,0 +1,380 @@
+[
+  {
+    "text": "Hive",
+    "start": 0.1,
+    "end": 0.34,
+    "id": "w0"
+  },
+  {
+    "text": "answers",
+    "start": 0.35,
+    "end": 0.96,
+    "id": "w1"
+  },
+  {
+    "text": "all",
+    "start": 0.96,
+    "end": 1.22,
+    "id": "w2"
+  },
+  {
+    "text": "four.",
+    "start": 1.22,
+    "end": 1.84,
+    "id": "w3"
+  },
+  {
+    "text": "Every",
+    "start": 1.94,
+    "end": 2.2,
+    "id": "w4"
+  },
+  {
+    "text": "change",
+    "start": 2.2,
+    "end": 2.64,
+    "id": "w5"
+  },
+  {
+    "text": "gets",
+    "start": 2.67,
+    "end": 2.96,
+    "id": "w6"
+  },
+  {
+    "text": "its",
+    "start": 2.96,
+    "end": 3.18,
+    "id": "w7"
+  },
+  {
+    "text": "own",
+    "start": 3.18,
+    "end": 3.21,
+    "id": "w8"
+  },
+  {
+    "text": "fork,",
+    "start": 3.69,
+    "end": 3.72,
+    "id": "w9"
+  },
+  {
+    "text": "a",
+    "start": 3.72,
+    "end": 3.82,
+    "id": "w10"
+  },
+  {
+    "text": "real",
+    "start": 3.82,
+    "end": 4.2,
+    "id": "w11"
+  },
+  {
+    "text": "artifacts",
+    "start": 4.2,
+    "end": 5.06,
+    "id": "w12"
+  },
+  {
+    "text": "repository.",
+    "start": 5.57,
+    "end": 6.36,
+    "id": "w13"
+  },
+  {
+    "text": "Agents",
+    "start": 6.46,
+    "end": 6.77,
+    "id": "w14"
+  },
+  {
+    "text": "declare",
+    "start": 6.77,
+    "end": 7.24,
+    "id": "w15"
+  },
+  {
+    "text": "the",
+    "start": 7.24,
+    "end": 7.34,
+    "id": "w16"
+  },
+  {
+    "text": "files",
+    "start": 7.47,
+    "end": 7.72,
+    "id": "w17"
+  },
+  {
+    "text": "and",
+    "start": 7.72,
+    "end": 8.21,
+    "id": "w18"
+  },
+  {
+    "text": "functions",
+    "start": 8.21,
+    "end": 8.44,
+    "id": "w19"
+  },
+  {
+    "text": "they'll",
+    "start": 8.54,
+    "end": 8.88,
+    "id": "w20"
+  },
+  {
+    "text": "change",
+    "start": 8.88,
+    "end": 9.24,
+    "id": "w21"
+  },
+  {
+    "text": "before",
+    "start": 9.27,
+    "end": 9.64,
+    "id": "w22"
+  },
+  {
+    "text": "they",
+    "start": 9.64,
+    "end": 9.8,
+    "id": "w23"
+  },
+  {
+    "text": "write",
+    "start": 9.8,
+    "end": 10.29,
+    "id": "w24"
+  },
+  {
+    "text": "code,",
+    "start": 10.29,
+    "end": 10.64,
+    "id": "w25"
+  },
+  {
+    "text": "emerge",
+    "start": 10.74,
+    "end": 11.25,
+    "id": "w26"
+  },
+  {
+    "text": "QR",
+    "start": 11.25,
+    "end": 11.44,
+    "id": "w27"
+  },
+  {
+    "text": "bases,",
+    "start": 11.47,
+    "end": 12.01,
+    "id": "w28"
+  },
+  {
+    "text": "tests,",
+    "start": 12.49,
+    "end": 12.73,
+    "id": "w29"
+  },
+  {
+    "text": "and",
+    "start": 12.73,
+    "end": 12.88,
+    "id": "w30"
+  },
+  {
+    "text": "reviews",
+    "start": 12.88,
+    "end": 13.24,
+    "id": "w31"
+  },
+  {
+    "text": "each",
+    "start": 13.24,
+    "end": 13.64,
+    "id": "w32"
+  },
+  {
+    "text": "change,",
+    "start": 13.64,
+    "end": 14.24,
+    "id": "w33"
+  },
+  {
+    "text": "and",
+    "start": 14.34,
+    "end": 14.48,
+    "id": "w34"
+  },
+  {
+    "text": "lands",
+    "start": 14.48,
+    "end": 14.87,
+    "id": "w35"
+  },
+  {
+    "text": "it",
+    "start": 14.87,
+    "end": 15.02,
+    "id": "w36"
+  },
+  {
+    "text": "only",
+    "start": 15.02,
+    "end": 15.22,
+    "id": "w37"
+  },
+  {
+    "text": "when",
+    "start": 15.35,
+    "end": 15.6,
+    "id": "w38"
+  },
+  {
+    "text": "a",
+    "start": 15.6,
+    "end": 16.09,
+    "id": "w39"
+  },
+  {
+    "text": "calibrated",
+    "start": 16.09,
+    "end": 16.54,
+    "id": "w40"
+  },
+  {
+    "text": "model",
+    "start": 16.54,
+    "end": 16.92,
+    "id": "w41"
+  },
+  {
+    "text": "is",
+    "start": 16.92,
+    "end": 17.07,
+    "id": "w42"
+  },
+  {
+    "text": "sure.",
+    "start": 17.12,
+    "end": 17.46,
+    "id": "w43"
+  },
+  {
+    "text": "And",
+    "start": 17.56,
+    "end": 17.61,
+    "id": "w44"
+  },
+  {
+    "text": "the",
+    "start": 17.61,
+    "end": 17.74,
+    "id": "w45"
+  },
+  {
+    "text": "whole",
+    "start": 17.78,
+    "end": 17.98,
+    "id": "w46"
+  },
+  {
+    "text": "record,",
+    "start": 18.02,
+    "end": 18.44,
+    "id": "w47"
+  },
+  {
+    "text": "the",
+    "start": 18.44,
+    "end": 18.66,
+    "id": "w48"
+  },
+  {
+    "text": "intents,",
+    "start": 18.66,
+    "end": 19.32,
+    "id": "w49"
+  },
+  {
+    "text": "the",
+    "start": 19.42,
+    "end": 19.5,
+    "id": "w50"
+  },
+  {
+    "text": "evidence,",
+    "start": 19.5,
+    "end": 20.1,
+    "id": "w51"
+  },
+  {
+    "text": "and",
+    "start": 20.1,
+    "end": 20.29,
+    "id": "w52"
+  },
+  {
+    "text": "the",
+    "start": 20.29,
+    "end": 20.47,
+    "id": "w53"
+  },
+  {
+    "text": "decisions",
+    "start": 20.47,
+    "end": 20.69,
+    "id": "w54"
+  },
+  {
+    "text": "is",
+    "start": 21.14,
+    "end": 21.18,
+    "id": "w55"
+  },
+  {
+    "text": "committed",
+    "start": 21.18,
+    "end": 21.8,
+    "id": "w56"
+  },
+  {
+    "text": "to",
+    "start": 21.8,
+    "end": 21.94,
+    "id": "w57"
+  },
+  {
+    "text": "get",
+    "start": 21.94,
+    "end": 22.02,
+    "id": "w58"
+  },
+  {
+    "text": "next",
+    "start": 22.15,
+    "end": 22.4,
+    "id": "w59"
+  },
+  {
+    "text": "to",
+    "start": 22.4,
+    "end": 22.645,
+    "id": "w60"
+  },
+  {
+    "text": "the",
+    "start": 22.645,
+    "end": 22.89,
+    "id": "w61"
+  },
+  {
+    "text": "code.",
+    "start": 22.89,
+    "end": 23.28,
+    "id": "w62"
+  }
+]

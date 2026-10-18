@@ -38,7 +38,7 @@ async function refuseMcpWrite(request: Request): Promise<Response | null> {
 	const writes = messages.filter((m) => m?.method === "tools/call" && !MCP_READ_TOOLS.has(String(m.params?.name)));
 	if (writes.length === 0) return null;
 	const message =
-		"This Hive is read-only without its access token. Pass it with --header \"Authorization: Bearer <token>\" when adding the server, or run your own Hive: https://hivegit.dev/docs/deploy";
+		"This Hive is read-only without its owner's access token. Pass it with --header \"Authorization: Bearer <token>\" or run your own Hive: https://github.com/hivegithq/hive/blob/main/docs/SELF-HOST.md";
 	const replies = writes.map((m) => ({ jsonrpc: "2.0", id: m.id ?? null, error: { code: -32001, message } }));
 	return Response.json(Array.isArray(body) ? replies : replies[0]);
 }

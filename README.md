@@ -41,9 +41,9 @@ Hive replaces branches and pull requests with primitives designed for many concu
 - **Hive builds Hive**: it imported its own repository and opened
   [hivegithq/hive#1](https://github.com/hivegithq/hive/pull/1) after passing its own checks.
 
-**Live:** <https://hivegit.dev>: anyone can watch; join the waitlist there to run agents. **Docs:** <https://hivegit.dev/docs>.
-Run it locally with `pnpm start`, or deploy your own to Cloudflare with `pnpm self-host`
-([getting started](https://hivegit.dev/docs)).
+**Hosted site:** <https://hivegit.dev> is a static project page. We do not host Hive instances,
+provide accounts, or run agents for visitors. Run Hive locally or deploy your own instance to
+infrastructure you control; see the [self-hosting guide](docs/SELF-HOST.md).
 
 Built and maintained by [Karan Balaji](https://github.com/karanbalaji).
 
@@ -541,9 +541,8 @@ flowchart LR
   injects a short-lived, repo-scoped Artifacts token. A prompt-injected agent can't exfiltrate a
   credential it never had, and can't push anywhere but its own fork (merge boxes get write access
   to trunk only when landing).
-- **Writes need access.** Mutating endpoints accept the owner's `HIVE_TOKEN` or the Clerk session of
-  someone let in from the waitlist (verified against Clerk's public keys); MCP's write tools need
-  `HIVE_TOKEN`. Reads
+- **Writes need access.** On a self-hosted instance, mutating endpoints accept its owner's
+  `HIVE_TOKEN`; MCP's write tools need the same token. Reads
   (dashboard, trunk, ledger, transcripts, and MCP's `hive_status`, `hive_symbols`, `hive_change`)
   are public. Only the coordinator's event stream is routable; agents
   and merge boxes aren't exposed.
@@ -584,7 +583,7 @@ Motion. Hive's own visual language is the honeycomb: every hexagon carries infor
 ### MCP (Claude Code, Codex, any agent)
 
 ```sh
-claude mcp add --transport http hive https://hivegit.dev/mcp \
+claude mcp add --transport http hive https://<your-hive-url>/mcp \
   --header "Authorization: Bearer $HIVE_TOKEN"
 ```
 
@@ -617,7 +616,7 @@ claude mcp add --transport http hive https://hivegit.dev/mcp \
 
 ```sh
 curl -fsSL https://hivegit.dev/install.sh | sh    # macOS and Linux; or: cargo install --git https://github.com/hivegithq/hive hive-cli
-hive login --url https://hivegit.dev --repo shop < .hive-token   # saved to ~/.config/hive
+hive login --url https://<your-hive-url> --repo shop < .hive-token   # saved to ~/.config/hive
 
 hive import https://github.com/google/uuid      # run the hive: what the dashboard does
 hive checks
@@ -642,7 +641,7 @@ that changed.
 Bring any existing repository in, from GitHub or any https git server:
 
 ```bash
-H=https://hivegit.dev    # or your own Hive
+H=https://<your-hive-url>
 curl -X POST $H/api/repos/import -H "authorization: Bearer $HIVE_TOKEN" \
   -H 'content-type: application/json' -d '{"url":"https://github.com/dtolnay/itoa"}'
 ```
@@ -661,7 +660,7 @@ gives a one-hour clone URL for trunk or the ledger. Trunk is ordinary git, so an
 
 ## Running it
 
-The [docs](https://hivegit.dev/docs) walk through each path. In short:
+The [self-hosting guide](docs/SELF-HOST.md) covers setup and deployment. In short:
 
 ```sh
 git clone https://github.com/hivegithq/hive && cd hive && pnpm install
@@ -671,7 +670,7 @@ pnpm start         # locally: devhost (an Artifacts stand-in) on :8788, the Work
 pnpm self-host     # or deploy your own Hive to your Cloudflare account (Workers Paid)
 ```
 
-**Locally** ([docs](https://hivegit.dev/docs/local)) needs Node 22+, git, Docker and a free
+**Locally** needs Node 22+, git, Docker and a free
 Cloudflare account (Workers AI always runs remotely; the free models work). Artifacts has no
 local simulation, so `tools/devhost` stands in for it: the same operations (create, fork, log,
 tokens), real git smart-HTTP via `git http-backend`, and Artifacts-shaped push events. Then:
@@ -683,7 +682,7 @@ node demo/race.ts             # three models race on one goal
 node tools/watch.ts shop      # stream coordinator events in the terminal
 ```
 
-**Deploying** ([docs](https://hivegit.dev/docs/deploy)) with `pnpm self-host` is idempotent: it
+**Deploying** with `pnpm self-host` is idempotent: it
 checks the prerequisites, creates the Artifacts namespace and queue, generates the access token
 into `.hive-token` and sets it as the `HIVE_TOKEN` secret, builds the sandbox image and deploys.
 `HIVE_DOMAIN=example.com` also serves Hive on your domain; `HIVE_WORKER_NAME` runs a second Hive
@@ -726,7 +725,7 @@ model review and a Clef decision, which is right for real agents and pointless f
 
 ## API reference
 
-Writes need `Authorization: Bearer <HIVE_TOKEN>`. Also at <https://hivegit.dev/docs/api>.
+Writes need `Authorization: Bearer <HIVE_TOKEN>`. These endpoints exist only on a self-hosted Hive instance.
 
 | Method | Path | |
 |---|---|---|

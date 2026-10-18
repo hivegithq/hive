@@ -1,0 +1,1 @@
+Hive answers all four. Every change gets its own fork, a real Artifacts repository. Agents declare the files and functions they'll change before they write code. A merge queue rebases, tests and reviews each change, and lands it only when a calibrated model is sure. And the whole record, the intents, the evidence and the decisions, is committed to git, next to the code.

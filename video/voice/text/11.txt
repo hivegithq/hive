@@ -1,0 +1,1 @@
+Git log tells you what changed. Hive's ledger tells you why, who decided, and how sure they were. Hive even opened its own pull request. It runs on Workers, Durable Objects, Workflows, Containers, Artifacts and Workers A I. It's open source, and live at hive git dot dev. Thousands of agents. One trunk.

@@ -14,3 +14,10 @@ worker-configuration.d.ts.bak
 .hive-domain
 .env
 .hive-clerk
+
+# demo video build outputs
+video/hive-demo/renders/
+video/hive-demo/.hyperframes/
+video/hive-demo/snaps*/
+video/capture/node_modules/
+video/capture/*.jpg

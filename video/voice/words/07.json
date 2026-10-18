@@ -1,0 +1,446 @@
+[
+  {
+    "text": "You",
+    "start": 0.03,
+    "end": 0.25,
+    "id": "w0"
+  },
+  {
+    "text": "stay",
+    "start": 0.25,
+    "end": 0.57,
+    "id": "w1"
+  },
+  {
+    "text": "in",
+    "start": 0.57,
+    "end": 0.74,
+    "id": "w2"
+  },
+  {
+    "text": "charge,",
+    "start": 0.74,
+    "end": 1.44,
+    "id": "w3"
+  },
+  {
+    "text": "comment",
+    "start": 1.51,
+    "end": 1.85,
+    "id": "w4"
+  },
+  {
+    "text": "on",
+    "start": 1.85,
+    "end": 1.97,
+    "id": "w5"
+  },
+  {
+    "text": "a",
+    "start": 1.97,
+    "end": 2.03,
+    "id": "w6"
+  },
+  {
+    "text": "line",
+    "start": 2.03,
+    "end": 2.28,
+    "id": "w7"
+  },
+  {
+    "text": "of",
+    "start": 2.28,
+    "end": 2.41,
+    "id": "w8"
+  },
+  {
+    "text": "a",
+    "start": 2.41,
+    "end": 2.48,
+    "id": "w9"
+  },
+  {
+    "text": "diff,",
+    "start": 2.48,
+    "end": 2.9,
+    "id": "w10"
+  },
+  {
+    "text": "and",
+    "start": 2.93,
+    "end": 3.12,
+    "id": "w11"
+  },
+  {
+    "text": "the",
+    "start": 3.12,
+    "end": 3.34,
+    "id": "w12"
+  },
+  {
+    "text": "agent",
+    "start": 3.34,
+    "end": 3.69,
+    "id": "w13"
+  },
+  {
+    "text": "reads",
+    "start": 3.7,
+    "end": 3.93,
+    "id": "w14"
+  },
+  {
+    "text": "it",
+    "start": 3.97,
+    "end": 4.23,
+    "id": "w15"
+  },
+  {
+    "text": "before",
+    "start": 4.4,
+    "end": 4.68,
+    "id": "w16"
+  },
+  {
+    "text": "its",
+    "start": 4.68,
+    "end": 4.9,
+    "id": "w17"
+  },
+  {
+    "text": "next",
+    "start": 4.9,
+    "end": 5.2,
+    "id": "w18"
+  },
+  {
+    "text": "step.",
+    "start": 5.2,
+    "end": 5.55,
+    "id": "w19"
+  },
+  {
+    "text": "Click",
+    "start": 5.81,
+    "end": 6.1,
+    "id": "w20"
+  },
+  {
+    "text": "any",
+    "start": 6.1,
+    "end": 6.29,
+    "id": "w21"
+  },
+  {
+    "text": "line",
+    "start": 6.29,
+    "end": 6.55,
+    "id": "w22"
+  },
+  {
+    "text": "on",
+    "start": 6.55,
+    "end": 6.66,
+    "id": "w23"
+  },
+  {
+    "text": "Trunk",
+    "start": 6.67,
+    "end": 6.81,
+    "id": "w24"
+  },
+  {
+    "text": "and",
+    "start": 6.81,
+    "end": 7.3,
+    "id": "w25"
+  },
+  {
+    "text": "ask",
+    "start": 7.3,
+    "end": 7.46,
+    "id": "w26"
+  },
+  {
+    "text": "why",
+    "start": 7.46,
+    "end": 7.68,
+    "id": "w27"
+  },
+  {
+    "text": "it's",
+    "start": 7.68,
+    "end": 7.98,
+    "id": "w28"
+  },
+  {
+    "text": "there.",
+    "start": 7.98,
+    "end": 8.44,
+    "id": "w29"
+  },
+  {
+    "text": "Hive",
+    "start": 8.65,
+    "end": 8.92,
+    "id": "w30"
+  },
+  {
+    "text": "shows",
+    "start": 8.92,
+    "end": 9.29,
+    "id": "w31"
+  },
+  {
+    "text": "the",
+    "start": 9.29,
+    "end": 9.5,
+    "id": "w32"
+  },
+  {
+    "text": "goal,",
+    "start": 9.5,
+    "end": 9.93,
+    "id": "w33"
+  },
+  {
+    "text": "the",
+    "start": 10.12,
+    "end": 10.22,
+    "id": "w34"
+  },
+  {
+    "text": "intent,",
+    "start": 10.22,
+    "end": 10.86,
+    "id": "w35"
+  },
+  {
+    "text": "the",
+    "start": 10.86,
+    "end": 11.03,
+    "id": "w36"
+  },
+  {
+    "text": "proof,",
+    "start": 11.1,
+    "end": 11.38,
+    "id": "w37"
+  },
+  {
+    "text": "and",
+    "start": 11.41,
+    "end": 11.61,
+    "id": "w38"
+  },
+  {
+    "text": "the",
+    "start": 11.61,
+    "end": 11.84,
+    "id": "w39"
+  },
+  {
+    "text": "decision,",
+    "start": 11.84,
+    "end": 12.62,
+    "id": "w40"
+  },
+  {
+    "text": "or",
+    "start": 12.62,
+    "end": 12.85,
+    "id": "w41"
+  },
+  {
+    "text": "rewind",
+    "start": 12.85,
+    "end": 13.15,
+    "id": "w42"
+  },
+  {
+    "text": "an",
+    "start": 13.15,
+    "end": 13.28,
+    "id": "w43"
+  },
+  {
+    "text": "attempt",
+    "start": 13.28,
+    "end": 13.78,
+    "id": "w44"
+  },
+  {
+    "text": "to",
+    "start": 13.78,
+    "end": 13.9,
+    "id": "w45"
+  },
+  {
+    "text": "step",
+    "start": 13.9,
+    "end": 14.04,
+    "id": "w46"
+  },
+  {
+    "text": "seven",
+    "start": 14.31,
+    "end": 14.58,
+    "id": "w47"
+  },
+  {
+    "text": "and",
+    "start": 14.61,
+    "end": 14.73,
+    "id": "w48"
+  },
+  {
+    "text": "carry",
+    "start": 14.78,
+    "end": 15.12,
+    "id": "w49"
+  },
+  {
+    "text": "on",
+    "start": 15.12,
+    "end": 15.25,
+    "id": "w50"
+  },
+  {
+    "text": "from",
+    "start": 15.25,
+    "end": 15.52,
+    "id": "w51"
+  },
+  {
+    "text": "there,",
+    "start": 15.52,
+    "end": 15.9,
+    "id": "w52"
+  },
+  {
+    "text": "on",
+    "start": 15.9,
+    "end": 16.1,
+    "id": "w53"
+  },
+  {
+    "text": "another",
+    "start": 16.1,
+    "end": 16.55,
+    "id": "w54"
+  },
+  {
+    "text": "model,",
+    "start": 16.55,
+    "end": 16.94,
+    "id": "w55"
+  },
+  {
+    "text": "told",
+    "start": 16.97,
+    "end": 17.26,
+    "id": "w56"
+  },
+  {
+    "text": "what",
+    "start": 17.26,
+    "end": 17.58,
+    "id": "w57"
+  },
+  {
+    "text": "went",
+    "start": 17.58,
+    "end": 17.9,
+    "id": "w58"
+  },
+  {
+    "text": "wrong.",
+    "start": 17.9,
+    "end": 18.58,
+    "id": "w59"
+  },
+  {
+    "text": "And",
+    "start": 18.61,
+    "end": 18.73,
+    "id": "w60"
+  },
+  {
+    "text": "what",
+    "start": 18.78,
+    "end": 18.98,
+    "id": "w61"
+  },
+  {
+    "text": "reviewers",
+    "start": 18.98,
+    "end": 19.43,
+    "id": "w62"
+  },
+  {
+    "text": "keep",
+    "start": 19.5,
+    "end": 19.61,
+    "id": "w63"
+  },
+  {
+    "text": "asking",
+    "start": 20.05,
+    "end": 20.1,
+    "id": "w64"
+  },
+  {
+    "text": "for",
+    "start": 20.1,
+    "end": 20.24,
+    "id": "w65"
+  },
+  {
+    "text": "becomes",
+    "start": 20.24,
+    "end": 20.62,
+    "id": "w66"
+  },
+  {
+    "text": "a",
+    "start": 20.62,
+    "end": 20.7,
+    "id": "w67"
+  },
+  {
+    "text": "lesson",
+    "start": 20.7,
+    "end": 21.21,
+    "id": "w68"
+  },
+  {
+    "text": "every",
+    "start": 21.25,
+    "end": 21.6,
+    "id": "w69"
+  },
+  {
+    "text": "new",
+    "start": 21.6,
+    "end": 21.79,
+    "id": "w70"
+  },
+  {
+    "text": "agent",
+    "start": 21.83,
+    "end": 22.21,
+    "id": "w71"
+  },
+  {
+    "text": "is",
+    "start": 22.21,
+    "end": 22.25,
+    "id": "w72"
+  },
+  {
+    "text": "told.",
+    "start": 22.66,
+    "end": 22.92,
+    "id": "w73"
+  }
+]

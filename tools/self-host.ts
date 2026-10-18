@@ -31,7 +31,7 @@ function fail(text: string): never {
 
 // `cf` from the worker package (a dev dependency; no global install needed).
 function cf(args: string[], opts: { inherit?: boolean } = {}) {
-	const r = spawnSync("pnpm", ["exec", "cf", ...args], { cwd: WORKER, encoding: "utf8", stdio: opts.inherit ? "inherit" : "pipe", env: { ...process.env, HIVE_WORKER_NAME: NAME, HIVE_NAMESPACE: NAMESPACE, ...(DOMAIN ? { HIVE_DOMAIN: DOMAIN } : {}) } });
+	const r = spawnSync("pnpm", ["exec", "cf", ...args], { cwd: WORKER, encoding: "utf8", stdio: opts.inherit ? "inherit" : "pipe", env: { ...process.env, HIVE_SELF_HOST: "1", HIVE_WORKER_NAME: NAME, HIVE_NAMESPACE: NAMESPACE, ...(DOMAIN ? { HIVE_DOMAIN: DOMAIN } : {}) } });
 	return { code: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 const has = (cmd: string, args: string[]) => spawnSync(cmd, args, { stdio: "ignore" }).status === 0;
@@ -124,5 +124,5 @@ console.log(`
   Connect Claude Code:
     claude mcp add --transport http hive ${url}/mcp --header "Authorization: Bearer $(cat ${TOKEN_FILE.replace(ROOT, "")})"
 
-  Docs: https://hivegit.dev/docs
+  Guide: https://github.com/hivegithq/hive/blob/main/docs/SELF-HOST.md
 `);

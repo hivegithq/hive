@@ -5,11 +5,11 @@
 	"type": "module",
 	"scripts": {
 		"dev": "cf dev --mode devhost",
-		"build": "cf build",
-		"deploy": "cf deploy",
-		"typecheck": "cf workers types && tsc && tsc -p tsconfig.web.json",
+		"build": "HIVE_SELF_HOST=0 cf build",
+		"deploy": "HIVE_SELF_HOST=0 cf deploy",
+		"typecheck": "HIVE_SELF_HOST=1 cf workers types && tsc && tsc -p tsconfig.web.json",
 		"test": "vitest run",
-		"dev:remote": "cf dev"
+		"dev:remote": "HIVE_SELF_HOST=1 cf dev"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "2.0.0-beta.sha-91c870c02",
@@ -35,7 +35,6 @@
 		"ai": "^7.0.137",
 		"hono": "^4.13.13",
 		"isomorphic-git": "^1.43.3",
-		"jose": "6.2.12",
 		"motion": "12.43.0",
 		"react": "^19.3.0",
 		"react-dom": "^19.3.0",

@@ -8,8 +8,8 @@ import { GITHUB } from "../links.ts";
 const GROUPS = ["Start", "Use", "Reference"] as const;
 const slugOf = (path: string) => path.replace(/^\/docs\/?/, "").replace(/\/$/, "");
 
-// hivegit.dev/docs: a sidebar of pages and one page at a time. Links between pages change the URL
-// without reloading; the back button works.
+// Self-hosted /docs route: a sidebar of pages and one page at a time. Links between pages change
+// the URL without reloading; the back button works. The public site links to the repository.
 export function Docs() {
 	const [slug, setSlug] = useState(() => slugOf(location.pathname));
 	const [menu, setMenu] = useState(false);

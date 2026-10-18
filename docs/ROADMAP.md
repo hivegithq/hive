@@ -1,6 +1,6 @@
 # Roadmap
 
-What Hive does next, and how far along each piece is. Also at <https://hivegit.dev/docs/roadmap>.
+What Hive does next, and how far along each piece is. The public site at <https://hivegit.dev> is static; this roadmap lives in the repository.
 Generated from `apps/worker/src/web/docs/roadmap.ts` by
 `pnpm roadmap`: edit that file, not this one.
 
@@ -8,9 +8,8 @@ Generated from `apps/worker/src/web/docs/roadmap.ts` by
 
 | Item | Progress | |
 |---|---|---|
-| **Watchers, mentions and read-only sharing** | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Public read-only dashboards; sign-in with a waitlist; webhooks. |
+| **Watchers, mentions and read-only sharing** | `█░░░░░░░░░` 10% | Follow a repository or change, @mention a teammate on a change that needs them, share read-only links. *Today:* Webhooks on self-hosted instances. |
 | **Repository-level memory** | `██████░░░░` 60% | Comments, decisions and lessons from earlier changes offered to new agents working on the same code. *Today:* Review comments and send-backs become lessons every new agent is told, which you can pause or remove. Missing: lessons from decisions and bounce-then-fixed pairs. |
-| **Personal API keys and MCP sign-in** | `█░░░░░░░░░` 10% | People let in from the waitlist use the CLI and MCP with their own keys and spend limits, not the owner's token. *Today:* Clerk sign-in for the dashboard; budgets per goal. |
 
 ## Shipped
 
