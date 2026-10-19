@@ -1,5 +1,7 @@
 # Hive
 
+> Made for the [Cloudflare hackathon](https://www.cloudflare.com/git-competition/?cf_page=next-git-platform-on-cloudflare%2F) by [Karan Balaji](https://karanbalaji.com).
+
 **Version control for hundreds of agents working at once, built on Cloudflare.**
 
 Git was designed for a handful of people who coordinate out of band: in meetings, in chat, by

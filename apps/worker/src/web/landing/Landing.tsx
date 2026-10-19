@@ -6,6 +6,8 @@ import { GITHUB } from "../links.ts";
 const GUIDE = `${GITHUB}/blob/main/docs/SELF-HOST.md`;
 const ROADMAP = `${GITHUB}/blob/main/docs/ROADMAP.md`;
 const CONTRIBUTING = `${GITHUB}/blob/main/CONTRIBUTING.md`;
+const HACKATHON = "https://www.cloudflare.com/git-competition/?cf_page=next-git-platform-on-cloudflare%2F";
+const AUTHOR = "https://karanbalaji.com";
 
 const features = [
 	{
@@ -66,6 +68,12 @@ function SectionHeading({ eyebrow, title, copy }: { eyebrow: string; title: stri
 export function Landing({ selfHosted = false }: { selfHosted?: boolean }) {
 	return (
 		<div className="min-h-screen bg-night text-kumo-default">
+			<div className="border-b border-white/5 bg-honey/10 px-4 py-2 text-center text-sm text-kumo-subtle">
+				Made for the{" "}
+				<a href={HACKATHON} className="text-honey hover:underline">Cloudflare hackathon</a>
+				{" "}by{" "}
+				<a href={AUTHOR} className="text-honey hover:underline">Karan Balaji</a>
+			</div>
 			<header className="border-b border-white/5">
 				<nav className="mx-auto flex h-16 max-w-6xl items-center px-4 sm:px-8" aria-label="Main">
 					<Wordmark />
